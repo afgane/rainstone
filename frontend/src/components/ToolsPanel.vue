@@ -17,7 +17,7 @@ const emit = defineEmits<{ select: [toolId: string] }>();
     <div v-if="!tools.length" class="empty">No tools ran in this period.</div>
     <div v-else class="table-wrap">
       <table>
-        <thead><tr><th>Tool</th><th>Runs</th><th>Cost</th><th>Details</th></tr></thead>
+        <thead><tr><th>Tool</th><th>Jobs</th><th>Cost</th><th>Details</th></tr></thead>
         <tbody>
           <tr v-for="tool in tools" :key="`${tool.tool_id}@${tool.tool_version}`">
             <td>
@@ -30,20 +30,20 @@ const emit = defineEmits<{ select: [toolId: string] }>();
             <td>
               <strong>{{ formatCost(tool.amount) }}</strong>
               <small v-if="tool.incomplete_count">
-                {{ pluralize(tool.incomplete_count, "run") }} still need cost data
+                {{ pluralize(tool.incomplete_count, "job") }} still need cost data
               </small>
             </td>
             <td>
               <details>
-                <summary>Past runs and identity</summary>
+                <summary>Past jobs and identity</summary>
                 <p class="mono">{{ tool.tool_id }}</p>
                 <p v-if="tool.statistics?.sample_count">
-                  Across {{ pluralize(tool.statistics.sample_count, "completed run") }}:
+                  Across {{ pluralize(tool.statistics.sample_count, "completed job") }}:
                   median {{ formatCost(tool.statistics.median) }},
                   95th percentile {{ formatCost(tool.statistics.p95) }}.
-                  These describe past runs; they are not a prediction of what the next run will cost.
+                  These describe past jobs; they are not a prediction of what the next job will cost.
                 </p>
-                <p v-else>Not enough completed runs with known costs for past-run statistics.</p>
+                <p v-else>Not enough completed jobs with known costs for past-job statistics.</p>
               </details>
             </td>
           </tr>

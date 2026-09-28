@@ -77,7 +77,7 @@ const attempts = computed(() => list("attempts").filter(attempt => attempt.role 
           </p>
 
           <h3>Steps</h3>
-          <div v-if="!steps.length" class="empty">No tool runs are recorded for this run yet.</div>
+          <div v-if="!steps.length" class="empty">No jobs are recorded for this run yet.</div>
           <ul v-else class="step-list">
             <li v-for="step in steps" :key="String(step.step_key)">
               <template v-if="step.job">
@@ -89,7 +89,7 @@ const attempts = computed(() => list("attempts").filter(attempt => attempt.role 
                 <span>{{ formatCost((step.job as Record<string, unknown>).amount as string) }}</span>
                 <small>{{ capacityLabel((step.job as Record<string, unknown>).capacities as string[]) }}</small>
               </template>
-              <small v-else>Step {{ step.step_key }} has no authorized matching run.</small>
+              <small v-else>Step {{ step.step_key }} has no authorized matching job.</small>
             </li>
           </ul>
 
@@ -100,7 +100,7 @@ const attempts = computed(() => list("attempts").filter(attempt => attempt.role 
                 <button class="link-button" @click="emit('open', 'runs', String(child.id))">
                   {{ child.workflow_name }}
                 </button>
-                <span>{{ pluralize(Number(child.run_job_count || child.job_count), "tool run") }}</span>
+                <span>{{ pluralize(Number(child.run_job_count || child.job_count), "job") }}</span>
                 <span>{{ formatCost(child.run_total as string) }}</span>
               </li>
             </ul>
@@ -109,11 +109,11 @@ const attempts = computed(() => list("attempts").filter(attempt => attempt.role 
         </template>
 
         <template v-else>
-          <p class="eyebrow">Tool run</p>
+          <p class="eyebrow">Job</p>
           <h2 id="detail-title">{{ detail.tool_name }}</h2>
           <p class="dialog-amount">
             <strong>{{ formatCost(text("full_job_amount")) }}</strong>
-            <span>Cost of this run</span>
+            <span>Cost of this job</span>
           </p>
           <p class="dialog-meta">
             {{ jobStateLabel(String(detail.state)) }} ·

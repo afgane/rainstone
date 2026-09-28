@@ -34,9 +34,9 @@ describe("vocabulary", () => {
   });
 
   it("counts incomplete coverage next to the amount", () => {
-    expect(coverageSentence(5, 2)).toBe("2 runs still need cost data.");
-    expect(coverageSentence(5, 0)).toBe("5 runs included.");
-    expect(coverageSentence(0, 0)).toBe("No runs in this period.");
+    expect(coverageSentence(5, 2)).toBe("2 jobs still need cost data.");
+    expect(coverageSentence(5, 0)).toBe("5 jobs included.");
+    expect(coverageSentence(0, 0)).toBe("No jobs in this period.");
   });
 });
 
@@ -49,8 +49,8 @@ describe("missing evidence", () => {
   });
 
   it("says undated work is outside the period rather than in it", () => {
-    expect(undatedSentence(1)).toBe("1 tool run has no usable timing, so it is left out of every period's totals.");
-    expect(undatedSentence(41)).toContain("41 tool runs have");
+    expect(undatedSentence(1)).toBe("1 job has no usable timing, so it is left out of every period's totals.");
+    expect(undatedSentence(41)).toContain("41 jobs have");
   });
 });
 

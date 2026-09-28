@@ -27,7 +27,7 @@ const emit = defineEmits<{ run: [id: string]; export: [] }>();
           <span class="run-meta">
             <span class="status" :data-status="run.run_status">{{ runStatusLabel(run.run_status) }}</span>
             <small v-if="run.workflow_version">Version {{ run.workflow_version }}</small>
-            <small>{{ pluralize(run.run_job_count, "tool run") }}</small>
+            <small>{{ pluralize(run.run_job_count, "job") }}</small>
           </span>
           <span class="run-cost">
             <strong>{{ formatCost(run.run_total) }}</strong>

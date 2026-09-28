@@ -2,7 +2,7 @@
 import { Download } from "@lucide/vue";
 import type { Job, Meta } from "../api";
 import {
-  capacityLabel, formatCost, formatDateTime, jobStateLabel, qualityLabel, undatedSentence,
+  capacityLabel, formatCost, formatDateTime, jobStateLabel, pluralize, qualityLabel, undatedSentence,
 } from "../vocabulary";
 
 defineProps<{
@@ -22,12 +22,12 @@ const emit = defineEmits<{
   <section class="panel">
     <div class="panel-heading">
       <div>
-        <h2>Tool runs in this period</h2>
-        <p>{{ total }} tool runs with compute in {{ periodLabel }}. Open one for its cost explanation.</p>
+        <h2>Jobs in this period</h2>
+        <p>{{ pluralize(total, "job") }} with compute in {{ periodLabel }}. Open one for its cost explanation.</p>
       </div>
       <button class="secondary" @click="emit('export')"><Download :size="16" aria-hidden="true" /> Export CSV</button>
     </div>
-    <div v-if="!jobs.length" class="empty">No tool runs match this period.</div>
+    <div v-if="!jobs.length" class="empty">No jobs match this period.</div>
     <div v-else class="table-wrap">
       <table class="jobs-table">
         <thead>

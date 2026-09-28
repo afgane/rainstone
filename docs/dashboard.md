@@ -12,7 +12,7 @@ period buttons, one search box worded for the current page, and a collapsed
 **More filters** section. There is no filter panel above the results and no cost
 basis selector in the content area.
 
-Navigation is **Overview**, **Workflow runs**, **Tool runs** and **Tools**, with
+Navigation is **Overview**, **Workflow runs**, **Jobs** and **Tools**, with
 **Galaxy accounts** (administrator only), **Galaxy server** (when authorized)
 and **Status** in a secondary group. Status carries no report controls.
 
@@ -66,16 +66,16 @@ A workflow run's headline is its **run total**: the whole run, whatever period
 is selected. When the selected period covers only part of it, the period share
 is shown beside it rather than replacing it. The period selector scopes which
 runs are listed — runs that accrued cost inside it, plus runs that started
-inside it. Tool runs whose cost evidence has no usable timing are left out of
+inside it. Jobs whose cost evidence has no usable timing are left out of
 every period's totals, counts and rankings; the overview says how many there
-are and the tool runs page lists them in a separate, collapsed section.
+are and the jobs page lists them in a separate, collapsed section.
 
 Opening a run leads with the run total and its completion and coverage status,
 then the tool steps, child workflows counted once, reused outputs and any steps
-still missing cost data. A tool run's detail leads with its own cost, an
+still missing cost data. A job's detail leads with its own cost, an
 explanation in ordinary language, the resource it used (with a retry's shared
 charge stated once), and its attempts. Galaxy's record of an execution a
-provider also observed is not listed as a second attempt. The tool runs table
+provider also observed is not listed as a second attempt. The jobs table
 calls a job's creation time **Submitted**, because Galaxy creates a job before
 it starts running.
 

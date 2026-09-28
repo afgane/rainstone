@@ -9,14 +9,14 @@
 
 export const PRIMARY_MEASURE = "Estimated run compute cost";
 export const PRIMARY_EXPLANATION =
-  "Compute started for your tool and workflow runs. Your already-running Galaxy server is shown separately.";
+  "Compute started for your jobs and workflow runs. Your already-running Galaxy server is shown separately.";
 export const ALLOCATION_MEASURE = "Resource allocation estimate";
 export const ALLOCATION_EXPLANATION =
   "A share of the capacity your runs occupied, priced at public rates. It answers a different question from run compute cost and is never added to it.";
 export const SERVER_EXPLANATION =
   "Your Galaxy server keeps running between jobs. This is its observed cost for the window below, not a share of any run.";
 export const EXISTING_SERVER_SENTENCE =
-  "This run used your already-running Galaxy server, so it added no compute charge. The server continues to incur costs.";
+  "This job used your already-running Galaxy server, so it added no compute charge. The server continues to incur costs.";
 
 export function measureName(basis: string): string {
   return basis === "allocated" ? ALLOCATION_MEASURE : PRIMARY_MEASURE;
@@ -125,11 +125,11 @@ export function costExplanation(record: {
     return "No published price covers this machine and region for when it ran, so its cost is unavailable rather than zero.";
   }
   if (record.quality === "partial") {
-    return "Some evidence for this run is still missing, so the amount shown is a subtotal.";
+    return "Some evidence for this job is still missing, so the amount shown is a subtotal.";
   }
   if (record.quality === "in_progress") return "This work is still running, so its cost is provisional.";
   if (record.quality === "unavailable") {
-    return "This run finished, but the evidence needed to cost it was not collected, so its cost is unavailable rather than zero.";
+    return "This job finished, but the evidence needed to cost it was not collected, so its cost is unavailable rather than zero.";
   }
   if (record.quality === "not_started") return "This work has not run, so there is no cost to show.";
   return record.reason || "Estimated from observed execution using public prices.";
@@ -137,13 +137,13 @@ export function costExplanation(record: {
 
 /** Evidence a dated report leaves out because no period can hold it. */
 export function undatedSentence(count: number): string {
-  return `${pluralize(count, "tool run")} ${count === 1 ? "has" : "have"} no usable timing, so ${count === 1 ? "it is" : "they are"} left out of every period's totals.`;
+  return `${pluralize(count, "job")} ${count === 1 ? "has" : "have"} no usable timing, so ${count === 1 ? "it is" : "they are"} left out of every period's totals.`;
 }
 
 export function coverageSentence(jobs: number, incomplete: number): string {
-  if (!jobs) return "No runs in this period.";
-  if (!incomplete) return `${jobs} ${jobs === 1 ? "run" : "runs"} included.`;
-  return `${incomplete} ${incomplete === 1 ? "run" : "runs"} still need cost data.`;
+  if (!jobs) return "No jobs in this period.";
+  if (!incomplete) return `${jobs} ${jobs === 1 ? "job" : "jobs"} included.`;
+  return `${incomplete} ${incomplete === 1 ? "job" : "jobs"} still need cost data.`;
 }
 
 /** Grammar that stays correct at one. */

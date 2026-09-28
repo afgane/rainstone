@@ -27,7 +27,7 @@ function update(key: string, event: Event): void {
 const PRIMARY: Array<{ id: View; label: string; icon: unknown }> = [
   { id: "overview", label: "Overview", icon: BarChart3 },
   { id: "runs", label: "Workflow runs", icon: Workflow },
-  { id: "tool-runs", label: "Tool runs", icon: Wrench },
+  { id: "tool-runs", label: "Jobs", icon: Wrench },
   { id: "tools", label: "Tools", icon: Building2 },
 ];
 
@@ -42,7 +42,7 @@ const period = computed(() => periodOf(props.state));
 const searchLabel = computed(() =>
   props.state.view === "runs" ? "Find a workflow run"
     : props.state.view === "tools" ? "Search tools"
-      : props.state.view === "tool-runs" ? "Find a tool run"
+      : props.state.view === "tool-runs" ? "Find a job"
         : "Search your work");
 // Status is operational: report controls do not belong there.
 const showControls = computed(() => props.state.view !== "status");

@@ -11,7 +11,7 @@ test("a first-time user gets a scoped answer without typing dates", async ({ pag
   await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
   const headline = page.locator(".headline");
   await expect(headline.getByText("Estimated run compute cost")).toBeVisible();
-  await expect(headline.getByText("Compute started for your tool and workflow runs")).toBeVisible();
+  await expect(headline.getByText("Compute started for your jobs and workflow runs")).toBeVisible();
 
   for (const period of ["Yesterday", "Last week", "Last month"]) {
     await page.getByRole("button", { name: period, exact: true }).click();

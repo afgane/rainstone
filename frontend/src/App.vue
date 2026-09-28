@@ -22,7 +22,7 @@ const VIEWS: View[] = ["overview", "runs", "tool-runs", "tools", "daily", "users
 const TITLES: Record<View, string> = {
   overview: "Overview",
   runs: "Workflow runs",
-  "tool-runs": "Tool runs",
+  "tool-runs": "Jobs",
   tools: "Tools",
   daily: "Daily cost",
   users: "Galaxy accounts",
@@ -197,7 +197,7 @@ async function moreUndated() {
     );
     jobs.value = { ...jobs.value, undated_items: [...jobs.value.undated_items, ...next.undated_items] };
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : "Unable to load more tool runs";
+    error.value = reason instanceof Error ? reason.message : "Unable to load more jobs";
   }
 }
 function selectTool(toolId: string) {
@@ -350,7 +350,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Date</th><th>Cost</th><th>Runs</th><th>Coverage</th></tr></thead>
+              <thead><tr><th>Date</th><th>Cost</th><th>Jobs</th><th>Coverage</th></tr></thead>
               <tbody>
                 <tr v-for="day in days" :key="day.date">
                   <td>{{ day.date }}</td>
@@ -372,7 +372,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Account</th><th>Runs</th><th>Cost</th></tr></thead>
+              <thead><tr><th>Account</th><th>Jobs</th><th>Cost</th></tr></thead>
               <tbody>
                 <tr v-for="group in tools" :key="group.owner_id">
                   <td>{{ group.label }}</td><td>{{ group.job_count }}</td>
@@ -391,7 +391,7 @@ onBeforeUnmount(() => {
             :disabled="state.offset === 0"
             @click="state.offset = Math.max(0, state.offset - jobs.limit); refresh(true)"
           >Previous</button>
-          <span>Page {{ page }} · {{ jobs.total }} tool runs</span>
+          <span>Page {{ page }} · {{ jobs.total }} jobs</span>
           <button
             :disabled="state.offset + jobs.limit >= jobs.total"
             @click="state.offset += jobs.limit; refresh(true)"

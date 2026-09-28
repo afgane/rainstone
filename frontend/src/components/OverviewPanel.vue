@@ -39,14 +39,14 @@ const failedOrRepeated = computed(() =>
   props.summary.failed_job_count > 0 || props.summary.repeated_job_count > 0);
 const failedSentence = computed(() => {
   const { failed_job_count: count, failed_incomplete_job_count: missing } = props.summary;
-  const amount = `${pluralize(count, "failed tool run")} account for ${formatCost(props.summary.failed_spend)}`;
-  return missing ? `${amount} recorded so far; ${needsCostData(missing, "run")}.` : `${amount}.`;
+  const amount = `${pluralize(count, "failed job")} account for ${formatCost(props.summary.failed_spend)}`;
+  return missing ? `${amount} recorded so far; ${needsCostData(missing, "job")}.` : `${amount}.`;
 });
 // The whole cost of jobs that repeated is a different figure from what the
 // repeats used; a resource shared by both attempts belongs to neither alone.
 const repeatedSentence = computed(() => {
   const summary = props.summary;
-  const jobs = `${pluralize(summary.repeated_job_count, "tool run")} needed more than one attempt `
+  const jobs = `${pluralize(summary.repeated_job_count, "job")} needed more than one attempt `
     + `and cost ${formatCost(summary.repeated_job_spend)} in total.`;
   const repeats = `The repeat attempts themselves used ${formatCost(summary.repeat_attempt_spend)}`;
   if (summary.repeat_attempt_spend_complete) return `${jobs} ${repeats}.`;
@@ -108,7 +108,7 @@ const repeatedSentence = computed(() => {
     <div v-if="days.length" class="table-wrap">
       <table>
         <caption class="sr-only">Daily cost for the selected period</caption>
-        <thead><tr><th>Date</th><th>Cost</th><th>Runs</th></tr></thead>
+        <thead><tr><th>Date</th><th>Cost</th><th>Jobs</th></tr></thead>
         <tbody>
           <tr v-for="day in days" :key="day.date">
             <td>{{ day.date }}</td><td>{{ formatCost(day.amount) }}</td><td>{{ day.job_count }}</td>
@@ -139,14 +139,14 @@ const repeatedSentence = computed(() => {
         <div><h2>Tools</h2><p>Where most of that cost came from.</p></div>
         <button class="link-button" @click="emit('view', 'tools')">See all tools</button>
       </div>
-      <div v-if="!topTools.length" class="empty">No tool runs in this period.</div>
+      <div v-if="!topTools.length" class="empty">No jobs in this period.</div>
       <button
         v-for="tool in topTools" :key="`${tool.tool_id}@${tool.tool_version}`" class="rank-row"
         @click="emit('view', 'tools')"
       >
         <span>
           <strong>{{ tool.tool_name || tool.tool_id }}</strong>
-          <small>{{ tool.tool_version || "Unversioned" }} · {{ tool.job_count }} runs</small>
+          <small>{{ tool.tool_version || "Unversioned" }} · {{ pluralize(tool.job_count, "job") }}</small>
         </span>
         <span class="rank-amount">{{ formatCost(tool.amount) }}</span>
       </button>
