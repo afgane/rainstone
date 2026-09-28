@@ -105,6 +105,38 @@ provider-billable, then live Compute timestamps, then audit lifecycle markers,
 then Kubernetes occupancy, then task events, then configured baseline
 occupancy. Lower-precedence evidence never overwrites better evidence.
 
+## Galaxy server session
+
+The `galaxy_server` source observes the Galaxy host VM itself, independently of
+job collection and Batch. It resolves the host on startup and every 60 seconds
+(`RAINSTONE_GALAXY_SERVER_REFRESH_SECONDS`), backing off on failure like every
+other source.
+
+The host is the configured instance (`RAINSTONE_GALAXY_SERVER_INSTANCE_ID`,
+defaulting to the baseline resource UID). Local instance metadata supplies its
+project, zone, name, shape and scheduling model only when its instance ID
+matches, so a collector never prices whatever machine it happens to run on. A
+collector that does not run on the host also names the host's project and zone,
+and then metadata is not read.
+
+One Compute `instances.get`, using the deployment's existing metadata-issued
+credential, supplies the status, shape, provisioning model and
+`lastStartTimestamp`. That timestamp is the start of the current running
+session; `creationTimestamp` describes the VM's first creation and is never
+substituted. A denied or empty read, or a response describing a different
+numeric ID, yields an observation without a launch time and a reason. No new
+IAM binding, Cloud Logging query or billing export is used.
+
+Rainstone keeps one session row per tenant, keyed by VM identity and launch
+time. A repeated observation of the same key only moves its last observation;
+a different key replaces the row, so a later start or a different VM begins a
+fresh total and no earlier session is kept. Once a launch time is known, a
+later observation that cannot establish one leaves the session frozen at its
+last successful observation and marks the source degraded. Shape evidence that
+contradicts the shape a session was identified with is kept on the row until a
+new session replaces it. Heartbeat-only updates do not advance the report
+generation, and repeated identical observations share one ingestion event.
+
 ## Batch refresh fairness
 
 Active Batch resources page through a durable cursor rather than always taking

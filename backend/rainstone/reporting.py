@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import io
 import statistics
 import uuid
@@ -13,11 +14,17 @@ from sqlalchemy.orm import Session
 
 from rainstone.adapters.contracts import GALAXY_RECORD_ATTEMPT_ID
 from rainstone.auth import Identity
-from rainstone.costing import current_generation
+from rainstone.costing import (
+    SERVER_CALCULATION_VERSION,
+    applicable_prices,
+    calculate_server_session,
+    current_generation,
+)
 from rainstone.models import (
     CostLine,
     CostRevision,
     ExecutionAttempt,
+    GalaxyServerSession,
     InfrastructureInterval,
     IngestionState,
     Invocation,
@@ -623,6 +630,7 @@ def summary(session: Session, identity: Identity, query: ReportQuery) -> dict:
     infra = infrastructure(
         session, identity, query, revision=revision, snapshot_validated=True
     ) if identity.can_view_infrastructure else None
+    launch = infra["current_launch"] if infra else None
     return {
         **meta, "amount": meta["priced_subtotal"], "job_count": len(records),
         "priced_job_count": meta["coverage"]["priced"],
@@ -631,6 +639,7 @@ def summary(session: Session, identity: Identity, query: ReportQuery) -> dict:
         **_repeated_work(records),
         "baseline_infrastructure_amount": infra["amount"] if infra else None,
         "baseline_infrastructure_observed": infra["observed_coverage"] if infra else None,
+        "current_launch": launch,
         "can_view_infrastructure": identity.can_view_infrastructure,
         "demo": demo,
         "demo_period": demo_period,
@@ -1096,6 +1105,125 @@ def infrastructure(
             "from": min(start for start, _ in covered).isoformat(),
             "to": max(end for _, end in covered).isoformat(),
         } if covered else None,
+        "current_launch": current_launch(session, identity),
+    }
+
+
+SERVER_STALE_AFTER = timedelta(minutes=5)
+SERVER_SCOPE = (
+    "The whole Galaxy server VM's compute since its current launch, including idle time. "
+    "Report filters do not change it, and it is never added to run costs. It excludes "
+    "disks, networking, discounts and other cloud charges."
+)
+
+
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _server_stale_reason(
+    server: GalaxyServerSession, imported: dict | None, now: datetime
+) -> str | None:
+    if imported:
+        return "This is an imported snapshot; its figures stop at the last observation it holds."
+    if server.ended_at:
+        return None
+    age = now - server.observed_at
+    if age <= SERVER_STALE_AFTER:
+        return None
+    minutes = int(age.total_seconds() // 60)
+    elapsed = (
+        f"{minutes} minutes" if minutes < 120
+        else f"{minutes // 60} hours" if minutes < 48 * 60
+        else f"{minutes // (24 * 60)} days"
+    )
+    return (
+        f"The server was last observed {elapsed} ago; the total stops at that observation "
+        "rather than assuming the server kept running."
+    )
+
+
+def current_launch(session: Session, identity: Identity, *, now: datetime | None = None) -> dict:
+    """The Galaxy server's hourly rate and estimated total since its current launch.
+
+    Derived from the stored session and the catalog on every request, so it
+    needs no cached amount and repeated observations cannot add to it. It
+    depends on no report filter; the timezone only affects how clients format
+    its timestamps.
+    """
+    if not identity.can_view_infrastructure:
+        raise HTTPException(403, "Infrastructure reporting is not authorized for this scope")
+    now = now or datetime.now(UTC)
+    tenant = session.get(Tenant, identity.tenant_id)
+    imported = _imported_snapshot((tenant.capabilities or {}) if tenant else {})
+    server = session.scalar(
+        select(GalaxyServerSession).where(GalaxyServerSession.tenant_id == identity.tenant_id)
+    )
+    base = {
+        "scope": SERVER_SCOPE, "currency": "USD",
+        "calculation_version": SERVER_CALCULATION_VERSION,
+    }
+    if server is None:
+        collection = session.scalar(
+            select(IngestionState).where(
+                IngestionState.tenant_id == identity.tenant_id,
+                IngestionState.source == "galaxy_server",
+            )
+        )
+        reason = "No observation of the Galaxy server has been recorded."
+        if collection is not None and collection.error:
+            reason += f" The last attempt failed: {collection.error}"
+        return {
+            **base, "resource_uid": None, "name": None, "project": None, "zone": None,
+            "region": None, "machine_type": None, "purchase_model": None, "state": None,
+            "descriptor_source": None, "launch_at": None, "launch_source": None,
+            "first_observed_at": None, "observed_at": None, "ended_at": None, "as_of": None,
+            "stale": False, "stale_reason": None, "hourly_rate": None,
+            "hourly_rate_unavailable_reason": reason, "price": None,
+            "total_since_launch": None, "known_subtotal": None, "completeness": "unavailable",
+            "unavailable_reason": reason, "elapsed_seconds": None, "billed_seconds": None,
+            "calculation_revision": None,
+        }
+    prices = applicable_prices(
+        session, provider=server.provider, region=server.region,
+        machine_type=server.machine_type, purchase_model=server.purchase_model,
+    )
+    cost = calculate_server_session(server, prices)
+    rate = cost.rate
+    stale_reason = _server_stale_reason(server, imported, now)
+    # Identifies the inputs of this result, so two responses with the same
+    # revision are the same calculation.
+    revision = hashlib.sha256("|".join(str(part) for part in (
+        SERVER_CALCULATION_VERSION, server.session_key, _iso(cost.cutoff),
+        server.machine_type, server.purchase_model, server.region, server.shape_conflict,
+        *sorted(str(price.id) for price in prices),
+    )).encode()).hexdigest()[:32]
+    return {
+        **base,
+        "resource_uid": server.resource_uid, "name": server.name, "project": server.project,
+        "zone": server.zone, "region": server.region, "machine_type": server.machine_type,
+        "purchase_model": server.purchase_model, "state": server.state,
+        "currency": rate.currency if rate else "USD",
+        "descriptor_source": server.descriptor_source,
+        "launch_at": _iso(server.launch_at), "launch_source": server.launch_source,
+        "first_observed_at": _iso(server.first_observed_at),
+        "observed_at": _iso(server.observed_at), "ended_at": _iso(server.ended_at),
+        "as_of": _iso(cost.cutoff),
+        "stale": stale_reason is not None, "stale_reason": stale_reason,
+        "hourly_rate": format(rate.hourly_rate.normalize(), "f") if rate else None,
+        "hourly_rate_unavailable_reason": cost.rate_unavailable_reason,
+        "price": {
+            "price_version_id": str(rate.id), "catalog_id": rate.catalog_id,
+            "effective_from": _iso(rate.effective_from), "observed_at": _iso(rate.observed_at),
+            "kind": (rate.provenance or {}).get("kind"),
+        } if rate else None,
+        "total_since_launch": str(cost.total) if cost.total is not None else None,
+        "known_subtotal": str(cost.known_subtotal) if cost.known_subtotal is not None else None,
+        "completeness": cost.completeness,
+        "unavailable_reason": cost.unavailable_reason,
+        "elapsed_seconds": str(cost.elapsed_seconds) if cost.elapsed_seconds is not None else None,
+        "billed_seconds": str(cost.billed_seconds) if cost.billed_seconds is not None else None,
+        "calculation_revision": revision,
     }
 
 

@@ -382,6 +382,49 @@ class InfrastructureInterval(Base):
     __table_args__ = (UniqueConstraint("tenant_id", "source_id"),)
 
 
+class GalaxyServerSession(Base):
+    """The Galaxy host VM's current running session, one per tenant.
+
+    The session is identified by the VM and the provider's start timestamp
+    together. A different key replaces this row rather than adding to it: a
+    later start or a different VM begins a fresh total, and earlier sessions
+    are not kept. Amounts are never stored here; they are derived from these
+    facts and the catalog when a report asks.
+    """
+
+    __tablename__ = "galaxy_server_session"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), unique=True
+    )
+    provider: Mapped[str] = mapped_column(String(40))
+    resource_uid: Mapped[str] = mapped_column(String(300))
+    name: Mapped[str | None] = mapped_column(String(300))
+    project: Mapped[str | None] = mapped_column(String(200))
+    zone: Mapped[str | None] = mapped_column(String(100))
+    region: Mapped[str | None] = mapped_column(String(100))
+    machine_type: Mapped[str | None] = mapped_column(String(100))
+    purchase_model: Mapped[str | None] = mapped_column(String(40))
+    state: Mapped[str | None] = mapped_column(String(40))
+    descriptor_source: Mapped[str] = mapped_column(String(80))
+    # Null when the current session's start could not be established; the
+    # reason says why, and no other timestamp is substituted.
+    session_key: Mapped[str | None] = mapped_column(String(400))
+    launch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    launch_source: Mapped[str | None] = mapped_column(String(200))
+    launch_unavailable_reason: Mapped[str | None] = mapped_column(Text)
+    # Set when the provider reports this session stopped.
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Observed descriptors that contradict the shape this session was
+    # identified with. It stays until a new session replaces the row.
+    shape_conflict: Mapped[str | None] = mapped_column(Text)
+    first_observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # The last successful observation. Heartbeat-only changes to it do not
+    # advance the report generation; see migration 0002.
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    facts: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
 class IngestionEvent(Base):
     __tablename__ = "ingestion_event"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)

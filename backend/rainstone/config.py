@@ -71,6 +71,16 @@ class Settings(BaseSettings):
     gcp_enrich_compute: bool = True
     gcp_enrich_logging: bool = True
 
+    # The Galaxy host VM's current running session. The host is the configured
+    # instance, which defaults to the baseline resource; metadata is used only
+    # when it confirms the collector runs on that instance. A collector running
+    # elsewhere names the host's project and zone as well.
+    galaxy_server_enabled: bool = False
+    galaxy_server_instance_id: str | None = None
+    galaxy_server_project: str | None = None
+    galaxy_server_zone: str | None = None
+    galaxy_server_refresh_seconds: int = 60
+
     # Deployment accounting baseline.
     baseline_policy_version: str | None = None
     baseline_resource_uid: str | None = None
@@ -171,6 +181,10 @@ class Settings(BaseSettings):
         return f"{host}:{port}/{url.database or ''}"
 
     @property
+    def galaxy_server_host_id(self) -> str | None:
+        return self.galaxy_server_instance_id or self.baseline_resource_uid
+
+    @property
     def baseline_destination_list(self) -> tuple[str, ...]:
         return tuple(value.strip() for value in self.baseline_destinations.split(",") if value.strip())
 
@@ -224,6 +238,17 @@ class Settings(BaseSettings):
         if self.gcp_batch_enabled and not (self.gcp_project and self.gcp_location):
             raise ValueError(
                 "GCP Batch observation requires RAINSTONE_GCP_PROJECT and RAINSTONE_GCP_LOCATION"
+            )
+        if self.galaxy_server_enabled and not self.galaxy_server_host_id:
+            raise ValueError(
+                "Galaxy server observation requires RAINSTONE_GALAXY_SERVER_INSTANCE_ID or "
+                "RAINSTONE_BASELINE_RESOURCE_UID, so the collector never assumes the machine it "
+                "runs on is the Galaxy server"
+            )
+        if bool(self.galaxy_server_project) != bool(self.galaxy_server_zone):
+            raise ValueError(
+                "an explicit Galaxy server descriptor needs both RAINSTONE_GALAXY_SERVER_PROJECT "
+                "and RAINSTONE_GALAXY_SERVER_ZONE"
             )
         if self.baseline_policy_version and not self.baseline_resource_uid:
             raise ValueError("A baseline policy requires RAINSTONE_BASELINE_RESOURCE_UID")

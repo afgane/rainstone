@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  capacityLabel, coverageSentence, costExplanation, formatCost, formatDate, qualityLabel, undatedSentence,
+  capacityLabel, coverageSentence, costExplanation, formatCost, formatDate, formatRate, qualityLabel,
+  undatedSentence,
 } from "./vocabulary";
 
 describe("money", () => {
@@ -9,6 +10,12 @@ describe("money", () => {
     expect(formatCost("0.000004")).toBe("less than $0.01");
     expect(formatCost(null)).toBe("Not available");
     expect(formatCost("12.3456")).toBe("$12.35");
+  });
+
+  it("keeps sub-cent precision in an hourly rate", () => {
+    expect(formatRate("0.2")).toBe("$0.20/hour while running");
+    expect(formatRate("0.168984")).toBe("$0.169/hour while running");
+    expect(formatRate(null)).toBe("Not available");
   });
 });
 

@@ -16,7 +16,7 @@ import StatusPanel from "./components/StatusPanel.vue";
 import ToolRunsPanel from "./components/ToolRunsPanel.vue";
 import ToolsPanel from "./components/ToolsPanel.vue";
 import { describePeriod, PERIOD_LABELS, todayIn, type PeriodId } from "./periods";
-import { formatCost, formatDate, formatDateTime, measureName } from "./vocabulary";
+import { formatCost, formatDateTime, measureName } from "./vocabulary";
 
 const VIEWS: View[] = ["overview", "runs", "tool-runs", "tools", "daily", "users", "server", "status"];
 const TITLES: Record<View, string> = {
@@ -95,12 +95,6 @@ const server = computed(() => (state.view === "server"
   ? viewData.value as Infrastructure | null
   : null));
 const status = computed(() => (state.view === "status" ? viewData.value as Status | null : null));
-const serverWindow = computed(() => {
-  const observed = summary.value?.baseline_infrastructure_observed;
-  return observed
-    ? `${formatDate(observed.from, state.timezone)} – ${formatDate(observed.to, state.timezone)}`
-    : null;
-});
 const collection = computed(() => collectionCutoff(freshness.value));
 const page = computed(() => Math.floor(state.offset / 50) + 1);
 
@@ -312,7 +306,6 @@ onBeforeUnmount(() => {
         <OverviewPanel
           v-if="state.view === 'overview'"
           :state="state" :summary="summary" :days="days" :tools="tools" :runs="runs"
-          :server-window="serverWindow"
           @view="changeView" @run="id => showDetail('runs', id)" @day="selectDay"
           @demo-period="showDemoPeriod"
         />

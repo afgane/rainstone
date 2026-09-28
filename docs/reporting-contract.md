@@ -111,6 +111,32 @@ when there are none. A tenant restored from a captured snapshot carries an
 `imported_snapshot` capability, returned by the summary with its capture time,
 source cutoffs and digest; it is real data and is not marked as a demo.
 
+## Galaxy server since its current launch
+
+`/api/infrastructure` and the summary carry `current_launch`, under the same
+infrastructure authorization; it is null in the summary for a viewer without
+it. It describes the Galaxy host VM's current running session only: machine
+type, region, state, `launch_at` and its source, `as_of`, a stale flag and
+reason, `hourly_rate` with its catalog provenance, `total_since_launch`,
+`known_subtotal`, `completeness` (`complete`, `partial` or `unavailable`), an
+unavailable reason, and `calculation_version` with a `calculation_revision`
+digest of its inputs. Amounts are decimal strings.
+
+The total prices `[launch_at, as_of]`, where `as_of` is the last successful
+observation, or the provider's stop time once the session has ended. It is
+split at catalog price boundaries, and the provider minimum applies once per
+session. Time before the earliest applicable price leaves a labeled known
+subtotal rather than a backdated price. An unknown launch, a contradicted
+shape, a stopped VM without a stop time, or an unpriced shape makes the total
+unavailable with its reason; the hourly rate is still given when the shape can
+be priced. The result is derived per request from stored facts, so repeated
+observations and restarts cannot add to it, and it is marked stale when the
+last observation is more than five minutes old or the tenant is an imported
+snapshot. Report filters, basis, mode and dates never change it; the timezone
+only affects how clients format its timestamps. It is never added to job
+totals, and job baseline occupancy is never added to it. The period-based
+`items`, `amount` and `observed_coverage` fields remain for compatibility.
+
 Raw job metrics are not part of the revision content digest: they reach reports
 only through attempts, lifetimes and job resource hints, which are covered.
 

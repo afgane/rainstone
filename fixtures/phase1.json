@@ -1016,5 +1016,20 @@
       "currency": "USD",
       "quality": "approximate"
     }
-  ]
+  ],
+  "galaxy_server": {
+    "provider": "gcp",
+    "resource_uid": "baseline-vm-demo",
+    "name": "galaxy-demo",
+    "project": "demo-project",
+    "zone": "us-central1-a",
+    "region": "us-central1",
+    "machine_type": "t2d-standard-4",
+    "purchase_model": "on_demand",
+    "state": "RUNNING",
+    "descriptor_source": "demonstration fixture",
+    "launch_at": "2026-09-19T10:40:00Z",
+    "launch_source": "demonstration fixture",
+    "observed_at": "2026-09-19T13:40:00Z"
+  }
 }

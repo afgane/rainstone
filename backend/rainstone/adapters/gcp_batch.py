@@ -54,7 +54,7 @@ class CloudAccessDenied(RuntimeError):
 ATTEMPT_REFERENCE = re.compile(r"Attempt (?P<ordinal>\d+) failed")
 
 
-def _purchase_model(value: str | None) -> str | None:
+def catalog_purchase_model(value: str | None) -> str | None:
     """Translate the provider's provisioning model into catalog vocabulary.
 
     Batch reports how a VM was provisioned (`STANDARD`, `SPOT`); a price
@@ -70,7 +70,7 @@ def _purchase_model(value: str | None) -> str | None:
     return {"standard": "on_demand", "preemptible": "spot"}.get(normalized, normalized)
 
 
-def _time(value: str | None) -> datetime | None:
+def provider_time(value: str | None) -> datetime | None:
     if not value:
         return None
     text = value.replace("Z", "+00:00")
@@ -351,7 +351,7 @@ def parse_task_attempts(task: dict) -> list[TaskAttempt]:
     ordinal = 0
     for event in events:
         description = event.get("description") or ""
-        occurred = _time(event.get("eventTime"))
+        occurred = provider_time(event.get("eventTime"))
         reference = INSTANCE_REFERENCE.search(description)
         if reference:
             current.instance_id = reference.group("instance")
@@ -400,11 +400,11 @@ def _instance_from_compute(payload: dict, project: str) -> InstanceObservation:
         instance_id=str(payload["id"]),
         zone=zone,
         project=project,
-        created_at=_time(payload.get("creationTimestamp")),
-        started_at=_time(payload.get("lastStartTimestamp")),
-        stopped_at=_time(payload.get("lastStopTimestamp")),
+        created_at=provider_time(payload.get("creationTimestamp")),
+        started_at=provider_time(payload.get("lastStartTimestamp")),
+        stopped_at=provider_time(payload.get("lastStopTimestamp")),
         machine_type=(payload.get("machineType") or "").rsplit("/", 1)[-1] or None,
-        purchase_model=_purchase_model(scheduling.get("provisioningModel")),
+        purchase_model=catalog_purchase_model(scheduling.get("provisioningModel")),
         labels=payload.get("labels", {}) or {},
         source="compute_instance",
     )
@@ -417,7 +417,7 @@ def _lifecycle_bounds(entries: Sequence[dict]) -> dict:
     for entry in entries:
         method = (entry.get("protoPayload") or {}).get("methodName") or entry.get("method")
         operation = entry.get("operation") or {}
-        timestamp = _time(entry.get("timestamp"))
+        timestamp = provider_time(entry.get("timestamp"))
         if operation.get("id") and operation["id"] not in operations:
             operations.append(operation["id"])
         if method and method.endswith("instances.insert") and operation.get("last"):
@@ -436,7 +436,7 @@ def _machine_shape(job: dict) -> tuple[str | None, str | None]:
     for group in groups:
         for instance in group.get("instances", []) or []:
             machine = instance.get("machineType")
-            model = _purchase_model(instance.get("provisioningModel"))
+            model = catalog_purchase_model(instance.get("provisioningModel"))
             if machine:
                 return machine, model
     for policy in job.get("instances_policy") or job.get("allocationPolicy", {}).get(
@@ -444,7 +444,7 @@ def _machine_shape(job: dict) -> tuple[str | None, str | None]:
     ):
         shape = policy.get("policy", {})
         if shape.get("machineType"):
-            return shape["machineType"], _purchase_model(shape.get("provisioningModel"))
+            return shape["machineType"], catalog_purchase_model(shape.get("provisioningModel"))
     return None, None
 
 

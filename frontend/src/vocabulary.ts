@@ -14,7 +14,7 @@ export const ALLOCATION_MEASURE = "Resource allocation estimate";
 export const ALLOCATION_EXPLANATION =
   "A share of the capacity your runs occupied, priced at public rates. It answers a different question from run compute cost and is never added to it.";
 export const SERVER_EXPLANATION =
-  "Your Galaxy server keeps running between jobs. This is its observed cost for the window below, not a share of any run.";
+  "Your Galaxy server keeps running between jobs. This is the whole server's compute since it was last launched, including idle time, not a share of any run.";
 export const EXISTING_SERVER_SENTENCE =
   "This job used your already-running Galaxy server, so it added no compute charge. The server continues to incur costs.";
 
@@ -54,6 +54,19 @@ export function formatCost(amount: string | null | undefined): string {
     currency: "USD",
     maximumFractionDigits: 2,
   });
+}
+
+/** An hourly rate keeps sub-cent precision; the exact string stays in details. */
+export function formatRate(rate: string | null | undefined): string {
+  if (rate === null || rate === undefined || rate === "") return "Not available";
+  const value = Number(rate);
+  if (!Number.isFinite(value)) return "Not available";
+  return `${value.toLocaleString(undefined, {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  })}/hour while running`;
 }
 
 const RUN_STATUS: Record<string, string> = {

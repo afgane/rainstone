@@ -12,7 +12,7 @@ from typing import Protocol
 
 from rainstone.models import CapacityRelationship
 
-CONTRACT_VERSION = 2
+CONTRACT_VERSION = 3
 
 # Galaxy's own record of a job's execution. Provider adapters observe the same
 # execution separately, so this is evidence about an attempt, not an attempt of
@@ -144,6 +144,43 @@ class NormalizedGap:
 
 
 @dataclass(frozen=True)
+class NormalizedServerObservation:
+    """One observation of the Galaxy host VM and its current running session.
+
+    `launch_at` is the provider's start of the current session. When it cannot
+    be established it is None and `launch_unavailable_reason` says why; no
+    other timestamp stands in for it.
+    """
+
+    provider: str
+    resource_uid: str
+    descriptor_source: str
+    observed_at: datetime
+    name: str | None = None
+    project: str | None = None
+    zone: str | None = None
+    region: str | None = None
+    machine_type: str | None = None
+    purchase_model: str | None = None
+    state: str | None = None
+    launch_at: datetime | None = None
+    launch_source: str | None = None
+    launch_unavailable_reason: str | None = None
+    ended_at: datetime | None = None
+    shape_conflict: str | None = None
+    facts: dict = field(default_factory=dict)
+
+    @property
+    def session_key(self) -> str | None:
+        if self.launch_at is None:
+            return None
+        return (
+            f"{self.provider}:{self.project}/{self.zone}/{self.resource_uid}"
+            f"@{self.launch_at.isoformat()}"
+        )
+
+
+@dataclass(frozen=True)
 class ObservationBatch:
     """One durable unit of work: commit it, then advance the cursor."""
 
@@ -155,6 +192,7 @@ class ObservationBatch:
     invocations: tuple[NormalizedInvocation, ...] = ()
     attempts: tuple[NormalizedAttempt, ...] = ()
     gaps: tuple[NormalizedGap, ...] = ()
+    servers: tuple[NormalizedServerObservation, ...] = ()
     cursor: dict = field(default_factory=dict)
     metrics: dict = field(default_factory=dict)
     exhausted: bool = True

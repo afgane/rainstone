@@ -26,6 +26,7 @@ from rainstone.adapters.contracts import (
     NormalizedMetric,
     NormalizedOwner,
     NormalizedSegment,
+    NormalizedServerObservation,
     NormalizedStateEvent,
     ObservationBatch,
 )
@@ -36,6 +37,7 @@ from rainstone.models import (
     CapacityRelationship,
     DeploymentPolicy,
     ExecutionAttempt,
+    GalaxyServerSession,
     InfrastructureInterval,
     IngestionEvent,
     IngestionState,
@@ -378,6 +380,79 @@ def record_gap(session: Session, tenant_id: uuid.UUID, gap: NormalizedGap, obser
     )
 
 
+SHAPE_FIELDS = (("machine type", "machine_type"), ("purchase model", "purchase_model"))
+
+
+def _replace_server_session(row: GalaxyServerSession, observation: NormalizedServerObservation) -> None:
+    for name in (
+        "provider", "resource_uid", "name", "project", "zone", "region", "machine_type",
+        "purchase_model", "state", "descriptor_source", "launch_at", "launch_source",
+        "launch_unavailable_reason", "ended_at", "shape_conflict", "observed_at", "facts",
+    ):
+        setattr(row, name, getattr(observation, name))
+    row.session_key = observation.session_key
+    row.first_observed_at = observation.observed_at
+
+
+def upsert_server_session(
+    session: Session, tenant_id: uuid.UUID, observation: NormalizedServerObservation
+) -> str:
+    """Record one observation of the Galaxy host's current session.
+
+    A different VM or start time replaces the stored session: no balance is
+    carried forward. Repeating the same session only moves its last
+    observation, so polls and restarts never add charges. An observation that
+    cannot establish the start leaves a known session frozen at its last
+    successful observation rather than replacing it with an unknown one.
+    """
+    row = session.scalar(
+        select(GalaxyServerSession).where(GalaxyServerSession.tenant_id == tenant_id)
+    )
+    if row is None:
+        row = GalaxyServerSession(id=stable_id(str(tenant_id), "galaxy_server"), tenant_id=tenant_id)
+        _replace_server_session(row, observation)
+        session.add(row)
+        return "new_session"
+    if observation.observed_at <= row.observed_at:
+        return "replayed"
+    same_vm = (row.provider, row.project, row.zone, row.resource_uid) == (
+        observation.provider, observation.project, observation.zone, observation.resource_uid
+    )
+    key = observation.session_key
+    if same_vm and key is None and row.session_key is not None:
+        return "frozen"
+    if same_vm and key is None:
+        # Still no known session: refresh what is known without restarting
+        # the record, so an unchanged answer is not a new fact every minute.
+        first_observed_at = row.first_observed_at
+        _replace_server_session(row, observation)
+        row.first_observed_at = first_observed_at
+        return "observed"
+    if not same_vm or key != row.session_key:
+        _replace_server_session(row, observation)
+        return "new_session"
+    # The session is assumed to keep the shape it was identified with. Evidence
+    # against that is kept until a new session replaces this one; it is never
+    # resolved by picking one of the two shapes.
+    contradictions = [
+        f"the {label} was {getattr(row, name)} when this session was identified but is now "
+        f"{getattr(observation, name)}"
+        for label, name in SHAPE_FIELDS
+        if getattr(row, name) and getattr(observation, name)
+        and getattr(row, name) != getattr(observation, name)
+    ]
+    if observation.shape_conflict:
+        contradictions.append(observation.shape_conflict)
+    if contradictions and not row.shape_conflict:
+        row.shape_conflict = "; ".join(contradictions)
+    row.name = observation.name or row.name
+    row.state = observation.state
+    row.ended_at = observation.ended_at
+    row.facts = observation.facts
+    row.observed_at = observation.observed_at
+    return "observed"
+
+
 def batch_digest(batch: ObservationBatch) -> str:
     payload = json.dumps(
         {
@@ -391,7 +466,14 @@ def batch_digest(batch: ObservationBatch) -> str:
                 ]
             ],
             "invocations": [invocation.source_id for invocation in batch.invocations],
-            "observed_at": batch.observed_at.isoformat(),
+            "servers": [
+                (server.session_key, server.machine_type, server.purchase_model, server.state)
+                for server in batch.servers
+            ],
+            # Server observations repeat every minute; keying them by their
+            # facts rather than their time keeps one event per distinct state
+            # instead of an event archive.
+            "observed_at": None if batch.servers else batch.observed_at.isoformat(),
         },
         sort_keys=True,
         default=str,
@@ -427,6 +509,14 @@ def apply_batch(
         upsert_invocation(session, tenant_id, invocation)
     for gap in batch.gaps:
         record_gap(session, tenant_id, gap, batch.observed_at)
+    server_outcomes = [
+        upsert_server_session(session, tenant_id, server) for server in batch.servers
+    ]
+    unavailable = [
+        server.launch_unavailable_reason
+        for server in batch.servers
+        if server.launch_unavailable_reason
+    ]
     digest = batch_digest(batch)
     event_key = f"{batch.source}:{digest}"
     prior = session.scalar(
@@ -455,8 +545,8 @@ def apply_batch(
     state.last_attempt_at = now
     state.last_success_at = now
     state.consecutive_failures = 0
-    state.error = None
-    state.status = "degraded" if batch.gaps else "healthy"
+    state.error = unavailable[0] if unavailable else None
+    state.status = "degraded" if batch.gaps or unavailable else "healthy"
     if advance_cursor:
         state.cursor = batch.cursor
     state.metrics = {
@@ -474,6 +564,7 @@ def apply_batch(
         "invocations": len(batch.invocations),
         "gaps": len(batch.gaps),
         "orphan_attempts": orphans,
+        **({"servers": server_outcomes} if server_outcomes else {}),
         "replayed": prior is not None,
         "exhausted": batch.exhausted,
     }
@@ -633,6 +724,13 @@ def _fixture_lifetimes(data: list[dict]) -> tuple[NormalizedLifetime, ...]:
     return tuple(lifetimes)
 
 
+def _fixture_servers(data: dict | None) -> tuple[NormalizedServerObservation, ...]:
+    if not data:
+        return ()
+    times = {name: parse_time(data.get(name)) for name in ("launch_at", "observed_at", "ended_at")}
+    return (NormalizedServerObservation(**{**data, **times}),)
+
+
 def _fixture_batch(data: dict) -> ObservationBatch:
     jobs: list[NormalizedJob] = []
     for item in data["jobs"]:
@@ -707,6 +805,7 @@ def _fixture_batch(data: dict) -> ObservationBatch:
         ),
         jobs=tuple(jobs),
         invocations=invocations,
+        servers=_fixture_servers(data.get("galaxy_server")),
         cursor={"fixture_id": data["fixture_id"]},
         metrics={"fixture_id": data["fixture_id"]},
     )

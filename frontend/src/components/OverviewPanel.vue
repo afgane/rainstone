@@ -3,6 +3,7 @@ import { computed } from "vue";
 import type { DailyItem, GroupItem, Invocation, Summary } from "../api";
 import { periodOf, type ReportState } from "../api";
 import { describePeriod } from "../periods";
+import ServerLaunchFigures from "./ServerLaunchFigures.vue";
 import {
   coverageSentence, formatCost, formatDate, measureExplanation, measureName, needsCostData,
   pluralize, runStatusLabel, SERVER_EXPLANATION, undatedSentence,
@@ -14,7 +15,6 @@ const props = defineProps<{
   days: DailyItem[];
   tools: GroupItem[];
   runs: Invocation[];
-  serverWindow: string | null;
 }>();
 const emit = defineEmits<{
   view: [view: "runs" | "tool-runs" | "tools" | "daily" | "server"];
@@ -155,13 +155,9 @@ const repeatedSentence = computed(() => {
 
   <section v-if="summary.can_view_infrastructure" class="panel quiet">
     <div class="panel-heading">
-      <div><h2>Galaxy server cost</h2><p>{{ SERVER_EXPLANATION }}</p></div>
+      <div><h2>Galaxy server compute cost</h2><p>{{ SERVER_EXPLANATION }}</p></div>
       <button class="link-button" @click="emit('view', 'server')">Server details</button>
     </div>
-    <p class="quiet-amount">
-      {{ formatCost(summary.baseline_infrastructure_amount) }}
-      <small>{{ serverWindow ? `Observed ${serverWindow}` : "No server observations available" }}</small>
-      <small>Shown separately; never added to run costs.</small>
-    </p>
+    <ServerLaunchFigures :launch="summary.current_launch" :timezone="state.timezone" />
   </section>
 </template>

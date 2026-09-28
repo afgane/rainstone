@@ -294,6 +294,15 @@ a Kubernetes `providerID` does not make them unknowable. Kubernetes placement
 must agree with the runner and destination mapping before a job is classified as
 using existing capacity.
 
+The same host is observed for the Galaxy server compute card
+(`collector.galaxyServer`). It is on whenever the host's instance ID is known,
+reads the host's own metadata only when that ID matches, and reads the current
+session's start through one Compute `instances.get` with the existing VM
+credential. A collector outside the host sets `collector.galaxyServer.project`
+and `zone` as well. If that read is denied the card shows the hourly rate and
+**Launch time unavailable**; no IAM change is made. Validate the observed start
+semantics on the next available AnVIL instance with its own identity.
+
 Discovery names as baseline runners only runners that load Galaxy's local
 runner, because only they run inside the Galaxy server's own machine; Batch and
 Pulsar provision their own capacity, and a Kubernetes pod is placed on the

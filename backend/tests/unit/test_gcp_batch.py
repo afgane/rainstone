@@ -250,13 +250,13 @@ def test_provisioning_model_is_translated_into_catalog_vocabulary() -> None:
     The AnVIL dev instance ran Batch jobs whose `STANDARD` VMs stayed unpriced
     against `on_demand` rates until these were reconciled.
     """
-    from rainstone.adapters.gcp_batch import _purchase_model
+    from rainstone.adapters.gcp_batch import catalog_purchase_model
 
-    assert _purchase_model("STANDARD") == "on_demand"
-    assert _purchase_model("SPOT") == "spot"
-    assert _purchase_model("PREEMPTIBLE") == "spot"
-    assert _purchase_model(None) is None
-    assert _purchase_model("") is None
+    assert catalog_purchase_model("STANDARD") == "on_demand"
+    assert catalog_purchase_model("SPOT") == "spot"
+    assert catalog_purchase_model("PREEMPTIBLE") == "spot"
+    assert catalog_purchase_model(None) is None
+    assert catalog_purchase_model("") is None
     # An unfamiliar model keeps the provider's own word, so it reads as
     # unpriced rather than being charged at a rate it may not deserve.
-    assert _purchase_model("RESERVATION_BOUND") == "reservation_bound"
+    assert catalog_purchase_model("RESERVATION_BOUND") == "reservation_bound"

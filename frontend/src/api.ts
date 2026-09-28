@@ -45,6 +45,37 @@ export interface Meta {
   undated: { job_count: number; amount: string | null; incomplete: number } | null;
 }
 
+/**
+ * The Galaxy server's current running session. It never follows report
+ * filters; only its timestamps are formatted in the report timezone.
+ */
+export interface CurrentLaunch {
+  scope: string;
+  currency: "USD";
+  resource_uid: string | null;
+  name: string | null;
+  machine_type: string | null;
+  region: string | null;
+  zone: string | null;
+  purchase_model: string | null;
+  state: string | null;
+  launch_at: string | null;
+  launch_source: string | null;
+  /** Where the figures stop: the last successful observation, or the stop time. */
+  as_of: string | null;
+  stale: boolean;
+  stale_reason: string | null;
+  hourly_rate: string | null;
+  hourly_rate_unavailable_reason: string | null;
+  price: { catalog_id: string; effective_from: string | null; observed_at: string | null; kind: string | null } | null;
+  total_since_launch: string | null;
+  known_subtotal: string | null;
+  completeness: "complete" | "partial" | "unavailable";
+  unavailable_reason: string | null;
+  calculation_version: string;
+  calculation_revision: string | null;
+}
+
 export interface Summary extends Meta {
   amount: string | null;
   job_count: number;
@@ -64,6 +95,7 @@ export interface Summary extends Meta {
   baseline_infrastructure_amount: string | null;
   /** When the server was actually observed, not the window that was asked for. */
   baseline_infrastructure_observed: { from: string; to: string } | null;
+  current_launch: CurrentLaunch | null;
   can_view_infrastructure: boolean;
   demo: boolean;
   demo_period: { from: string; to: string } | null;
@@ -96,6 +128,7 @@ export interface Infrastructure {
   items: Array<Record<string, string>>; amount: string | null; scope: string;
   allocation_reason: string; observation_window: Record<string, string>;
   observed_coverage: { from: string; to: string } | null;
+  current_launch: CurrentLaunch;
 }
 
 export interface Invocation {

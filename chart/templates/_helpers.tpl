@@ -129,6 +129,15 @@ different one.
 {{- end -}}
 
 {{/* Whether Batch observation is on: `auto` follows the configured project. */}}
+{{/* Whether Galaxy server observation is on: `auto` follows a known host. */}}
+{{- define "rainstone.galaxyServerEnabled" -}}
+{{- $server := .Values.collector.galaxyServer -}}
+{{- $mode := toString $server.enabled -}}
+{{- if eq $mode "auto" -}}
+{{- if or $server.instanceId .Values.baseline.resourceUid -}}true{{- else -}}false{{- end -}}
+{{- else if eq $mode "true" -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
 {{- define "rainstone.batchEnabled" -}}
 {{- $batch := .Values.collector.gcpBatch -}}
 {{- $mode := toString $batch.enabled -}}
@@ -218,6 +227,22 @@ reader both arrive as one secret reference instead.
   value: {{ .Values.collector.kubernetes.enabled | quote }}
 - name: RAINSTONE_KUBERNETES_NAMESPACE
   value: {{ .Values.collector.kubernetes.namespace | default .Release.Namespace | quote }}
+- name: RAINSTONE_GALAXY_SERVER_ENABLED
+  value: {{ include "rainstone.galaxyServerEnabled" . | quote }}
+{{- if eq (include "rainstone.galaxyServerEnabled" .) "true" }}
+{{- with .Values.collector.galaxyServer }}
+- name: RAINSTONE_GALAXY_SERVER_INSTANCE_ID
+  value: {{ required "collector.galaxyServer.instanceId or baseline.resourceUid is required" (.instanceId | default $.Values.baseline.resourceUid) | quote }}
+{{- if or .project .zone }}
+- name: RAINSTONE_GALAXY_SERVER_PROJECT
+  value: {{ required "collector.galaxyServer.project is required with a zone" .project | quote }}
+- name: RAINSTONE_GALAXY_SERVER_ZONE
+  value: {{ required "collector.galaxyServer.zone is required with a project" .zone | quote }}
+{{- end }}
+- name: RAINSTONE_GALAXY_SERVER_REFRESH_SECONDS
+  value: {{ .refreshSeconds | quote }}
+{{- end }}
+{{- end }}
 - name: RAINSTONE_GCP_BATCH_ENABLED
   value: {{ include "rainstone.batchEnabled" . | quote }}
 {{- if eq (include "rainstone.batchEnabled" .) "true" }}

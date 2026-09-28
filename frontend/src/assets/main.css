@@ -56,6 +56,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .quiet { background: #f7fafc; }
 .quiet-amount { display: flex; flex-direction: column; gap: .2rem; margin: 0; padding: 1rem 1.2rem; font-size: 1.4rem; font-weight: 700; }
 .quiet-amount small { font-size: .85rem; font-weight: 400; color: #58585a; }
+.quiet-amount small.stale { color: #a31d1d; font-weight: 600; }
 .run-list { margin: 0; padding: 0; list-style: none; }
 .run-card { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr) minmax(0, 1fr); gap: 1rem; width: 100%; padding: .9rem 1.2rem; border: 0; border-bottom: 1px solid #e3e9ee; background: white; color: #2c3143; text-align: left; }
 .run-card:hover { background: #f2f7fb; }
@@ -128,6 +129,10 @@ td small { display: block; max-width: 320px; color: #58585a; margin-top: .2rem; 
 .link-button { border: 0; padding: 0; color: #165b91; background: transparent; text-decoration: underline; }
 .pagination { display: flex; align-items: center; justify-content: center; gap: 1rem; padding: 1.5rem; }
 .pagination button { border: 1px solid #8da5b8; border-radius: .4rem; padding: .5rem .8rem; color: #25537b; background: white; }
+.server-facts { display: grid; grid-template-columns: max-content 1fr; gap: .4rem 1rem; margin: 0; padding: 0 1.2rem 1rem; }
+.server-facts dt { font-weight: 700; }
+.server-facts dd { margin: 0; display: flex; flex-direction: column; }
+.server-facts small { color: #58585a; }
 .callout { margin: 1rem; padding: .8rem; border-left: 4px solid #ffd700; background: #fff9d8; }
 .overview-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 .rank-row { width: 100%; display: flex; justify-content: space-between; gap: 1rem; border: 0; border-bottom: 1px solid #e3e9ee; padding: .8rem 1.2rem; color: #2c3143; background: white; text-align: left; }

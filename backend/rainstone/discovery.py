@@ -155,13 +155,20 @@ class HostMetadata:
         project = self._read("project/project-id")
         if project is None:
             reason = "the instance metadata server did not answer; supply a descriptor override"
-            fields = ("project", "instance_id", "node_name", "machine_type", "zone", "region")
+            fields = (
+                "project", "instance_id", "node_name", "machine_type", "zone", "region",
+                "purchase_model",
+            )
             return {name: unresolved(reason) for name in fields}
         instance_id = self._read("instance/id")
         name = self._read("instance/name")
         machine_type = (self._read("instance/machine-type") or "").rsplit("/", 1)[-1] or None
         zone = (self._read("instance/zone") or "").rsplit("/", 1)[-1] or None
         region = zone.rsplit("-", 1)[0] if zone else None
+        # Metadata reports only whether the VM can be preempted; Spot and
+        # legacy preemptible VMs share one price, as in the Batch adapter.
+        preemptible = (self._read("instance/scheduling/preemptible") or "").upper()
+        purchase_model = {"FALSE": "on_demand", "TRUE": "spot"}.get(preemptible)
         return {
             "project": resolved(project, "instance metadata"),
             "node_name": resolved(name, "instance metadata")
@@ -179,6 +186,9 @@ class HostMetadata:
             "region": resolved(region, "instance metadata")
             if region
             else unresolved("no zone was reported, so no region could be derived"),
+            "purchase_model": resolved(purchase_model, "instance metadata")
+            if purchase_model
+            else unresolved("the metadata server did not report the scheduling model"),
         }
 
 

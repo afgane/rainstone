@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from rainstone.adapters.contracts import ObservationBatch, SourceAdapter
 from rainstone.adapters.galaxy_db import GalaxyDatabaseAdapter, discover_capabilities
+from rainstone.adapters.galaxy_server import GalaxyServerCollector, HostDescriptor, resolve_host
 from rainstone.adapters.gcp_batch import BatchCollector, BatchTarget, HttpGcpClient
 from rainstone.adapters.kubernetes import HttpKubernetesClient, KubernetesCollector
 from rainstone.baseline import BaselineProfile, classify_job, saved_policy_conflict
@@ -32,6 +33,7 @@ from rainstone.catalog import refresh as refresh_catalog
 from rainstone.config import Settings, get_settings
 from rainstone.costing import calculate_tenant
 from rainstone.db import engine as application_engine
+from rainstone.discovery import HostMetadata
 from rainstone.doctor import record_report, run_checks
 from rainstone.enrollment import read_evidence, source_engine, verify_enrollment
 from rainstone.ingestion import (
@@ -435,6 +437,26 @@ def build_collector(settings: Settings | None = None) -> Collector:
                     enrich_logging=settings.gcp_enrich_logging,
                 ),
                 interval_seconds=settings.collect_batch_refresh_seconds,
+            )
+        )
+
+    if settings.galaxy_server_enabled:
+        metadata = HostMetadata()
+
+        def host() -> HostDescriptor:
+            # Resolved every cycle, so a descriptor the metadata server could
+            # not answer at startup is picked up once it can.
+            return resolve_host(
+                metadata,
+                expected_instance_id=settings.galaxy_server_host_id,
+                project=settings.galaxy_server_project,
+                zone=settings.galaxy_server_zone,
+            )
+
+        sources.append(
+            ScheduledSource(
+                adapter=GalaxyServerCollector(host, HttpGcpClient()),
+                interval_seconds=settings.galaxy_server_refresh_seconds,
             )
         )
 

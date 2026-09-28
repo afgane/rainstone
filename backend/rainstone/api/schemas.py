@@ -47,6 +47,49 @@ class ReportMeta(APIModel):
     undated: UndatedEvidence | None = None
 
 
+class ServerPrice(APIModel):
+    price_version_id: str
+    catalog_id: str
+    effective_from: datetime | None
+    observed_at: datetime | None
+    kind: str | None
+
+
+class CurrentLaunch(APIModel):
+    """The Galaxy server's current running session; report filters never apply."""
+
+    scope: str
+    currency: Literal["USD"]
+    resource_uid: str | None
+    name: str | None
+    project: str | None
+    zone: str | None
+    region: str | None
+    machine_type: str | None
+    purchase_model: str | None
+    state: str | None
+    descriptor_source: str | None
+    launch_at: datetime | None
+    launch_source: str | None
+    first_observed_at: datetime | None
+    observed_at: datetime | None
+    ended_at: datetime | None
+    as_of: datetime | None
+    stale: bool
+    stale_reason: str | None
+    hourly_rate: str | None
+    hourly_rate_unavailable_reason: str | None
+    price: ServerPrice | None
+    total_since_launch: str | None
+    known_subtotal: str | None
+    completeness: Literal["complete", "partial", "unavailable"]
+    unavailable_reason: str | None
+    elapsed_seconds: str | None
+    billed_seconds: str | None
+    calculation_version: str
+    calculation_revision: str | None
+
+
 class SummaryResponse(ReportMeta):
     amount: str | None
     job_count: int
@@ -63,6 +106,7 @@ class SummaryResponse(ReportMeta):
     repeat_attempt_spend_complete: bool
     baseline_infrastructure_amount: str | None
     baseline_infrastructure_observed: dict[str, str] | None = None
+    current_launch: CurrentLaunch | None = None
     can_view_infrastructure: bool
     demo: bool
     demo_period: dict[str, str] | None = None
@@ -225,6 +269,7 @@ class InfrastructureResponse(APIModel):
     observed_coverage: dict[str, str] | None = None
     revision_id: str | None
     as_of: datetime | None
+    current_launch: CurrentLaunch
 
 
 class FreshnessResponse(APIModel):

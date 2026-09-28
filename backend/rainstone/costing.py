@@ -13,6 +13,7 @@ from rainstone.models import (
     CostRevision,
     DeploymentPolicy,
     ExecutionAttempt,
+    GalaxyServerSession,
     Job,
     LifetimeAttempt,
     PriceVersion,
@@ -23,6 +24,7 @@ from rainstone.models import (
 )
 
 CALCULATION_VERSION = "phase2b-v2"
+SERVER_CALCULATION_VERSION = "galaxy-server-v1"
 MINIMUM_BILLED_SECONDS = Decimal("60")
 
 
@@ -75,6 +77,83 @@ def _active_price(prices: Sequence[PriceVersion], at: datetime) -> PriceVersion 
     )
 
 
+def _observed_seconds(windows: Sequence[tuple[datetime, datetime]]) -> Decimal:
+    return sum(
+        (Decimal(str((end - start).total_seconds())) for start, end in windows), Decimal("0")
+    )
+
+
+@dataclass(frozen=True)
+class PricedWindows:
+    """Priced time, split wherever an applicable price takes effect.
+
+    `amount` covers only the priced parts. Time before the earliest applicable
+    price is listed in `uncovered` and contributes nothing, because a later
+    price is never applied to earlier time.
+    """
+
+    amount: Decimal
+    observed_seconds: Decimal
+    billed_seconds: Decimal
+    allocations: tuple[dict, ...]
+    uncovered: tuple[tuple[datetime, datetime], ...]
+    earliest_price: datetime | None
+
+
+def price_windows(
+    windows: Sequence[tuple[datetime, datetime]], prices: Sequence[PriceVersion]
+) -> PricedWindows:
+    """Price positive-duration windows that are charged together.
+
+    The provider minimum applies once to all of them, and its uplift is
+    distributed proportionally across the observed time.
+    """
+    observed = _observed_seconds(windows)
+    billed_seconds = max(MINIMUM_BILLED_SECONDS, observed)
+    allocations: list[dict] = []
+    uncovered: list[tuple[datetime, datetime]] = []
+    amount = Decimal("0")
+    for window_start, window_end in windows:
+        boundaries = sorted(
+            {
+                value.effective_from
+                for value in prices
+                if value.effective_from and window_start < value.effective_from < window_end
+            }
+        )
+        points = [window_start, *boundaries, window_end]
+        for start, end in zip(points, points[1:], strict=False):
+            active = _active_price(prices, start)
+            if active is None:
+                uncovered.append((start, end))
+                continue
+            segment_seconds = Decimal(str((end - start).total_seconds()))
+            charged_seconds = segment_seconds * billed_seconds / observed
+            segment_amount = charged_seconds / Decimal("3600") * active.hourly_rate
+            amount += segment_amount
+            allocations.append(
+                {
+                    "start": start.isoformat(),
+                    "end": end.isoformat(),
+                    "observed_seconds": str(segment_seconds),
+                    "charged_seconds": str(charged_seconds),
+                    "hourly_rate": str(active.hourly_rate),
+                    "amount": str(segment_amount),
+                    "price_version_id": str(active.id) if active.id else None,
+                }
+            )
+    return PricedWindows(
+        amount=amount,
+        observed_seconds=observed,
+        billed_seconds=billed_seconds,
+        allocations=tuple(allocations),
+        uncovered=tuple(uncovered),
+        earliest_price=min(
+            (value.effective_from for value in prices if value.effective_from), default=None
+        ),
+    )
+
+
 def calculate_lifetime(
     lifetime: ResourceLifetime,
     segments: Sequence[ResourceSegment],
@@ -122,48 +201,17 @@ def calculate_lifetime(
     prices = list(price) if isinstance(price, Sequence) else ([price] if price is not None else [])
     if not prices:
         return _unavailable("No applicable machine price was found.", Quality.unpriced)
-    observed = sum(
-        (Decimal(str((end - start).total_seconds())) for start, end in windows), Decimal("0")
-    )
-    if observed <= 0:
+    if _observed_seconds(windows) <= 0:
         return _unavailable("Resource lifetime is not positive.")
-    billed_seconds = max(MINIMUM_BILLED_SECONDS, observed)
-    allocations: list[dict] = []
-    amount = Decimal("0")
-    for window_start, window_end in windows:
-        boundaries = sorted(
-            {
-                value.effective_from
-                for value in prices
-                if value.effective_from and window_start < value.effective_from < window_end
-            }
+    priced = price_windows(windows, prices)
+    if priced.uncovered:
+        return _unavailable(
+            "No published price covers this machine and region when it ran: the "
+            f"earliest takes effect {priced.earliest_price.isoformat()}, and a later price is "
+            "never applied to earlier work.",
+            Quality.unpriced,
         )
-        points = [window_start, *boundaries, window_end]
-        for start, end in zip(points, points[1:], strict=False):
-            active = _active_price(prices, start)
-            if active is None:
-                earliest = min(value.effective_from for value in prices if value.effective_from)
-                return _unavailable(
-                    "No published price covers this machine and region when it ran: the "
-                    f"earliest takes effect {earliest.isoformat()}, and a later price is "
-                    "never applied to earlier work.",
-                    Quality.unpriced,
-                )
-            segment_seconds = Decimal(str((end - start).total_seconds()))
-            charged_seconds = segment_seconds * billed_seconds / observed
-            segment_amount = charged_seconds / Decimal("3600") * active.hourly_rate
-            amount += segment_amount
-            allocations.append(
-                {
-                    "start": start.isoformat(),
-                    "end": end.isoformat(),
-                    "observed_seconds": str(segment_seconds),
-                    "charged_seconds": str(charged_seconds),
-                    "hourly_rate": str(active.hourly_rate),
-                    "amount": str(segment_amount),
-                    "price_version_id": str(active.id) if active.id else None,
-                }
-            )
+    amount, billed_seconds, allocations = priced.amount, priced.billed_seconds, priced.allocations
     quality = Quality.complete if lifetime.timing_method == "provider_billable" else Quality.approximate
     reason = (
         "Dedicated VM compute from provider billable lifetime."
@@ -172,9 +220,115 @@ def calculate_lifetime(
         "discounts, credits, and taxes."
     )
     return [
-        CalculatedLine("additional", amount, quality, reason, billed_seconds, tuple(allocations)),
-        CalculatedLine("allocated", amount, quality, reason, billed_seconds, tuple(allocations)),
+        CalculatedLine("additional", amount, quality, reason, billed_seconds, allocations),
+        CalculatedLine("allocated", amount, quality, reason, billed_seconds, allocations),
     ]
+
+
+STOPPED_SERVER_STATES = {"STOPPED", "SUSPENDED", "TERMINATED"}
+
+
+@dataclass(frozen=True)
+class ServerSessionCost:
+    """The Galaxy server's hourly rate and its compute since the current launch.
+
+    The rate can be known when the total is not. `known_subtotal` is set only
+    when part of the session is priced and part is not.
+    """
+
+    rate: PriceVersion | None
+    rate_unavailable_reason: str | None
+    cutoff: datetime | None
+    completeness: str
+    total: Decimal | None = None
+    known_subtotal: Decimal | None = None
+    unavailable_reason: str | None = None
+    elapsed_seconds: Decimal | None = None
+    billed_seconds: Decimal | None = None
+    allocations: tuple[dict, ...] = ()
+
+
+def _shape_label(server: GalaxyServerSession) -> str:
+    return (
+        f"{server.machine_type or 'an unknown machine type'} "
+        f"({server.purchase_model or 'unknown purchase model'}) in "
+        f"{server.region or 'an unknown region'}"
+    )
+
+
+def _server_rate(
+    server: GalaxyServerSession, prices: Sequence[PriceVersion], at: datetime
+) -> tuple[PriceVersion | None, str | None]:
+    if server.shape_conflict:
+        return None, f"The server's shape is uncertain: {server.shape_conflict}."
+    if not (server.machine_type and server.purchase_model and server.region):
+        return None, f"The server is {_shape_label(server)}, which cannot be priced."
+    if not prices:
+        return None, f"The price catalog has no rate for {_shape_label(server)}."
+    active = _active_price(prices, at)
+    if active is None:
+        earliest = min(value.effective_from for value in prices if value.effective_from)
+        return None, (
+            f"The earliest published rate for {_shape_label(server)} takes effect "
+            f"{earliest.isoformat()}."
+        )
+    return active, None
+
+
+def calculate_server_session(
+    server: GalaxyServerSession, prices: Sequence[PriceVersion]
+) -> ServerSessionCost:
+    """Price `[launch_at, cutoff]` for the current session only.
+
+    The cutoff is the last successful observation, or the provider's stop time
+    once the session has ended, so the total never accrues past what was
+    observed. Earlier sessions are not part of it, and no job's baseline
+    occupancy is added to it.
+    """
+    cutoff = server.ended_at or server.observed_at
+    rate, rate_reason = _server_rate(server, prices, cutoff)
+
+    def unavailable(reason: str) -> ServerSessionCost:
+        return ServerSessionCost(
+            rate=rate, rate_unavailable_reason=rate_reason, cutoff=cutoff,
+            completeness="unavailable", unavailable_reason=reason,
+        )
+
+    if server.launch_at is None:
+        return unavailable(server.launch_unavailable_reason or "Launch time unavailable.")
+    if server.shape_conflict:
+        return unavailable(
+            f"The shape this session was identified with is contradicted: "
+            f"{server.shape_conflict}. The total is unavailable until a new session is observed."
+        )
+    if server.state in STOPPED_SERVER_STATES and server.ended_at is None:
+        return unavailable(
+            f"The server is {server.state.lower()} and the provider did not report when this "
+            "session ended."
+        )
+    if cutoff <= server.launch_at:
+        return unavailable("No running time has been observed since this launch yet.")
+    if not prices or not (server.machine_type and server.purchase_model and server.region):
+        return unavailable(rate_reason or "No applicable machine price was found.")
+    priced = price_windows([(server.launch_at, cutoff)], prices)
+    common = {
+        "rate": rate, "rate_unavailable_reason": rate_reason, "cutoff": cutoff,
+        "elapsed_seconds": priced.observed_seconds, "billed_seconds": priced.billed_seconds,
+        "allocations": priced.allocations,
+    }
+    if not priced.uncovered:
+        return ServerSessionCost(**common, completeness="complete", total=priced.amount)
+    unpriced_until = max(end for _, end in priced.uncovered)
+    reason = (
+        f"No published rate for {_shape_label(server)} covers this session from "
+        f"{server.launch_at.isoformat()} until {unpriced_until.isoformat()}; a later rate is "
+        "never applied to earlier time."
+    )
+    if not priced.allocations:
+        return ServerSessionCost(**common, completeness="unavailable", unavailable_reason=reason)
+    return ServerSessionCost(
+        **common, completeness="partial", known_subtotal=priced.amount, unavailable_reason=reason
+    )
 
 
 # Change detection runs in the database: hashing every fact row in Python cost
@@ -249,19 +403,36 @@ def _ensure_generation(session: Session, tenant_id: uuid.UUID) -> int:
     return current_generation(session, tenant_id)
 
 
-def _applicable_prices(session: Session, lifetime: ResourceLifetime) -> list[PriceVersion]:
-    """Every price for the lifetime's shape; only those in effect while it ran apply.
+def applicable_prices(
+    session: Session,
+    *,
+    provider: str,
+    region: str | None,
+    machine_type: str | None,
+    purchase_model: str | None,
+) -> list[PriceVersion]:
+    """Every price for one shape; only those in effect at a given time apply.
 
-    Prices that take effect later are kept so an unpriced lifetime can say that
-    its shape is priced, just not for when it ran.
+    Prices that take effect later are kept so unpriced work can say that its
+    shape is priced, just not for when it ran.
     """
     statement = select(PriceVersion).where(
-        PriceVersion.provider == lifetime.provider,
-        PriceVersion.region == lifetime.region,
-        PriceVersion.machine_type == lifetime.machine_type,
-        PriceVersion.purchase_model == lifetime.purchase_model,
+        PriceVersion.provider == provider,
+        PriceVersion.region == region,
+        PriceVersion.machine_type == machine_type,
+        PriceVersion.purchase_model == purchase_model,
     )
     return list(session.scalars(statement.order_by(PriceVersion.effective_from.asc().nullsfirst())))
+
+
+def _applicable_prices(session: Session, lifetime: ResourceLifetime) -> list[PriceVersion]:
+    return applicable_prices(
+        session,
+        provider=lifetime.provider,
+        region=lifetime.region,
+        machine_type=lifetime.machine_type,
+        purchase_model=lifetime.purchase_model,
+    )
 
 
 def calculate_tenant(

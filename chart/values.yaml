@@ -112,6 +112,17 @@ collector:
     location: ""
     enrichCompute: true
     enrichLogging: true
+  # The Galaxy server's hourly rate and total since its current launch. `auto`
+  # observes it whenever the host is known (instanceId, or baseline.resourceUid).
+  # One Compute instances.get per refresh uses the existing VM credential.
+  galaxyServer:
+    enabled: auto
+    instanceId: ""              # defaults to baseline.resourceUid
+    # Only for a collector that does not run on the Galaxy host; otherwise the
+    # host's own metadata supplies these once its instance ID matches.
+    project: ""
+    zone: ""
+    refreshSeconds: 60
   intervalSeconds: 30
   batchRefreshSeconds: 30
 
