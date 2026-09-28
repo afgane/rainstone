@@ -1,0 +1,72 @@
+name: Publish Helm chart
+
+# Every commit to main republishes chart/ to CloudVE/helm-charts. The chart
+# version is not bumped yet, so a publish replaces the same version's package;
+# scripts/publish_chart.sh skips the push when the chart's contents are
+# unchanged.
+#
+# Pushing to the CloudVE org uses the same GitHub App as galaxy-helm's release
+# workflow: add its HELM_UPDATER_APP_ID and HELM_UPDATER_PKEY secrets to this
+# repository. The App must be installed on CloudVE with access to helm-charts.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: publish-chart
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+
+      - name: Lint the chart
+        run: make chart-lint
+
+      - name: Generate GitHub App token (CloudVE)
+        id: token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.HELM_UPDATER_APP_ID }}
+          private-key: ${{ secrets.HELM_UPDATER_PKEY }}
+          owner: CloudVE
+          repositories: helm-charts
+
+      - name: Push to CloudVE/helm-charts
+        env:
+          APP_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          # Another repository publishes here too; start over from the latest
+          # master when a push loses that race.
+          for attempt in 1 2 3; do
+            rm -rf "$RUNNER_TEMP/helm-charts"
+            git clone --depth 1 \
+              "https://x-access-token:${APP_TOKEN}@github.com/CloudVE/helm-charts.git" \
+              "$RUNNER_TEMP/helm-charts"
+            package=$(scripts/publish_chart.sh chart "$RUNNER_TEMP/helm-charts")
+            if [ "$package" = unchanged ]; then
+              echo "The published chart already matches ${GITHUB_SHA::7}."
+              exit 0
+            fi
+            cd "$RUNNER_TEMP/helm-charts"
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add "$package" index.yaml
+            git commit -m "Publish ${package%.tgz} from ${GITHUB_REPOSITORY}@${GITHUB_SHA::7}"
+            if git push origin HEAD:master; then
+              exit 0
+            fi
+            cd "$GITHUB_WORKSPACE"
+            sleep $((attempt * 10))
+          done
+          echo "Could not push to CloudVE/helm-charts after 3 attempts." >&2
+          exit 1
