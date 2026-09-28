@@ -87,7 +87,7 @@ regression check against a prior artifact.
    `backend/rainstone/config.py`) so installations need not configure either.
 
    **Status (2026-09-22):** done. The live key is `release-202609`, feed
-   `https://afgane.github.io/rainstone-api/gcp/latest.json`, both bundled as
+   `https://afgane.github.io/rainstone/gcp/latest.json`, both bundled as
    `backend/rainstone/config.py` defaults. Rotating the key later means
    publishing with the new key while the old one is still listed in
    `RAINSTONE_CATALOG_TRUSTED_KEYS` (comma-separated), then dropping the old
