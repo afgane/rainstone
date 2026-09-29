@@ -32,7 +32,7 @@ def test_three_recorded_batch_calculations(client) -> None:
 def test_known_zero_and_unknown_are_distinct(client) -> None:
     items = client.get("/api/jobs?basis=additional", headers=headers("admin", True)).json()["items"]
     by_id = {item["source_id"]: item for item in items}
-    assert by_id["9"]["amount"] == "0E-12"
+    assert by_id["9"]["amount"] == "0.000000000000"
     assert by_id["9"]["quality"] == "known_zero"
     assert by_id["21"]["amount"] is None
     assert by_id["21"]["quality"] == "partial"
@@ -347,3 +347,10 @@ def test_reports_name_the_published_price_list_they_use(client) -> None:
     assert price_list["url"] is None
     jobs = client.get("/api/jobs", headers=headers("alice")).json()["meta"]
     assert jobs["price_list"] == price_list
+
+
+def test_amounts_are_plain_decimals(client) -> None:
+    """A known-zero amount at the stored scale must not read "0E-12"."""
+    auth = headers("admin", True)
+    for path in ("summary", "jobs", "tools", "daily", "invocations"):
+        assert "E-" not in client.get(f"/api/{path}", headers=auth).text, path

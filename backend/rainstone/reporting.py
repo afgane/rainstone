@@ -601,7 +601,7 @@ def _undated_meta(query: ReportQuery, undated: list[dict] | None) -> dict | None
     known = [r["full_amount"] for r in undated if r["full_amount"] is not None]
     return {
         "job_count": len(undated),
-        "amount": str(sum(known, ZERO)) if known else None,
+        "amount": _money(sum(known, ZERO)) if known else None,
         "incomplete": sum(r["quality"] in INCOMPLETE_QUALITIES for r in undated),
     }
 
@@ -623,7 +623,7 @@ def _meta(
         "revision_id": str(revision.id) if revision else None,
         "calculation_version": revision.calculation_version if revision else None,
         "as_of": revision.created_at.isoformat() if revision else None,
-        "priced_subtotal": str(sum((r["amount"] for r in priced), ZERO)) if priced else None,
+        "priced_subtotal": _money(sum((r["amount"] for r in priced), ZERO)) if priced else None,
         "coverage": {
             "jobs": len(records), "priced": len(priced),
             "incomplete": sum(r["quality"] in INCOMPLETE_QUALITIES for r in records),
@@ -637,7 +637,7 @@ def _meta(
 
 def _public(record: dict) -> dict:
     return {
-        key: str(value) if isinstance(value, Decimal) else value
+        key: _money(value) if isinstance(value, Decimal) else value
         for key, value in record.items()
         if key not in {
             "job", "pairs", "attempts", "lifetime_attempts", "full_amount",
@@ -657,13 +657,13 @@ def _repeated_work(records: list[dict]) -> dict:
     failed = [r for r in records if r["state"] in {"error", "failed"}]
     repeated = [r for r in records if r["repeat_attempt_count"]]
     return {
-        "failed_spend": str(sum((r["amount"] or ZERO for r in failed), ZERO)),
+        "failed_spend": _money(sum((r["amount"] or ZERO for r in failed), ZERO)),
         "failed_job_count": len(failed),
         "failed_incomplete_job_count": sum(r["quality"] in INCOMPLETE_QUALITIES for r in failed),
-        "repeated_job_spend": str(sum((r["amount"] or ZERO for r in repeated), ZERO)),
+        "repeated_job_spend": _money(sum((r["amount"] or ZERO for r in repeated), ZERO)),
         "repeated_job_count": len(repeated),
-        "repeat_attempt_spend": str(sum((r["repeat_amount"] for r in repeated), ZERO)),
-        "repeat_attempt_shared_spend": str(sum((r["repeat_shared_amount"] for r in repeated), ZERO)),
+        "repeat_attempt_spend": _money(sum((r["repeat_amount"] for r in repeated), ZERO)),
+        "repeat_attempt_shared_spend": _money(sum((r["repeat_shared_amount"] for r in repeated), ZERO)),
         "repeat_attempt_spend_complete": all(r["repeat_amount_complete"] for r in repeated),
     }
 
@@ -785,14 +785,14 @@ def job_detail(session: Session, identity: Identity, job_id: uuid.UUID, query: R
             "resource_started_at": lifetime.observed_start,
             "resource_finished_at": lifetime.observed_end,
             "timing_method": lifetime.timing_method,
-            "requested_vcpu": str(lifetime.requested_vcpu) if lifetime.requested_vcpu is not None else None,
+            "requested_vcpu": _money(lifetime.requested_vcpu) if lifetime.requested_vcpu is not None else None,
             "requested_memory_mib": (
-                str(lifetime.requested_memory_mib)
+                _money(lifetime.requested_memory_mib)
                 if lifetime.requested_memory_mib is not None
                 else None
             ),
             "provisioned": lifetime.facts,
-            "amount": str(line.amount) if line.amount is not None else None,
+            "amount": _money(line.amount) if line.amount is not None else None,
             "quality": _quality([line]),
             "reason": line.reason,
             "provenance": line.details,
@@ -834,7 +834,7 @@ def job_detail(session: Session, identity: Identity, job_id: uuid.UUID, query: R
     result = _public(record)
     result.update({
         "interval_amount": result["amount"],
-        "full_job_amount": str(full["amount"]) if full["amount"] is not None else None,
+        "full_job_amount": _money(full["amount"]) if full["amount"] is not None else None,
         "basis": query.basis, "attempts": attempts, "resources": resources,
         "revision_id": str(revision.id) if revision else None,
     })
@@ -871,14 +871,14 @@ def tools(session: Session, identity: Identity, query: ReportQuery) -> dict:
         items.append({
             "tool_id": tool_id, "tool_name": tool_display_name(tool_id),
             "tool_version": version, "job_count": len(rows),
-            "amount": str(sum(known, ZERO)) if known else None, "priced_count": len(known),
+            "amount": _money(sum(known, ZERO)) if known else None, "priced_count": len(known),
             "incomplete_count": sum(r["quality"] in INCOMPLETE_QUALITIES for r in rows),
             "statistics": {
                 "cohort": "complete successful jobs", "sample_count": len(values),
                 "excluded_count": len(rows) - len(values),
-                "mean": str(statistics.mean(values)) if values else None,
-                "median": str(statistics.median(values)) if values else None,
-                "p95": str(p95) if p95 is not None else None,
+                "mean": _money(statistics.mean(values)) if values else None,
+                "median": _money(statistics.median(values)) if values else None,
+                "p95": _money(p95) if p95 is not None else None,
                 "method": "continuous linear interpolation (R-7)",
                 "approximate": any(r["quality"] == "approximate" for r in complete_rows),
             },
@@ -1602,12 +1602,12 @@ def daily(session: Session, identity: Identity, query: ReportQuery) -> dict:
             bucket["by_owner"][record["owner"]] += amount
             bucket["by_tool"][f"{record['tool_id']}@{record['tool_version'] or ''}"] += amount
     items = [{
-        "date": day, "amount": str(data["amount"]), "currency": "USD",
+        "date": day, "amount": _money(data["amount"]), "currency": "USD",
         "job_count": len(data["job_ids"]), "incomplete_count": len(data["incomplete_ids"]),
         "provisional": data["provisional"],
-        "by_runner": {key: str(value) for key, value in data["by_runner"].items()},
-        "by_owner": {key: str(value) for key, value in data["by_owner"].items()},
-        "by_tool": {key: str(value) for key, value in data["by_tool"].items()},
+        "by_runner": {key: _money(value) for key, value in data["by_runner"].items()},
+        "by_owner": {key: _money(value) for key, value in data["by_owner"].items()},
+        "by_tool": {key: _money(value) for key, value in data["by_tool"].items()},
     } for day, data in sorted(buckets.items())]
     return {
         "items": items,
@@ -1615,7 +1615,7 @@ def daily(session: Session, identity: Identity, query: ReportQuery) -> dict:
         "temporally_unattributed_count": sum(
             r["temporally_unattributed"] for r in [*records, *undated]
         ),
-        "temporally_unattributed_subtotal": str(
+        "temporally_unattributed_subtotal": _money(
             sum((r["unattributed_amount"] for r in [*records, *undated]), ZERO)
         ),
         "meta": _meta(session, identity, query, revision, records, undated),
@@ -1635,7 +1635,7 @@ def users(session: Session, identity: Identity, query: ReportQuery) -> dict:
         known = [row["amount"] for row in rows if row["amount"] is not None]
         items.append({
             "owner_id": owner_id, "label": label, "job_count": len(rows),
-            "amount": str(sum(known, ZERO)) if known else None,
+            "amount": _money(sum(known, ZERO)) if known else None,
             "priced_count": len(known), "incomplete_count": len(rows) - len(known),
         })
     return {
@@ -1673,12 +1673,12 @@ def infrastructure(
                 "id": str(row.id), "resource_uid": row.resource_uid,
                 "machine_type": row.machine_type, "region": row.region,
                 "observed_start": start, "observed_end": end,
-                "amount": str(row.amount * Decimal(str(fraction))),
+                "amount": _money(row.amount * Decimal(str(fraction))),
                 "currency": row.currency, "quality": row.quality.value,
             })
     return {
         "items": items,
-        "amount": str(sum((Decimal(item["amount"]) for item in items), ZERO)) if items else None,
+        "amount": _money(sum((Decimal(item["amount"]) for item in items), ZERO)) if items else None,
         "currency": "USD", "scope": "Whole baseline resources; job filters do not apportion this total.",
         "allocation_supported": False,
         "allocation_reason": "T2D allocation is unavailable without a valid component policy.",
@@ -1809,12 +1809,12 @@ def current_launch(session: Session, identity: Identity, *, now: datetime | None
             "effective_from": _iso(rate.effective_from), "observed_at": _iso(rate.observed_at),
             "kind": (rate.provenance or {}).get("kind"),
         } if rate else None,
-        "total_since_launch": str(cost.total) if cost.total is not None else None,
-        "known_subtotal": str(cost.known_subtotal) if cost.known_subtotal is not None else None,
+        "total_since_launch": _money(cost.total) if cost.total is not None else None,
+        "known_subtotal": _money(cost.known_subtotal) if cost.known_subtotal is not None else None,
         "completeness": cost.completeness,
         "unavailable_reason": cost.unavailable_reason,
-        "elapsed_seconds": str(cost.elapsed_seconds) if cost.elapsed_seconds is not None else None,
-        "billed_seconds": str(cost.billed_seconds) if cost.billed_seconds is not None else None,
+        "elapsed_seconds": _money(cost.elapsed_seconds) if cost.elapsed_seconds is not None else None,
+        "billed_seconds": _money(cost.billed_seconds) if cost.billed_seconds is not None else None,
         "calculation_revision": revision,
     }
 

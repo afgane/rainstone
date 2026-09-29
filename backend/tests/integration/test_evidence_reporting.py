@@ -171,7 +171,7 @@ def test_undated_work_is_reported_beside_a_period_never_in_it(client, tenant) ->
 def test_an_instant_of_known_zero_work_belongs_to_its_own_day(client, tenant) -> None:
     that_day = _get(client, tenant, f"jobs?{_day(datetime(2026, 9, 21, tzinfo=UTC))}")
     assert [(item["source_id"], item["amount"], item["quality"]) for item in that_day["items"]] == [
-        ("instant", "0E-12", "known_zero"),
+        ("instant", "0.000000000000", "known_zero"),
     ]
     daily = _get(client, tenant, f"daily?{_day(datetime(2026, 9, 21, tzinfo=UTC))}")
     assert [(item["date"], item["job_count"]) for item in daily["items"]] == [("2026-09-21", 1)]
