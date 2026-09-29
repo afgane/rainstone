@@ -262,7 +262,7 @@ def test_nested_invocation_membership_matches_the_recursive_evidence(source_engi
 def test_baseline_local_work_is_known_zero_and_paused_work_has_no_interval(source_engine) -> None:
     drain(GalaxyDatabaseAdapter(source_engine))
     with Session(engine) as session:
-        revision = calculate_tenant(session, TENANT_ID, reason="test")
+        calculate_tenant(session, TENANT_ID, reason="test")
         session.commit()
         jobs = {
             job.source_id: job
@@ -271,7 +271,9 @@ def test_baseline_local_work_is_known_zero_and_paused_work_has_no_interval(sourc
         lines = {
             (line.job_id, line.basis): line
             for line in session.scalars(
-                select(CostLine).where(CostLine.revision_id == revision.id)
+                select(CostLine)
+                .join(Job, CostLine.job_id == Job.id)
+                .where(Job.tenant_id == TENANT_ID)
             )
         }
         local = lines[(jobs["1"].id, "additional")]
@@ -293,10 +295,13 @@ def test_replay_and_restart_do_not_duplicate_or_revalue(source_engine) -> None:
     adapter = GalaxyDatabaseAdapter(source_engine)
     drain(adapter)
     with Session(engine) as session:
-        first = calculate_tenant(session, TENANT_ID, reason="test")
+        first_id = calculate_tenant(session, TENANT_ID, reason="test").id
         session.commit()
         before = session.scalar(
-            select(func.count()).select_from(CostLine).where(CostLine.revision_id == first.id)
+            select(func.count())
+            .select_from(CostLine)
+            .join(Job, CostLine.job_id == Job.id)
+            .where(Job.tenant_id == TENANT_ID)
         )
         lifetimes = session.scalar(
             select(func.count())
@@ -308,9 +313,12 @@ def test_replay_and_restart_do_not_duplicate_or_revalue(source_engine) -> None:
     with Session(engine) as session:
         second = calculate_tenant(session, TENANT_ID, reason="test")
         session.commit()
-        assert second.id == first.id
+        assert second.id == first_id
         assert session.scalar(
-            select(func.count()).select_from(CostLine).where(CostLine.revision_id == first.id)
+            select(func.count())
+            .select_from(CostLine)
+            .join(Job, CostLine.job_id == Job.id)
+            .where(Job.tenant_id == TENANT_ID)
         ) == before
         assert session.scalar(
             select(func.count())
@@ -432,7 +440,7 @@ def test_provider_retry_charges_one_shared_vm_lifetime(source_engine) -> None:
     with Session(engine) as session:
         result = apply_batch(session, TENANT_ID, batch)
         session.commit()
-        revision = calculate_tenant(session, TENANT_ID, reason="test")
+        calculate_tenant(session, TENANT_ID, reason="test")
         session.commit()
         assert result["attempts"] == 2
         job = session.scalar(
@@ -458,7 +466,6 @@ def test_provider_retry_charges_one_shared_vm_lifetime(source_engine) -> None:
         lines = list(
             session.scalars(
                 select(CostLine).where(
-                    CostLine.revision_id == revision.id,
                     CostLine.job_id == job.id,
                     CostLine.basis == "additional",
                 )

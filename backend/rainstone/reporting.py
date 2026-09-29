@@ -74,27 +74,17 @@ def tool_display_name(tool_id: str) -> str:
 
 
 def _revision(session: Session, identity: Identity, requested: str | None) -> CostRevision | None:
-    statement = select(CostRevision).where(CostRevision.tenant_id == identity.tenant_id)
     if requested:
         try:
-            statement = statement.where(CostRevision.id == uuid.UUID(requested))
+            requested_id = uuid.UUID(requested)
         except ValueError as exc:
             raise HTTPException(422, "Invalid calculation revision") from exc
-    revision = session.scalar(statement.order_by(CostRevision.created_at.desc(), CostRevision.id.desc()))
-    if requested and revision is None:
-        raise HTTPException(409, "Calculation revision is no longer available")
-    if requested and revision:
-        latest_id = session.scalar(
-            select(CostRevision.id)
-            .where(CostRevision.tenant_id == identity.tenant_id)
-            .order_by(CostRevision.created_at.desc(), CostRevision.id.desc())
-            .limit(1)
+    revision = session.get(CostRevision, identity.tenant_id)
+    if requested and (revision is None or revision.id != requested_id):
+        raise HTTPException(
+            409,
+            "This snapshot is stale because report facts changed; refresh to select the latest revision",
         )
-        if latest_id != revision.id:
-            raise HTTPException(
-                409,
-                "This snapshot is stale because report facts changed; refresh to select the latest revision",
-            )
     if revision and revision.facts_generation != current_generation(session, identity.tenant_id):
         raise HTTPException(
             409,
@@ -350,7 +340,6 @@ def _base_records(
             select(CostLine, ResourceLifetime)
             .join(ResourceLifetime, CostLine.lifetime_id == ResourceLifetime.id)
             .where(
-                CostLine.revision_id == revision.id,
                 CostLine.basis == query.basis,
                 CostLine.job_id.in_(job_ids),
             )

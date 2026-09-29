@@ -2,7 +2,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -438,44 +438,58 @@ def _applicable_prices(session: Session, lifetime: ResourceLifetime) -> list[Pri
 def calculate_tenant(
     session: Session, tenant_id: uuid.UUID, reason: str = "collection"
 ) -> CostRevision:
+    """Bring the tenant's one calculation up to date with its facts.
+
+    Cost lines are updated in place: only lines whose values changed are
+    written, and lines for work that no longer has a charge are removed. The
+    calculation's `id` changes with any recalculation, so a report pinned to
+    the previous calculation sees that it is stale.
+    """
     session.flush()
     generation = _ensure_generation(session, tenant_id)
-    latest = session.scalar(
-        select(CostRevision)
-        .where(
-            CostRevision.tenant_id == tenant_id,
-            CostRevision.calculation_version == CALCULATION_VERSION,
-        )
-        .order_by(CostRevision.created_at.desc(), CostRevision.id.desc())
-    )
-    if latest is not None and latest.facts_generation == generation:
-        return latest
+    current = session.get(CostRevision, tenant_id)
+    same_version = current is not None and current.calculation_version == CALCULATION_VERSION
+    if same_version and current.facts_generation == generation:
+        return current
     digest = report_fingerprint(session, tenant_id)
-    existing = session.scalar(
-        select(CostRevision).where(
-            CostRevision.tenant_id == tenant_id,
-            CostRevision.calculation_version == CALCULATION_VERSION,
-            CostRevision.input_digest == digest,
-        )
-    )
-    if existing:
-        # Replaying identical facts keeps the same revision; only its marker
+    if same_version and current.input_digest == digest:
+        # Replaying identical facts keeps the same calculation; only its marker
         # moves forward, because the rewrite advanced the generation.
-        existing.facts_generation = generation
+        current.facts_generation = generation
         session.flush()
-        return existing
+        return current
 
-    revision = CostRevision(
-        id=uuid.uuid4(),
-        tenant_id=tenant_id,
-        calculation_version=CALCULATION_VERSION,
-        input_digest=digest,
-        facts_generation=generation,
-        reason=reason,
-        created_at=datetime.now(UTC),
-    )
-    session.add(revision)
+    _write_lines(session, tenant_id, _calculate_lines(session, tenant_id))
+    if current is None:
+        current = CostRevision(tenant_id=tenant_id)
+        session.add(current)
+    current.id = uuid.uuid4()
+    current.calculation_version = CALCULATION_VERSION
+    current.input_digest = digest
+    current.facts_generation = generation
+    current.reason = reason
+    current.created_at = datetime.now(UTC)
     session.flush()
+    return current
+
+
+LineKey = tuple[uuid.UUID, uuid.UUID, str, str]
+LINE_FIELDS = (
+    "attempt_id", "amount", "currency", "quality", "reason", "price_version_id",
+    "policy_id", "details",
+)
+# The scale of `cost_line.amount`. PostgreSQL rounds half away from zero on
+# store, so rounding the same way first lets a stored amount compare equal to
+# its unchanged recalculation instead of being rewritten every time.
+AMOUNT_SCALE = Decimal("1e-12")
+
+
+def _stored_amount(amount: Decimal | None) -> Decimal | None:
+    return None if amount is None else amount.quantize(AMOUNT_SCALE, rounding=ROUND_HALF_UP)
+
+
+def _calculate_lines(session: Session, tenant_id: uuid.UUID) -> dict[LineKey, dict]:
+    """Every cost line the tenant's facts call for, keyed by what it charges."""
     policy = session.scalar(
         select(DeploymentPolicy)
         .where(DeploymentPolicy.tenant_id == tenant_id)
@@ -488,6 +502,7 @@ def calculate_tenant(
             .order_by(ResourceLifetime.resource_key)
         )
     )
+    calculated: dict[LineKey, dict] = {}
     for lifetime in lifetimes:
         segments = list(
             session.scalars(
@@ -510,7 +525,7 @@ def calculate_tenant(
         jobs = {job.id: job for _, _, job in links}
         prices = _applicable_prices(session, lifetime)
         lines = calculate_lifetime(lifetime, segments, prices, shared_job_count=len(jobs))
-        for job_id, job in jobs.items():
+        for job_id in jobs:
             attempts = [
                 attempt for _, attempt, attempt_job in links if attempt_job.id == job_id
             ]
@@ -525,36 +540,54 @@ def calculate_tenant(
                     if len(used_price_ids) == 1
                     else None
                 )
-                session.add(
-                    CostLine(
-                        id=uuid.uuid4(),
-                        revision_id=revision.id,
-                        job_id=job.id,
-                        lifetime_id=lifetime.id,
-                        # A charge shared by retries belongs to the lifetime, not
-                        # to one attempt row.
-                        attempt_id=attempts[0].id if len(attempts) == 1 else None,
-                        basis=line.basis,
-                        component="compute",
-                        amount=line.amount,
-                        currency=prices[0].currency if prices else "USD",
-                        quality=line.quality,
-                        reason=line.reason,
-                        price_version_id=single_price.id if single_price and line.amount is not None else None,
-                        policy_id=policy.id if policy else None,
-                        details={
-                            "resource_key": lifetime.resource_key,
-                            "resource_uid": lifetime.resource_uid,
-                            "machine_type": lifetime.machine_type,
-                            "timing_method": lifetime.timing_method,
-                            "billed_seconds": str(line.billed_seconds) if line.billed_seconds else None,
-                            "hourly_rate": str(single_price.hourly_rate) if single_price else None,
-                            "shared_attempt_ids": [str(attempt.id) for attempt in attempts],
-                            "shared_attempt_count": len(attempts),
-                            "shared_job_count": len(jobs),
-                            "allocations": list(line.allocations),
-                        },
-                    )
-                )
-    session.flush()
-    return revision
+                calculated[(lifetime.id, job_id, line.basis, "compute")] = {
+                    # A charge shared by retries belongs to the lifetime, not
+                    # to one attempt row.
+                    "attempt_id": attempts[0].id if len(attempts) == 1 else None,
+                    "amount": _stored_amount(line.amount),
+                    "currency": prices[0].currency if prices else "USD",
+                    "quality": line.quality,
+                    "reason": line.reason,
+                    "price_version_id": (
+                        single_price.id if single_price and line.amount is not None else None
+                    ),
+                    "policy_id": policy.id if policy else None,
+                    "details": {
+                        "resource_key": lifetime.resource_key,
+                        "resource_uid": lifetime.resource_uid,
+                        "machine_type": lifetime.machine_type,
+                        "timing_method": lifetime.timing_method,
+                        "billed_seconds": str(line.billed_seconds) if line.billed_seconds else None,
+                        "hourly_rate": str(single_price.hourly_rate) if single_price else None,
+                        "shared_attempt_ids": [str(attempt.id) for attempt in attempts],
+                        "shared_attempt_count": len(attempts),
+                        "shared_job_count": len(jobs),
+                        "allocations": list(line.allocations),
+                    },
+                }
+    return calculated
+
+
+def _write_lines(
+    session: Session, tenant_id: uuid.UUID, calculated: dict[LineKey, dict]
+) -> None:
+    stored = {
+        (line.lifetime_id, line.job_id, line.basis, line.component): line
+        for line in session.scalars(
+            select(CostLine).join(Job, CostLine.job_id == Job.id).where(Job.tenant_id == tenant_id)
+        )
+    }
+    for key, values in calculated.items():
+        line = stored.pop(key, None)
+        if line is None:
+            lifetime_id, job_id, basis, component = key
+            session.add(CostLine(
+                id=uuid.uuid4(), lifetime_id=lifetime_id, job_id=job_id, basis=basis,
+                component=component, **values,
+            ))
+            continue
+        for name in LINE_FIELDS:
+            if getattr(line, name) != values[name]:
+                setattr(line, name, values[name])
+    for line in stored.values():
+        session.delete(line)

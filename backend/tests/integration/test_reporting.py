@@ -1,11 +1,12 @@
 import uuid
-from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
+from rainstone.costing import calculate_tenant
 from rainstone.db import engine
 from rainstone.ingestion import ingest_fixture
 from rainstone.models import (
+    CostLine,
     CostRevision,
     InfrastructureInterval,
     IngestionEvent,
@@ -220,15 +221,10 @@ def test_replay_is_idempotent_and_preserves_totals(client) -> None:
 def test_stale_snapshot_is_rejected_consistently(client) -> None:
     auth = headers("alice")
     pinned = client.get("/api/summary", headers=auth).json()["revision_id"]
-    temporary_id = uuid.uuid4()
     with Session(engine) as session:
-        current = session.get(CostRevision, uuid.UUID(pinned))
-        session.add(CostRevision(
-            id=temporary_id, tenant_id=current.tenant_id,
-            calculation_version=current.calculation_version,
-            input_digest=uuid.uuid4().hex, reason="snapshot rejection regression",
-            created_at=datetime.now(UTC),
-        ))
+        current = session.scalar(select(CostRevision).where(CostRevision.id == uuid.UUID(pinned)))
+        tenant_id = current.tenant_id
+        current.id = uuid.uuid4()
         session.commit()
     try:
         for path in ("summary", "jobs", "daily", "export/jobs.csv"):
@@ -236,9 +232,42 @@ def test_stale_snapshot_is_rejected_consistently(client) -> None:
             assert response.status_code == 409
     finally:
         with Session(engine) as session:
-            temporary = session.get(CostRevision, temporary_id)
-            session.delete(temporary)
+            current = session.get(CostRevision, tenant_id)
+            current.id = uuid.UUID(pinned)
             session.commit()
+
+
+def test_recalculation_updates_cost_lines_in_place(client) -> None:
+    """Only the latest calculation is ever read, so none other is kept."""
+    auth = headers("admin", True)
+    pinned = client.get("/api/summary", headers=auth).json()["revision_id"]
+    with Session(engine) as session:
+        current = session.scalar(select(CostRevision).where(CostRevision.id == uuid.UUID(pinned)))
+        tenant_id = current.tenant_id
+        stored = {
+            line.id: line.amount
+            for line in session.scalars(
+                select(CostLine).join(Job, CostLine.job_id == Job.id).where(Job.tenant_id == tenant_id)
+            )
+        }
+        # A different digest forces a full recalculation of unchanged facts.
+        current.input_digest = "0" * 64
+        current.facts_generation = 0
+        recalculated = calculate_tenant(session, tenant_id, reason="in-place regression")
+        session.commit()
+        assert recalculated.id != uuid.UUID(pinned)
+        assert session.scalar(
+            select(func.count()).select_from(CostRevision).where(CostRevision.tenant_id == tenant_id)
+        ) == 1
+        after = {
+            line.id: line.amount
+            for line in session.scalars(
+                select(CostLine).join(Job, CostLine.job_id == Job.id).where(Job.tenant_id == tenant_id)
+            )
+        }
+    # The same rows keep their values rather than being replaced by copies.
+    assert after == stored
+    assert client.get(f"/api/summary?revision={pinned}", headers=auth).status_code == 409
 
 
 def test_current_snapshot_replays_all_report_scopes(client) -> None:

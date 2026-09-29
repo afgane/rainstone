@@ -246,13 +246,13 @@ def test_reclassification_follows_the_corrected_profile(tenant) -> None:
         assert (counts["added"], counts["removed"]) == (1, 1)
         # Provider evidence already places the Batch jobs.
         assert counts["placed_by_provider"] == 2
-        revision = calculate_tenant(session, tenant["id"], reason="test")
+        calculate_tenant(session, tenant["id"], reason="test")
         session.commit()
         lines = {
             line.job_id: line for line in session.scalars(
-                select(CostLine).where(
-                    CostLine.revision_id == revision.id, CostLine.basis == "additional"
-                )
+                select(CostLine)
+                .join(Job, CostLine.job_id == Job.id)
+                .where(Job.tenant_id == tenant["id"], CostLine.basis == "additional")
             )
         }
         unplaced = session.scalar(

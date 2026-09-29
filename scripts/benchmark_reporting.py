@@ -60,11 +60,13 @@ def main() -> None:
             session.execute(text(f"ALTER TABLE {table} DISABLE TRIGGER USER"))
         tenant = session.scalar(select(Tenant).where(Tenant.slug == "anvil-demo"))
         owner = session.scalar(select(Owner).where(Owner.tenant_id == tenant.id, Owner.source_id == "admin"))
-        revision_id = uuid.uuid4()
-        session.add(CostRevision(
-            id=revision_id, tenant_id=tenant.id, calculation_version="phase2b-benchmark",
-            input_digest=uuid.uuid4().hex * 2, reason="rolled-back benchmark", created_at=started,
-        ))
+        revision = session.get(CostRevision, tenant.id) or CostRevision(tenant_id=tenant.id)
+        revision.id = uuid.uuid4()
+        revision.calculation_version = "phase2b-benchmark"
+        revision.input_digest = uuid.uuid4().hex * 2
+        revision.reason = "rolled-back benchmark"
+        revision.created_at = started
+        session.add(revision)
         session.flush()
         batch_size = 2_000
         for base in range(0, args.jobs, batch_size):
@@ -106,7 +108,7 @@ def main() -> None:
                     "attempt_ordinal": 0, "correlation": "benchmark", "facts": {},
                 })
                 lines.append({
-                    "id": uid("line", number), "revision_id": revision_id, "job_id": job_id,
+                    "id": uid("line", number), "job_id": job_id,
                     "attempt_id": attempt_id, "lifetime_id": lifetime_id, "basis": "additional",
                     "component": "compute", "amount": Decimal("0.001618633333"), "currency": "USD",
                     "quality": Quality.complete, "reason": "Synthetic reporting benchmark.",
@@ -121,7 +123,6 @@ def main() -> None:
             session.flush()
         for table in TRIGGERED_TABLES:
             session.execute(text(f"ALTER TABLE {table} ENABLE TRIGGER USER"))
-        revision = session.get(CostRevision, revision_id)
         revision.input_digest = report_fingerprint(session, tenant.id)
         revision.facts_generation = current_generation(session, tenant.id)
         session.flush()

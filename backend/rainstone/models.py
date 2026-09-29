@@ -329,21 +329,28 @@ class LifetimeAttempt(Base):
 
 
 class CostRevision(Base):
+    """The tenant's current calculation, of which there is only ever one.
+
+    Cost lines are updated in place, so `id` is not a row identity but the
+    token a pinned report carries: it changes whenever the calculation does,
+    and a report pinned to an earlier value is stale.
+    """
+
     __tablename__ = "cost_revision"
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"))
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), primary_key=True
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), unique=True)
     calculation_version: Mapped[str] = mapped_column(String(100))
     input_digest: Mapped[str] = mapped_column(String(64))
     facts_generation: Mapped[int] = mapped_column(BigInteger, default=0)
     reason: Mapped[str] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    __table_args__ = (UniqueConstraint("tenant_id", "calculation_version", "input_digest"),)
 
 
 class CostLine(Base):
     __tablename__ = "cost_line"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    revision_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("cost_revision.id", ondelete="CASCADE"))
     job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("job.id", ondelete="CASCADE"))
     lifetime_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("resource_lifetime.id", ondelete="CASCADE")
@@ -361,7 +368,7 @@ class CostLine(Base):
     policy_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("deployment_policy.id"))
     details: Mapped[dict] = mapped_column(JSON, default=dict)
     __table_args__ = (
-        UniqueConstraint("revision_id", "lifetime_id", "job_id", "basis", "component"),
+        UniqueConstraint("lifetime_id", "job_id", "basis", "component"),
         Index("ix_cost_line_job_basis", "job_id", "basis"),
     )
 

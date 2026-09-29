@@ -13,12 +13,14 @@ in the URL. A revision records the tenant's report-generation marker, which
 database triggers advance whenever tenant, owner, job, attempt, resource
 lifetime, segment, association, policy, price, workflow membership, or
 infrastructure facts change, including through a write that bypasses the
-application. A revision that is no longer current, or whose marker has moved,
-returns a conflict instead of joining its cost lines to newer mutable
-observations. Revisions also record a content digest, so replaying identical
-facts reuses the existing revision rather than creating another. Report
+application. Each tenant has exactly one calculation, whose cost lines are
+updated in place; a recalculation gives it a new revision ID, and earlier
+revisions are not kept. A pinned revision that is no longer current, or whose
+marker has moved, returns a conflict instead of mixing figures from two
+calculations. The revision also records a content digest, so replaying
+identical facts keeps the current revision rather than recalculating. Report
 requests use a repeatable-read database snapshot so validation and aggregation
-see one state.
+see one state, including while a recalculation is being written.
 
 The default accrued mode clips each observed resource interval to the selected
 half-open range. A resource lifetime is split at catalog price boundaries. A

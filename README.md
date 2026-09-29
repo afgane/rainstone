@@ -70,8 +70,8 @@ uvicorn rainstone.main:app --host 0.0.0.0 --port 8000
 against the development environment and lint the packaged chart.
 
 The fixture command is replay-safe. It upserts source facts using stable source
-identities, records an ingestion cursor, and reuses a calculation revision when
-its source-fact and price digest is unchanged.
+identities, records an ingestion cursor, and keeps the current calculation
+when its source-fact and price digest is unchanged.
 
 ## Identity contract
 

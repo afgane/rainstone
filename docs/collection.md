@@ -14,7 +14,9 @@ its cursor and the recalculated costs together, so reports never see
 observations without a matching calculation revision and an interrupted cycle
 is simply re-collected. A failure records a visible source status with an error
 type, backs off with jitter, and leaves the cursor alone. An unchanged set of
-source facts reuses the existing revision instead of creating another.
+source facts keeps the existing revision. A changed one updates the tenant's
+cost lines in place, writing only the lines whose values changed, so storage
+follows the amount of work rather than the number of recalculations.
 
 ## Galaxy database extraction
 

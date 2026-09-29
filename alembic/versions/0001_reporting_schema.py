@@ -11,6 +11,11 @@ first real installation replay work that never ran anywhere.
 Report-affecting writes advance a per-tenant marker through statement-level
 triggers, so a write that bypasses the application still invalidates pinned
 report snapshots.
+
+The Galaxy server session row is a report fact too, but the collector rewrites
+its last observation time every minute. Treating that heartbeat as a fact change
+would mark every pinned report stale once a minute, so updates to it advance the
+marker only when something other than `observed_at` changed.
 """
 
 from rainstone import models  # noqa: F401
@@ -62,6 +67,26 @@ TENANT_SOURCES: dict[str, str] = {
 
 OPERATIONS = (("insert", "INSERT", "NEW"), ("update", "UPDATE", "NEW"), ("delete", "DELETE", "OLD"))
 
+SERVER_SESSION = "galaxy_server_session"
+SERVER_FACT_COLUMNS = (
+    "tenant_id", "provider", "resource_uid", "name", "project", "zone", "region",
+    "machine_type", "purchase_model", "state", "descriptor_source", "session_key",
+    "launch_at", "launch_source", "launch_unavailable_reason", "ended_at",
+    "shape_conflict", "first_observed_at",
+)
+_CHANGED_SERVER_FACTS = (
+    "SELECT c.tenant_id FROM changed c JOIN tenant t ON t.id = c.tenant_id "
+    "LEFT JOIN previous p ON p.id = c.id "
+    "WHERE p.id IS NULL OR "
+    f"ROW({', '.join('p.' + name for name in SERVER_FACT_COLUMNS)}) IS DISTINCT FROM "
+    f"ROW({', '.join('c.' + name for name in SERVER_FACT_COLUMNS)})"
+)
+SERVER_SESSION_TRIGGERS = (
+    ("insert", "INSERT", "NEW TABLE AS changed", _DIRECT),
+    ("update", "UPDATE", "OLD TABLE AS previous NEW TABLE AS changed", _CHANGED_SERVER_FACTS),
+    ("delete", "DELETE", "OLD TABLE AS changed", _DIRECT),
+)
+
 FUNCTION = """
 CREATE OR REPLACE FUNCTION rainstone_advance_report_generation()
 RETURNS trigger AS $$
@@ -79,24 +104,31 @@ $$ LANGUAGE plpgsql
 """
 
 
+def _create_trigger(table: str, suffix: str, operation: str, transitions: str, source: str) -> None:
+    name = f"rainstone_generation_{table}_{suffix}"
+    quoted = source.replace("'", "''")
+    op.execute(f"DROP TRIGGER IF EXISTS {name} ON {table}")
+    op.execute(f"""
+        CREATE TRIGGER {name}
+        AFTER {operation} ON {table}
+        REFERENCING {transitions}
+        FOR EACH STATEMENT
+        EXECUTE FUNCTION rainstone_advance_report_generation('{quoted}')
+    """)
+
+
 def upgrade() -> None:
     Base.metadata.create_all(bind=op.get_bind(), checkfirst=True)
     op.execute(FUNCTION)
     for table, source in TENANT_SOURCES.items():
         for suffix, operation, transition in OPERATIONS:
-            name = f"rainstone_generation_{table}_{suffix}"
-            op.execute(f"DROP TRIGGER IF EXISTS {name} ON {table}")
-            op.execute(f"""
-                CREATE TRIGGER {name}
-                AFTER {operation} ON {table}
-                REFERENCING {transition} TABLE AS changed
-                FOR EACH STATEMENT
-                EXECUTE FUNCTION rainstone_advance_report_generation('{source}')
-            """)
+            _create_trigger(table, suffix, operation, f"{transition} TABLE AS changed", source)
+    for suffix, operation, transitions, source in SERVER_SESSION_TRIGGERS:
+        _create_trigger(SERVER_SESSION, suffix, operation, transitions, source)
 
 
 def downgrade() -> None:
-    for table in TENANT_SOURCES:
+    for table in [*TENANT_SOURCES, SERVER_SESSION]:
         for suffix, _, _ in OPERATIONS:
             op.execute(f"DROP TRIGGER IF EXISTS rainstone_generation_{table}_{suffix} ON {table}")
     op.execute("DROP FUNCTION IF EXISTS rainstone_advance_report_generation()")
