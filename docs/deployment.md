@@ -47,6 +47,12 @@ docker buildx build --platform linux/amd64 --target runtime \
     -t afgane/rainstone:2.0.0b1 --push .
 ```
 
+Every commit to `main` whose CI run passes publishes this image automatically
+(`.github/workflows/publish-image.yml`), under the `appVersion` tag and a
+`sha-<commit>` tag. It needs the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`
+secrets on the repository. Until `appVersion` is bumped per release, each
+publish replaces the `appVersion` tag.
+
 `make build` produces the same image locally as `rainstone:local` for the host's
 own architecture; it is for local checks, not for the cluster.
 

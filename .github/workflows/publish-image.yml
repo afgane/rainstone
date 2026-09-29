@@ -1,0 +1,72 @@
+name: Publish image
+
+# Every commit to main whose CI run passes rebuilds the release image and
+# pushes it to Docker Hub as afgane/rainstone. The chart pulls the tag equal to
+# its appVersion, and appVersion is not bumped per commit yet, so each publish
+# replaces that tag; the sha- tag keeps every build addressable.
+#
+# A workflow_run trigger always runs the workflow file from the default branch,
+# so the commit that CI tested is checked out explicitly. A manual dispatch
+# skips the CI gate and builds the branch it is dispatched on.
+#
+# Add DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (an access token with write access
+# to afgane/rainstone) as secrets of this repository.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: publish-image
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: afgane/rainstone
+  # A pull request from a fork's main branch also matches the branch filter,
+  # which is why the job checks the triggering event below.
+  SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+
+      - name: Read the chart's appVersion
+        id: version
+        run: |
+          app_version=$(sed -n 's/^appVersion: "\(.*\)"$/\1/p' chart/Chart.yaml)
+          test -n "$app_version"
+          echo "app_version=$app_version" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.version.outputs.app_version }}
+            ${{ env.IMAGE }}:sha-${{ env.SOURCE_SHA }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
