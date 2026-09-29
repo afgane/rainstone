@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   acrossWorkflows, capacityLabel, coverageSentence, costExplanation, durationText, focusChipLabel,
   formatAxisCost, formatCost, formatDate, formatDuration, formatRate, outcomeMix, outOfRuns,
-  qualityLabel, rangeCaption, showingOf, showMore, undatedSentence,
+  costChartTitle, jobOutcomes, pieceCounts, qualityLabel, rangeCaption, showingOf, showMore,
+  undatedSentence, unplacedSentence,
 } from "./vocabulary";
 
 describe("money", () => {
@@ -115,5 +116,30 @@ describe("the Workflow runs vocabulary", () => {
     expect(focusChipLabel("2026-09-28T15:00:00Z", "2026-09-28T16:00:00Z", "UTC")).toBe("Runs active Sep 28, 3 PM–4 PM");
     expect(focusChipLabel("2026-09-28T00:00:00Z", "2026-09-29T00:00:00Z", "UTC", "completed"))
       .toBe("Runs with jobs completed Sep 28");
+  });
+});
+
+describe("the Overview vocabulary", () => {
+  it("titles the chart for its columns", () => {
+    expect(costChartTitle("day")).toBe("Daily cost");
+    expect(costChartTitle("hour")).toBe("Hourly cost");
+    expect(costChartTitle("week")).toBe("Weekly cost");
+  });
+
+  it("says what a block holds, leaving out runs for work outside a workflow", () => {
+    expect(pieceCounts(3, 9)).toBe("3 runs · 9 jobs");
+    expect(pieceCounts(1, 1)).toBe("1 run · 1 job");
+    expect(pieceCounts(0, 4)).toBe("4 jobs");
+  });
+
+  it("names failed and still-running jobs", () => {
+    expect(jobOutcomes(1, 2)).toBe("1 failed, 2 still running");
+    expect(jobOutcomes(0, 1)).toBe("1 still running");
+    expect(jobOutcomes(0, 0)).toBe("");
+  });
+
+  it("writes the unplaced note without stray spaces", () => {
+    expect(unplacedSentence(2, "1.5")).toBe("Cannot be placed in time: 2 jobs, $1.50.");
+    expect(unplacedSentence(1, null)).toBe("Cannot be placed in time: 1 job.");
   });
 });

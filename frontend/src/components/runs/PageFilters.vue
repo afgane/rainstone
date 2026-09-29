@@ -62,7 +62,7 @@ const countFor = (id: string) => (id === "" ? total.value : counts.value[id] ?? 
           :key="option.key"
           :value="option.key"
         >
-          {{ option.name }} ({{ option.run_count }})
+          {{ `${option.name} (${option.run_count})` }}
         </option>
       </select>
     </label>

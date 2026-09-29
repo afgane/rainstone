@@ -5,7 +5,7 @@ import {
   ADVANCED_FILTERS, ApiError, activeFilters, chartsNeeded, collectionCutoff, DEFAULT_RUN_CONTROLS,
   downloadExport, get, loadMoreRuns, loadReport, loadRunChart, NO_RUN_FILTERS, periodOf, queryString,
   stateFromUrl, urlQuery,
-  type AdvancedFilter, type DailyItem, type Freshness, type GroupItem, type Infrastructure,
+  type AdvancedFilter, type CostTimeline, type DailyItem, type Freshness, type GroupItem, type Infrastructure,
   type Invocation, type JobList, type Me, type ReportState, type RunsView, type RunStatus,
   type Status, type Summary, type View,
 } from "./api";
@@ -18,6 +18,7 @@ import ServerPanel from "./components/ServerPanel.vue";
 import StatusPanel from "./components/StatusPanel.vue";
 import ToolRunsPanel from "./components/ToolRunsPanel.vue";
 import ToolsPanel from "./components/ToolsPanel.vue";
+import { localDate } from "./chart/axis";
 import { describePeriod, PERIOD_LABELS, todayIn, type PeriodId } from "./periods";
 import { formatCost, formatDateTime, PRIMARY_MEASURE, RUN_SORTS } from "./vocabulary";
 
@@ -74,9 +75,12 @@ const filters = computed(() => activeFilters(state));
 const overviewParts = computed(() => (Array.isArray(viewData.value)
   ? viewData.value as Array<{ items?: unknown[] }>
   : []));
-const days = computed(() => (state.view === "overview"
-  ? (overviewParts.value[0]?.items || []) as DailyItem[]
-  : ((viewData.value as { items?: DailyItem[] } | null)?.items || [])));
+const days = computed(() => (state.view === "daily"
+  ? ((viewData.value as { items?: DailyItem[] } | null)?.items || [])
+  : []));
+const costTimeline = computed(() => (state.view === "overview"
+  ? (overviewParts.value[0] as unknown as CostTimeline | undefined) ?? null
+  : null));
 const tools = computed(() => (state.view === "overview"
   ? (overviewParts.value[1]?.items || []) as GroupItem[]
   : ((viewData.value as { items?: GroupItem[] } | null)?.items || [])));
@@ -210,8 +214,23 @@ function sort(field: string) {
   else { state.sort = field; state.direction = "asc"; }
   state.offset = 0; void refresh(true);
 }
-function selectDay(date: string) {
-  state.period = "custom"; state.fromTime = date; state.toTime = date;
+/** The calendar dates a chart block's column covers, kept inside the selected period. */
+function columnDates(target: { from: string; to: string }) {
+  const first = localDate(target.from, state.timezone);
+  const last = localDate(new Date(Date.parse(target.to) - 1).toISOString(), state.timezone);
+  const { fromDate, toDate } = period.value;
+  return { from: first < fromDate ? fromDate : first, to: last > toDate ? toDate : last };
+}
+/** The runs block on the Overview chart opens the Workflow runs page for the column's dates. */
+function openRunsWindow(target: { from: string; to: string }) {
+  const dates = columnDates(target);
+  Object.assign(state, { period: "custom", fromTime: dates.from, toTime: dates.to });
+  changeView("runs");
+}
+/** The individual jobs' block opens the Jobs page for the column's dates. */
+function openJobsWindow(target: { from: string; to: string }) {
+  const dates = columnDates(target);
+  Object.assign(state, { period: "custom", fromTime: dates.from, toTime: dates.to });
   changeView("tool-runs");
 }
 function showDemoPeriod() {
@@ -506,9 +525,10 @@ onBeforeUnmount(() => {
         :aria-busy="keepPrevious"
       >
         <OverviewPanel
-          v-if="state.view === 'overview'"
-          :state="state" :summary="summary" :days="days" :tools="tools" :runs="runs"
-          @view="changeView" @run="(id, opener) => showDetail('runs', id, true, opener)" @day="selectDay"
+          v-if="state.view === 'overview' && costTimeline"
+          :state="state" :summary="summary" :timeline="costTimeline" :tools="tools" :runs="runs"
+          @view="changeView" @run="(id, opener) => showDetail('runs', id, true, opener)"
+          @runs="openRunsWindow" @jobs="openJobsWindow"
           @demo-period="showDemoPeriod"
         />
 

@@ -10,7 +10,7 @@ const FIXTURE_PERIOD = "period=custom&from=2026-09-19&to=2026-09-20";
 test("a first-time user gets a scoped answer without typing dates", async ({ page }) => {
   await page.goto(BASE);
   await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
-  const headline = page.locator(".headline");
+  const headline = page.locator(".figure.featured");
   await expect(headline.getByText("Estimated run compute cost")).toBeVisible();
   await expect(headline.getByText("Compute started for your jobs and workflow runs")).toBeVisible();
 
@@ -536,4 +536,147 @@ test("choosing a workflow on a tall window does not throw the page towards the t
   expect(await documentHeight()).toBeGreaterThanOrEqual(scrolled + 1700 - 1);
   expect(Math.abs((await page.evaluate(() => window.scrollY)) - scrolled)).toBeLessThanOrEqual(1);
   expect(before).toBeGreaterThan(0);
+});
+
+
+/* The Overview page. */
+async function openOverview(page: Page, extra = "") {
+  await page.goto(`${BASE}?${RUNS_PERIOD}${extra}`);
+  await expect(page.locator(".figures")).toBeVisible();
+  await expect(page.locator(".chart-panel .blk").first()).toBeVisible();
+}
+
+test("Overview pairs a cost summary with a workload summary", async ({ page, request }) => {
+  const summary = await api(request, "summary");
+  const runs = (await api(request, "invocations", { limit: "1" })).totals;
+  await openOverview(page);
+  const [cost, workload] = await page.locator(".figure").all();
+  await expect(cost).toContainText("Estimated run compute cost");
+  await expect(cost).toContainText(dollars(summary.amount));
+  await expect(cost).toContainText("Compute only · USD");
+  await expect(workload).toContainText("Workload");
+  // Jobs and workflow runs each have a shaded block; the job count covers every job, in a workflow or not.
+  const [jobsBlock, runsBlock] = await workload.locator(".workload-group").all();
+  await expect(jobsBlock.locator(".figure-amount")).toHaveText(String(summary.job_count));
+  await expect(runsBlock.locator(".figure-amount")).toHaveText(String(runs.run_count));
+  await expect(jobsBlock).toContainText(/\d+ completed/);
+  await expect(runsBlock).toContainText(`Across ${runs.workflow_count} workflows`);
+  // The two cards are the same height, with no room left over in the taller.
+  const heights = await page.locator(".figure").evaluateAll(cards => cards.map(card => card.getBoundingClientRect().height));
+  expect(Math.abs(heights[0] - heights[1])).toBeLessThanOrEqual(1);
+});
+
+test("Overview's cost chart is dated, groups the runs, and has no table beneath it", async ({ page }) => {
+  await openOverview(page);
+  await expect(page.getByRole("heading", { name: "Daily cost" })).toBeVisible();
+  const labels = await page.locator(".chart-panel .xaxis .xl span").allInnerTexts();
+  expect(labels.length).toBeGreaterThan(3);
+  for (const label of labels) expect(label).toMatch(/^[A-Z][a-z]{2} \d+$/);
+  await expect(page.locator(".chart-panel .blk[data-kind='runs']").first()).toBeVisible();
+  await expect(page.locator(".chart-panel .blk[data-kind='individual']").first()).toBeVisible();
+  // However many workflows there are, no column holds more than the two blocks.
+  const blocksPerColumn = await page.locator(".chart-panel .overview-col").evaluateAll(
+    columns => columns.map(column => column.querySelectorAll(".blk").length));
+  expect(Math.max(...blocksPerColumn)).toBeLessThanOrEqual(2);
+  // The only table is the collapsed alternative to the chart.
+  await expect(page.locator(".chart-panel table")).toBeHidden();
+  await page.getByText("Show this chart as a table").click();
+  await expect(page.locator(".chart-panel table")).toBeVisible();
+});
+
+test("Overview names every day of a whole week", async ({ page }) => {
+  await page.goto(`${BASE}?period=custom&from=2026-09-14&to=2026-09-20`);
+  await expect(page.locator(".chart-panel .xaxis")).toBeVisible();
+  expect(await page.locator(".chart-panel .xaxis .xl span").allInnerTexts()).toEqual(
+    ["Sep 14", "Sep 15", "Sep 16", "Sep 17", "Sep 18", "Sep 19", "Sep 20"]);
+});
+
+test("a block on Overview explains itself", async ({ page }) => {
+  await openOverview(page);
+  await page.locator(".chart-panel .blk[data-kind='runs']").last().hover();
+  const tip = page.locator(".chart-tip");
+  await expect(tip).toBeVisible();
+  await expect(tip).toContainText("$");
+  await expect(tip).toContainText(/\d+ runs? · \d+ jobs?/);
+  await expect(tip).toContainText("Select to see the runs");
+  await page.locator(".chart-panel .blk[data-kind='individual']").last().hover();
+  await expect(tip).toContainText("Select to see the jobs");
+});
+
+test("the workflow runs block opens the Workflow runs page for that day", async ({ page }) => {
+  await openOverview(page);
+  await page.locator(".chart-panel .blk[data-kind='runs']").last().click();
+  await expect(page).toHaveURL(/view=runs/);
+  await expect(page).toHaveURL(/period=custom/);
+  // Not one workflow: the runs of them all, as the top level page shows them.
+  await expect(page).not.toHaveURL(/workflow=/);
+  await expect(page.getByRole("heading", { name: "Workflow runs" }).first()).toBeVisible();
+  await expect(page.locator(".run-card").first()).toBeVisible();
+  await expect(page.locator(".page-filters select")).toHaveValue("");
+});
+
+test("the individual jobs' block opens the jobs for that day", async ({ page }) => {
+  await openOverview(page);
+  await page.locator(".chart-panel .blk[data-kind='individual']").last().click();
+  await expect(page).toHaveURL(/view=tool-runs/);
+  await expect(page).toHaveURL(/period=custom/);
+  await expect(page.locator(".jobs-table")).toBeVisible();
+});
+
+test("pressing a column, not a block, on Overview does nothing", async ({ page }) => {
+  await openOverview(page);
+  await page.locator(".chart-panel .overview-col:not(.empty)").first().click({ position: { x: 1, y: 1 } });
+  await expect(page).not.toHaveURL(/view=runs|view=tool-runs/);
+});
+
+test("the Overview chart's table opens what its blocks open", async ({ page }) => {
+  await openOverview(page);
+  await page.getByText("Show this chart as a table").click();
+  await page.locator(".chart-panel table").getByRole("button", { name: "See runs" }).first().click();
+  await expect(page).toHaveURL(/view=runs/);
+  await expect(page).not.toHaveURL(/workflow=/);
+});
+
+test("Overview has no accessibility violations", async ({ page }) => {
+  await openOverview(page);
+  const results = await new AxeBuilder({ page }).analyze();
+  expect(results.violations.map(violation => `${violation.id}: ${violation.help}`)).toEqual([]);
+});
+
+test("a chart overlay keeps its width and stays on the screen at the window's edge", async ({ page }) => {
+  await openOverview(page);
+  const blocks = page.locator(".chart-panel .blk[data-kind='runs']");
+  await blocks.last().hover();
+  const tip = page.locator(".chart-tip");
+  await expect(tip).toBeVisible();
+  const box = (await tip.boundingBox())!;
+  const viewport = page.viewportSize()!;
+  expect(box.width).toBeGreaterThan(150);
+  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+});
+
+test("Overview no longer has a failed and repeated work section", async ({ page }) => {
+  await openOverview(page);
+  await expect(page.getByText("Failed and repeated work")).toHaveCount(0);
+});
+
+test("the masthead spans the same width as the page below it", async ({ page }) => {
+  await openOverview(page);
+  const edges = await page.evaluate(() => {
+    const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+    return {
+      brandLeft: box(".brand").left, sidebarLeft: box(".nav-item").left,
+      badgeRight: box(".demo-badge").right, contentRight: box(".figures").right,
+    };
+  });
+  expect(Math.abs(edges.brandLeft - edges.sidebarLeft)).toBeLessThanOrEqual(1);
+  expect(Math.abs(edges.badgeRight - edges.contentRight)).toBeLessThanOrEqual(1);
+});
+
+test("the workload card's blocks stay in line when a label wraps", async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 700 });
+  await openOverview(page);
+  const tops = await page.locator(".workload-group .figure-amount").evaluateAll(
+    nodes => nodes.map(node => node.getBoundingClientRect().top));
+  expect(Math.abs(tops[0] - tops[1])).toBeLessThanOrEqual(1);
 });

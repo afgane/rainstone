@@ -237,6 +237,37 @@ export interface Timeline {
   runs: Record<string, TimelineRun>; label: string; unplaced: { job_count: number; amount: string | null } | null; meta: Meta;
 }
 
+/** One block of an Overview column: all workflow runs together, or the individual jobs. */
+export interface CostPiece {
+  key: "runs" | "individual";
+  kind: "runs" | "individual";
+  name: string;
+  amount: string;
+  job_count: number;
+  run_count: number;
+  failed: number;
+  running: number;
+}
+
+export interface CostBucket {
+  from: string; to: string; amount: string | null; job_count: number; run_count: number;
+  failed_job_count: number; running_job_count: number; incomplete_job_count: number;
+  provisional: boolean; pieces: CostPiece[];
+}
+
+/** The period's workload: what ran, in the words the Overview counts it. */
+export interface WorkloadTotals {
+  amount: string | null; job_count: number;
+  by_outcome: Record<string, number>;
+  run_count: number; workflow_count: number; individual_job_count: number;
+}
+
+export interface CostTimeline {
+  bucket: BucketUnit; buckets: CostBucket[]; axis: { from: string; to: string } | null;
+  totals: WorkloadTotals; label: string;
+  unplaced: { job_count: number; amount: string | null } | null; meta: Meta;
+}
+
 /** Everything the Workflow runs page draws, from one calculation revision. */
 export interface RunsView {
   list: InvocationList;
@@ -579,14 +610,14 @@ async function loadPinnedReport(state: ReportState, signal?: AbortSignal) {
   const summary = await get<Summary>(`/summary?${initialQuery}`, signal);
   const snapshotState = { ...state, revision: summary.revision_id || state.revision };
   const query = queryString(snapshotState);
-  // The runs page reads everything it shows from the run endpoints.
-  const jobs = state.view === "runs"
-    ? Promise.resolve<JobList>({ items: [], undated_items: [], total: 0, limit: 50, offset: 0, meta: summary })
-    : get<JobList>(`/jobs?${query}`, signal);
+  // Only the Jobs page shows a job list; every other page reads what it shows from its own endpoints.
+  const jobs = state.view === "tool-runs"
+    ? get<JobList>(`/jobs?${query}`, signal)
+    : Promise.resolve<JobList>({ items: [], undated_items: [], total: 0, limit: 50, offset: 0, meta: summary });
   const common = [jobs, get<Freshness>("/freshness", signal), get<Me>("/me", signal)] as const;
   const viewRequest = state.view === "overview"
     ? Promise.all([
-        get<{ items: DailyItem[]; meta: Meta }>(`/daily?${query}`, signal),
+        get<CostTimeline>(`/timeline?${query}`, signal),
         get<{ items: GroupItem[]; meta: Meta }>(`/tools?${query}`, signal),
         get<InvocationList>(`/invocations?${topRunsQuery(snapshotState)}`, signal),
       ])

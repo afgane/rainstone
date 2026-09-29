@@ -2,7 +2,7 @@
 import { computed, ref } from "vue";
 import type { RunsView, RunTotals } from "../../api";
 import {
-  formatCost, pluralize, RUN_CHART_HINT, STRAGGLE_NOTE, SHARED_JOBS_NOTE, undatedSentence,
+  formatCost, RUN_CHART_HINT, STRAGGLE_NOTE, SHARED_JOBS_NOTE, undatedSentence, unplacedSentence,
 } from "../../vocabulary";
 import TimeBars from "./TimeBars.vue";
 import { bucketLabel } from "../../chart/layout";
@@ -252,11 +252,7 @@ function moveTab(event: KeyboardEvent) {
         {{ STRAGGLE_NOTE }}
       </p>
       <p v-if="timeline?.unplaced">
-        Cannot be placed in time: {{ pluralize(timeline.unplaced.job_count, "job") }}<template
-          v-if="timeline.unplaced.amount !== null"
-        >
-          , {{ formatCost(timeline.unplaced.amount) }}
-        </template>.
+        {{ unplacedSentence(timeline.unplaced.job_count, timeline.unplaced.amount) }}
       </p>
       <p v-if="undatedJobs">
         {{ undatedSentence(undatedJobs) }}

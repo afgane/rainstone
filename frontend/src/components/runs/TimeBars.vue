@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch, watchEffect } from "vue";
 import type { Timeline, TimelineBucket } from "../../api";
-import { axisSlots, type AxisSlot } from "../../chart/axis";
+import { axisSlots, axisText, type AxisSlot } from "../../chart/axis";
 import {
   axisLabelStep, bucketLabel, layoutSegments, MINIMUM_VERTICAL, niceScale, type Segment,
 } from "../../chart/layout";
@@ -96,13 +96,6 @@ const columns = computed(() => slots.value.map(slot => {
 const slotWidth = computed(() => Math.max(1, (width.value - AXIS_WIDTH - 40) / Math.max(1, slots.value.length)));
 const labelStep = computed(() => axisLabelStep(unit.value, slotWidth.value));
 const asOfTime = computed(() => (props.asOf ? Date.parse(props.asOf) : Infinity));
-
-function axisText(slot: AxisSlot): string {
-  const parts = (options: Intl.DateTimeFormatOptions) =>
-    new Date(slot.from).toLocaleString("en-US", { ...options, timeZone: props.timezone });
-  if (unit.value === "hour") return parts({ hour: "numeric" });
-  return parts({ month: "short", day: "numeric" });
-}
 
 function pieceTip(event: PointerEvent, bucket: TimelineBucket, id: string) {
   const piece = bucket.pieces.find(candidate => candidate.id === id);
@@ -232,7 +225,7 @@ watchEffect(() => emit("more", columns.value.some(column => column.segments.some
           class="xl"
           :class="{ future: column.slot.from >= asOfTime }"
         >
-          <span v-if="index % labelStep === 0">{{ axisText(column.slot) }}</span>
+          <span v-if="index % labelStep === 0">{{ axisText(unit, column.slot.from, timezone) }}</span>
         </div>
       </div>
     </div>

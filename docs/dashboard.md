@@ -149,3 +149,28 @@ cover the page: any press outside it closes it, a press on another run swaps
 it, and Escape or the close button returns focus to where it was opened.
 A job opened from a step uses the same drawer. Workflow version and Galaxy
 history are not shown.
+
+## Overview
+
+Two cards sit at the top, the same shape as on Workflow runs. The left is the
+cost summary: the period's estimated compute cost, "recorded so far" when some
+jobs still need cost data, and what the measure covers. The right is the
+workload, in two shaded blocks side by side: the jobs that ran, with their
+outcomes (completed, failed, running), and the workflow runs, with how many
+workflows they belong to. The job count covers every job, whether it ran in a
+workflow or on its own. Notices that need a word or an action (jobs with no
+usable timing) sit under the cards.
+
+The cost chart below is dated like the Workflow runs Over time chart: one
+column per hour (one day), day (up to 92 days) or week, every day of the period
+named with its month, and a week or month still in progress drawn whole with
+its coming days empty. Each column has at most two blocks: one for all the
+workflow runs together, and one dotted block for jobs that ran outside any
+workflow. Grouping the runs keeps a busy period readable; the Workflow runs page
+splits them by workflow. The columns add up to the total on the left. Hovering
+a block or a column says what it holds: cost, runs and jobs, and how many jobs
+failed or are still running. Selecting the runs block opens the Workflow runs
+page for that column's dates; selecting the individual jobs' block opens the
+Jobs page for those dates. The columns themselves do nothing when pressed. The
+chart's table alternative, collapsed under it, lists the same blocks with a
+button to open each, and "View daily details" still leads to the per-day table.

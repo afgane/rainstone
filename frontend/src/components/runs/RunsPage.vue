@@ -2,7 +2,8 @@
 import { computed } from "vue";
 import type { ReportState, RunsView } from "../../api";
 import { offsetBoundary, periodOf } from "../../api";
-import { describePeriod, exclusiveEnd, monthEnd, PERIOD_LABELS, shiftDays } from "../../periods";
+import { describePeriod, exclusiveEnd, PERIOD_LABELS } from "../../periods";
+import { periodAxisEnd } from "../../chart/axis";
 import RunFigures from "./RunFigures.vue";
 import RunList from "./RunList.vue";
 import RunsChart from "./RunsChart.vue";
@@ -44,12 +45,7 @@ const narrowed = computed(() => Boolean(
 ));
 const periodFrom = computed(() => offsetBoundary(period.value.fromDate, props.state.timezone));
 const periodTo = computed(() => offsetBoundary(exclusiveEnd(period.value), props.state.timezone));
-// A week or month still in progress is drawn whole, its coming days empty.
-const axisEnd = computed(() => {
-  const { id, fromDate } = period.value;
-  const lastDay = id === "this-week" ? shiftDays(fromDate, 6) : id === "this-month" ? monthEnd(fromDate) : null;
-  return lastDay ? offsetBoundary(shiftDays(lastDay, 1), props.state.timezone) : periodTo.value;
-});
+const axisEnd = computed(() => periodAxisEnd(period.value, props.state.timezone));
 const undatedJobs = computed(() => props.view.list.meta.undated?.job_count ?? 0);
 </script>
 

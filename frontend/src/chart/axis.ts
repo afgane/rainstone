@@ -1,4 +1,5 @@
 import { offsetBoundary, type BucketUnit } from "../api";
+import { monthEnd, shiftDays, type Period } from "../periods";
 
 export interface AxisSlot { from: number; to: number }
 
@@ -10,7 +11,7 @@ function addDays(date: string, days: number): string {
 }
 
 /** The calendar date an instant falls on in the report's timezone. */
-function localDate(instant: string, timezone: string): string {
+export function localDate(instant: string, timezone: string): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
   }).format(new Date(instant));
@@ -37,4 +38,22 @@ export function axisSlots(unit: BucketUnit, axis: { from: string; to: string }, 
     slots.push({ from: at(date), to: at(addDays(date, step)) });
   }
   return slots;
+}
+
+/**
+ * Where a period's chart axis ends. A week or month still in progress is drawn
+ * whole, its coming days empty; any other period ends where it does.
+ */
+export function periodAxisEnd(period: Period, timezone: string): string {
+  const lastDay = period.id === "this-week" ? shiftDays(period.fromDate, 6)
+    : period.id === "this-month" ? monthEnd(period.fromDate) : period.toDate;
+  return offsetBoundary(shiftDays(lastDay, 1), timezone);
+}
+
+/** A bucket's axis label: the hour of day, or the month and day. */
+export function axisText(unit: BucketUnit, from: number, timezone: string): string {
+  return new Date(from).toLocaleString(
+    "en-US",
+    unit === "hour" ? { hour: "numeric", timeZone: timezone } : { month: "short", day: "numeric", timeZone: timezone },
+  );
 }

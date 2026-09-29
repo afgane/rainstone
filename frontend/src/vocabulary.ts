@@ -272,3 +272,32 @@ export function focusChipLabel(from: string, to: string, timezone: string, mode 
 export function groupedChipLabel(workflowName: string): string {
   return `Smaller runs in ${workflowName}`;
 }
+
+/* The Overview's workload card and cost chart. */
+export const WORKLOAD_EYEBROW = "Workload";
+export const NO_JOBS = "No jobs in this period.";
+export const OVERVIEW_CHART_HINT =
+  "Pointer-only shortcut. The table under this chart holds the same information for "
+  + "keyboard and screen reader use.";
+
+/** A chart's title, named for its columns: hours, days or weeks. */
+export function costChartTitle(unit: "hour" | "day" | "week"): string {
+  return unit === "hour" ? "Hourly cost" : unit === "week" ? "Weekly cost" : "Daily cost";
+}
+
+/** What a block holds: "2 runs · 9 jobs", or just the jobs for work outside a workflow. */
+export function pieceCounts(runs: number, jobs: number): string {
+  return runs > 0 ? `${pluralize(runs, "run")} · ${pluralize(jobs, "job")}` : pluralize(jobs, "job");
+}
+
+/** Failed and still-running jobs, named so they are not carried by colour or texture alone. */
+export function jobOutcomes(failed: number, running: number): string {
+  return [failed && `${failed} failed`, running && `${running} still running`]
+    .filter(Boolean).join(", ");
+}
+
+/** Cost that no column can hold, because nothing says when it was incurred. */
+export function unplacedSentence(jobs: number, amount: string | null): string {
+  const cost = amount === null ? "" : `, ${formatCost(amount)}`;
+  return `Cannot be placed in time: ${pluralize(jobs, "job")}${cost}.`;
+}

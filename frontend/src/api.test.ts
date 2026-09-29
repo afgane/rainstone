@@ -209,6 +209,19 @@ describe("what each view requests", () => {
     });
   }
 
+  it("asks only the Jobs page for a job list", async () => {
+    for (const view of ["overview", "runs", "tools", "daily"] as const) {
+      const paths: string[] = [];
+      vi.stubGlobal("fetch", record(paths));
+      await loadReport(state(view));
+      expect(paths.some(path => path.includes("/jobs")), view).toBe(false);
+    }
+    const paths: string[] = [];
+    vi.stubGlobal("fetch", record(paths));
+    await loadReport(state("tool-runs"));
+    expect(paths.some(path => path.includes("/jobs?"))).toBe(true);
+  });
+
   it("asks the runs page for its list and active chart, and no job list", async () => {
     const paths: string[] = [];
     vi.stubGlobal("fetch", record(paths));

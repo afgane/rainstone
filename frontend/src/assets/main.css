@@ -14,7 +14,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .skip-link { position: fixed; z-index: 10; top: -4rem; left: 1rem; padding: .7rem 1rem; background: #fff; color: #2c3143; }
 .skip-link:focus { top: 1rem; }
 .masthead { color: white; background: linear-gradient(135deg, #2c3143, #25537b); border-bottom: 4px solid #ffd700; }
-.masthead-inner { max-width: 1180px; margin: auto; padding: 1.1rem 1.5rem; display: flex; align-items: center; justify-content: space-between; }
+.masthead-inner { max-width: 1440px; margin: auto; padding: 1.1rem 1.5rem 1.1rem .85rem; display: flex; align-items: center; justify-content: space-between; }
 .brand { display: flex; align-items: center; gap: .65rem; font-size: 1.35rem; font-weight: 700; }
 .demo-badge { border: 1px solid rgba(255,255,255,.4); border-radius: .35rem; padding: .25rem .55rem; font-size: .82rem; }
 .shell { display: grid; grid-template-columns: 260px minmax(0, 1fr); max-width: 1440px; margin: auto; }
@@ -45,13 +45,9 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .advanced span { display: block; font-size: .78rem; font-weight: 700; margin-bottom: .2rem; }
 .drawer-toggle { display: none; }
 .page-title { margin: 0 0 1rem; font-size: 1.6rem; }
-.headline { padding: 1.5rem; border-radius: .7rem; border: 1px solid rgba(37,83,123,.13); border-left: 4px solid #ffd700; background: white; box-shadow: 0 1px 3px rgba(44,49,67,.08); }
-.headline-period { margin: .1rem 0 .4rem; color: #58585a; }
-.headline-amount { margin: 0; font-size: 2.6rem; font-weight: 700; line-height: 1.1; color: #2c3143; }
-.headline-qualifier { font-size: 1rem; font-weight: 400; color: #58585a; }
-.headline-coverage { margin: .5rem 0 .2rem; font-weight: 700; }
 .measure-note { margin-left: .5rem; font-weight: 400; color: #58585a; font-size: .85rem; }
-.headline-explanation { margin: 0; color: #58585a; max-width: 65ch; }
+.overview-notes { margin: 1rem 0 0; color: #58585a; }
+.overview-notes p { margin: .25rem 0; max-width: 65ch; }
 .inline-details { margin-top: .7rem; font-size: .9rem; }
 .inline-details summary { cursor: pointer; color: #165b91; }
 .panel > .inline-details { margin: 0; padding: .9rem 1.2rem 1rem; border-top: 1px solid #eef2f6; }
@@ -126,9 +122,6 @@ td small { display: block; max-width: 320px; color: #58585a; margin-top: .2rem; 
 .empty { padding: 2rem; color: #58585a; text-align: center; }
 .snapshot { margin: 1rem 0; color: #58585a; font-size: .83rem; }
 .snapshot .stale { color: #a31d1d; font-weight: 600; }
-.trend { height: 160px; display: flex; align-items: end; gap: .65rem; padding: 1rem 1.2rem .8rem; overflow: hidden; }
-.trend button { flex: 1; min-width: 24px; max-width: 80px; border: 0; border-radius: .25rem .25rem 0 0; background: #3477a9; }
-.trend button:hover { background: #25537b; }
 .link-button { border: 0; padding: 0; color: #165b91; background: transparent; text-decoration: underline; }
 .pagination { display: flex; align-items: center; justify-content: center; gap: 1rem; padding: 1.5rem; }
 .pagination button { border: 1px solid #8da5b8; border-radius: .4rem; padding: .5rem .8rem; color: #25537b; background: white; }
@@ -158,8 +151,7 @@ footer { display: flex; gap: .4rem; align-items: center; margin-top: 1.5rem; fon
   .sidebar { position: static; max-height: none; overflow-y: visible; }
   .run-card { grid-template-columns: minmax(0, 1fr); }
   .run-cost { text-align: left; }
-  .headline-amount { font-size: 2.1rem; }
-}
+  }
 @media (max-width: 760px) {
   .figures { grid-template-columns: 1fr; }
   .wf-row { grid-template-columns: 1fr; gap: 2px; }
@@ -272,7 +264,7 @@ footer { display: flex; gap: .4rem; align-items: center; margin-top: 1.5rem; fon
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .chart-panel > .inline-details table { margin-top: .6rem; }
 
-.chart-tip { position: fixed; z-index: 30; max-width: 300px; padding: .5rem .7rem; border: 1px solid #c8d4df; border-radius: .45rem; background: white; box-shadow: 0 6px 24px rgba(44,49,67,.18); font-size: .85rem; pointer-events: none; }
+.chart-tip { position: fixed; z-index: 30; width: max-content; max-width: 300px; padding: .5rem .7rem; border: 1px solid #c8d4df; border-radius: .45rem; background: white; box-shadow: 0 6px 24px rgba(44,49,67,.18); font-size: .85rem; pointer-events: none; }
 .tip-value { color: #2c3143; font-size: 1.05rem; font-weight: 700; }
 .tip-line { color: #58585a; }
 
@@ -293,3 +285,21 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 .drawer-back { display: inline-flex; align-items: center; gap: .4rem; margin: 0 0 .8rem; padding: .3rem .6rem .3rem .3rem; border: 0; border-radius: .4rem; color: #165b91; background: transparent; }
 .drawer-back:hover { background: #edf4fa; }
+
+/* Individual jobs are dotted, so a workflow and the jobs outside one differ by more than colour. */
+.blk[data-kind="individual"], .sw[data-kind="individual"] { background: radial-gradient(circle, #3477a9 1.3px, #d5e4f0 1.6px) 0 0 / 6px 6px; }
+.overview-col { cursor: default; }
+
+
+/* The workload card groups jobs and workflow runs in two shaded blocks side by side.
+   The blocks share their rows, so a label that wraps in one never pushes its number
+   out of line with the other's. */
+.figure.workload { display: flex; flex-direction: column; }
+.workload-groups { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto auto 1fr; column-gap: .75rem; margin-top: .6rem; }
+.workload-group { min-width: 0; display: grid; grid-row: span 3; grid-template-rows: subgrid; padding: .75rem 1rem .85rem; border-radius: .5rem; background: #edf4fa; }
+.workload-label { margin: 0; color: #25537b; font-size: .8rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.workload-group .figure-amount { margin: .1rem 0 .3rem; }
+@media (max-width: 520px) {
+  .workload-groups { grid-template-columns: 1fr; grid-template-rows: repeat(6, auto); }
+  .workload-group + .workload-group { margin-top: .75rem; }
+}
