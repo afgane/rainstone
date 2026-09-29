@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { CircleDollarSign, Filter, RefreshCw } from "@lucide/vue";
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import {
   ADVANCED_FILTERS, ApiError, activeFilters, chartsNeeded, collectionCutoff, DEFAULT_RUN_CONTROLS,
   downloadExport, get, loadMoreRuns, loadReport, loadRunChart, NO_RUN_FILTERS, periodOf, queryString,
@@ -19,7 +19,7 @@ import StatusPanel from "./components/StatusPanel.vue";
 import ToolRunsPanel from "./components/ToolRunsPanel.vue";
 import ToolsPanel from "./components/ToolsPanel.vue";
 import { describePeriod, PERIOD_LABELS, todayIn, type PeriodId } from "./periods";
-import { formatCost, formatDateTime, measureName, RUN_SORTS } from "./vocabulary";
+import { formatCost, formatDateTime, PRIMARY_MEASURE, RUN_SORTS } from "./vocabulary";
 
 const TITLES: Record<View, string> = {
   overview: "Overview",
@@ -435,7 +435,6 @@ function onKey(event: KeyboardEvent) {
   if (event.key === "Escape" && !detailKind.value) drawerOpen.value = false;
 }
 
-watch(() => state.basis, () => { state.offset = 0; void refresh(true); });
 onMounted(() => {
   window.addEventListener("popstate", onPopState);
   window.addEventListener("keydown", onKey);
@@ -600,7 +599,7 @@ onBeforeUnmount(() => {
         </nav>
 
         <div v-if="state.view !== 'status'" class="snapshot">
-          {{ measureName(state.basis) }} · {{ describePeriod(period, state.timezone) }} ·
+          {{ PRIMARY_MEASURE }} · {{ describePeriod(period, state.timezone) }} ·
           <span :class="{ stale: collection.stale }">
             {{ collection.cutoff
               ? `Collected through ${formatDateTime(collection.cutoff, state.timezone)}`

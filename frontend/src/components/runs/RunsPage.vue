@@ -56,7 +56,6 @@ const undatedJobs = computed(() => props.view.list.meta.undated?.job_count ?? 0)
 <template>
   <RunFigures
     :totals="view.list.totals"
-    :basis="state.basis"
     :period-text="describePeriod(period, state.timezone)"
     :workflow-name="workflowName"
     :narrowed="narrowed"

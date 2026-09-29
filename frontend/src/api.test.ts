@@ -10,7 +10,7 @@ const EMPTY_LIST = { items: [], total: 0, limit: 50, offset: 0, meta: {} };
 
 function state(view: ReportState["view"] = "overview"): ReportState {
   return {
-    view, period: "this-month", basis: "additional", mode: "accrued",
+    view, period: "this-month", mode: "accrued",
     fromTime: "", toTime: "", timezone: "UTC", search: "", owner: "", toolId: "",
     toolVersion: "", invocationId: "", workflowId: "", state: "", runner: "",
     destination: "", capacity: "", quality: "", minCost: "", maxCost: "",

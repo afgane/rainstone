@@ -159,12 +159,6 @@ const showControls = computed(() => props.state.view !== "status");
           <label v-if="canViewUsers"><span>Galaxy account</span>
             <input 
               :value="state.owner" @change="update('owner', $event)"></label>
-          <label><span>Cost measure</span>
-            <select 
-              :value="state.basis" @change="update('basis', $event)">
-              <option value="additional">Estimated run compute cost</option>
-              <option value="allocated">Resource allocation estimate</option>
-            </select></label>
         </div>
         <button v-if="chips.length" class="link-button" @click="emit('clear')">Clear filters</button>
       </div>

@@ -8,7 +8,6 @@ export type View =
 export interface ReportState {
   view: View;
   period: PeriodId;
-  basis: Basis;
   mode: "accrued" | "completed";
   fromTime: string;
   toTime: string;
@@ -340,7 +339,7 @@ export function periodOf(state: ReportState, now = new Date()): Period {
 }
 
 export function queryString(state: ReportState, now = new Date()): string {
-  const query = new URLSearchParams({ basis: state.basis, mode: state.mode, timezone: state.timezone });
+  const query = new URLSearchParams({ mode: state.mode, timezone: state.timezone });
   const period = periodOf(state, now);
   query.set("from", offsetBoundary(period.fromDate, state.timezone));
   // Users choose an inclusive last day; the API boundary is exclusive.
@@ -414,7 +413,6 @@ export function stateFromUrl(search: string): ReportState {
   return {
     view: VIEWS.includes(view) ? view : "overview",
     period: (params.get("period") || "this-month") as PeriodId,
-    basis: params.get("basis") === "allocated" ? "allocated" : "additional",
     mode: "accrued",
     fromTime: params.get("from") || "",
     toTime: params.get("to") || "",

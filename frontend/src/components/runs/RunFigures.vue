@@ -2,12 +2,11 @@
 import { computed } from "vue";
 import type { RunTotals } from "../../api";
 import {
-  acrossWorkflows, formatCost, measureName, outcomeMix, outOfRuns, SHARED_JOBS_NOTE,
+  acrossWorkflows, formatCost, outcomeMix, outOfRuns, PRIMARY_MEASURE, SHARED_JOBS_NOTE,
 } from "../../vocabulary";
 
 const props = defineProps<{
   totals: RunTotals;
-  basis: string;
   periodText: string;
   /** The selected workflow's name, or empty when no single workflow is chosen. */
   workflowName: string;
@@ -47,7 +46,7 @@ const context = computed(() =>
         id="figure-cost"
         class="eyebrow"
       >
-        {{ measureName(basis) }}
+        {{ PRIMARY_MEASURE }}
       </p>
       <p class="figure-amount">
         {{ amountText }}

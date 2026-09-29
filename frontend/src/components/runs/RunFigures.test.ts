@@ -12,7 +12,7 @@ const TOTALS: RunTotals = {
 function figures(totals: Partial<RunTotals> = {}, props: Record<string, unknown> = {}) {
   return mount(RunFigures, {
     props: {
-      totals: { ...TOTALS, ...totals }, basis: "additional", periodText: "Sep 1, 2026 – Sep 29, 2026 (so far) · UTC",
+      totals: { ...TOTALS, ...totals }, periodText: "Sep 1, 2026 – Sep 29, 2026 (so far) · UTC",
       workflowName: "", narrowed: false, ...props,
     },
   });
@@ -99,9 +99,5 @@ describe("RunFigures", () => {
   it("says jobs shared by runs are counted once", () => {
     expect(figures({ shared_job_count: 2 }).text()).toContain("Jobs shared by these runs are counted once");
     expect(figures().text()).not.toContain("counted once");
-  });
-
-  it("names the allocation estimate when that is the measure", () => {
-    expect(figures({}, { basis: "allocated" }).text()).toContain("Resource allocation estimate");
   });
 });

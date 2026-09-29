@@ -10,21 +10,10 @@
 export const PRIMARY_MEASURE = "Estimated run compute cost";
 export const PRIMARY_EXPLANATION =
   "Compute started for your jobs and workflow runs. Your already-running Galaxy server is shown separately.";
-export const ALLOCATION_MEASURE = "Resource allocation estimate";
-export const ALLOCATION_EXPLANATION =
-  "A share of the capacity your runs occupied, priced at public rates. It answers a different question from run compute cost and is never added to it.";
 export const SERVER_EXPLANATION =
   "Your Galaxy server keeps running between jobs. This is the whole server's compute since it was last launched, including idle time, not a share of any run.";
 export const EXISTING_SERVER_SENTENCE =
   "This job used your already-running Galaxy server, so it added no compute charge. The server continues to incur costs.";
-
-export function measureName(basis: string): string {
-  return basis === "allocated" ? ALLOCATION_MEASURE : PRIMARY_MEASURE;
-}
-
-export function measureExplanation(basis: string): string {
-  return basis === "allocated" ? ALLOCATION_EXPLANATION : PRIMARY_EXPLANATION;
-}
 
 /**
  * Dates in the report's timezone, never the browser's, so a run and the day

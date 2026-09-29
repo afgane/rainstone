@@ -5,7 +5,7 @@ import { periodOf, type ReportState } from "../api";
 import { describePeriod } from "../periods";
 import ServerLaunchFigures from "./ServerLaunchFigures.vue";
 import {
-  coverageSentence, formatCost, formatDate, measureExplanation, measureName, needsCostData,
+  coverageSentence, formatCost, formatDate, PRIMARY_EXPLANATION, PRIMARY_MEASURE, needsCostData,
   pluralize, runStatusLabel, SERVER_EXPLANATION, undatedSentence,
 } from "../vocabulary";
 
@@ -58,7 +58,7 @@ const repeatedSentence = computed(() => {
 
 <template>
   <section class="headline" aria-labelledby="headline-measure">
-    <p id="headline-measure" class="eyebrow">{{ measureName(state.basis) }}</p>
+    <p id="headline-measure" class="eyebrow">{{ PRIMARY_MEASURE }}</p>
     <p class="headline-period">{{ describePeriod(period, state.timezone) }}</p>
     <p class="headline-amount">
       {{ formatCost(summary.amount) }}
@@ -78,7 +78,7 @@ const repeatedSentence = computed(() => {
       {{ undatedSentence(summary.undated.job_count) }}
       <button class="link-button" @click="emit('view', 'tool-runs')">See them</button>
     </p>
-    <p class="headline-explanation">{{ measureExplanation(state.basis) }}</p>
+    <p class="headline-explanation">{{ PRIMARY_EXPLANATION }}</p>
 
     <details v-if="failedOrRepeated" class="inline-details">
       <summary>Failed and repeated work</summary>

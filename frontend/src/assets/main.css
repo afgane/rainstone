@@ -92,8 +92,6 @@ h1, h2 { color: #2c3143; }
 h1 { margin: .3rem 0; font-size: clamp(2rem, 4vw, 3rem); }
 h2 { margin: 0; font-size: 1.3rem; display: flex; align-items: center; gap: .5rem; }
 p { margin: .25rem 0; }
-.basis-control { min-width: 250px; font-weight: 700; color: #2c3143; }
-.basis-control span { display: block; font-size: .8rem; margin-bottom: .35rem; }
 select, input { width: 100%; min-height: 42px; border: 1px solid #c8d4df; border-radius: .45rem; background: white; color: #2c3143; padding: .55rem .7rem; }
 .filters { display: grid; grid-template-columns: minmax(220px, 2fr) repeat(4, minmax(130px, 1fr)); gap: .6rem; align-items: end; margin-bottom: 1rem; padding: .8rem; border: 1px solid #d6e0e8; border-radius: .6rem; background: rgba(255,255,255,.7); }
 .filters label > span:not(.sr-only), .panel-heading label > span { display: block; margin-bottom: .25rem; color: #2c3143; font-size: .78rem; font-weight: 700; }
