@@ -2,7 +2,8 @@ import json
 from pathlib import Path
 
 import pytest
-from rainstone.catalog import CatalogError, validate
+from rainstone.catalog import CatalogError, published_url, validate
+from rainstone.models import CatalogVersion
 
 BUNDLED = Path("catalog/gcp-2026-09-19.json")
 
@@ -87,3 +88,15 @@ def test_non_positive_rates_are_refused() -> None:
     ]
     with pytest.raises(CatalogError, match="not positive"):
         validate(artifact(rates=rates), source="test")
+
+
+def test_a_fetched_catalog_links_its_own_published_version() -> None:
+    fetched = CatalogVersion(
+        catalog_id="gcp-t2d-n2-20260923T004653Z",
+        source="https://example.github.io/rainstone/gcp/latest.json",
+    )
+    assert published_url(fetched) == (
+        "https://example.github.io/rainstone/gcp/versions/gcp-t2d-n2-20260923T004653Z.json"
+    )
+    bundled = CatalogVersion(catalog_id="bundled", source="catalog/gcp-2026-09-19.json")
+    assert published_url(bundled) is None

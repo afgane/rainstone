@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from rainstone.adapters.contracts import GALAXY_RECORD_ATTEMPT_ID
 from rainstone.auth import Identity
+from rainstone.catalog import price_list
 from rainstone.costing import (
     SERVER_CALCULATION_VERSION,
     applicable_prices,
@@ -630,6 +631,7 @@ def _meta(
             "temporally_unattributed": sum(r["temporally_unattributed"] for r in records),
         },
         "undated": _undated_meta(query, undated),
+        "price_list": price_list(session),
     }
 
 

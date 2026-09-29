@@ -242,6 +242,31 @@ def fetch(
     return validate(payload, source=url, require_signature=True, trusted_keys=trusted_keys)
 
 
+def published_url(version: CatalogVersion) -> str | None:
+    """Where this exact catalog version is published, when it came from a feed.
+
+    The feed's `latest.json` moves on with every publish, while the version
+    file beside it keeps exactly the prices estimates were calculated from. A
+    bundled catalog was never fetched from a feed and has no such address.
+    """
+    feed = version.source
+    if not (feed.startswith("https://") and feed.endswith("/latest.json")):
+        return None
+    return f"{feed.removesuffix('latest.json')}versions/{version.catalog_id}.json"
+
+
+def price_list(session: Session) -> dict | None:
+    """Which price list current estimates come from, and when it was read."""
+    version = active_catalog(session)
+    if version is None:
+        return None
+    return {
+        "catalog_id": version.catalog_id,
+        "observed_at": version.observed_at.isoformat(),
+        "url": published_url(version),
+    }
+
+
 def active_catalog(session: Session) -> CatalogVersion | None:
     return session.scalar(
         select(CatalogVersion)

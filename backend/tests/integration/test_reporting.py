@@ -336,3 +336,14 @@ def test_snapshot_detects_mutable_job_membership_and_infrastructure_facts(client
             interval = session.scalar(select(InfrastructureInterval))
             interval.amount = original_amount
             session.commit()
+
+
+def test_reports_name_the_published_price_list_they_use(client) -> None:
+    meta = client.get("/api/summary", headers=headers("alice")).json()
+    price_list = meta["price_list"]
+    assert price_list["catalog_id"]
+    assert price_list["observed_at"]
+    # The fixture's catalog is bundled, not fetched from a feed.
+    assert price_list["url"] is None
+    jobs = client.get("/api/jobs", headers=headers("alice")).json()["meta"]
+    assert jobs["price_list"] == price_list

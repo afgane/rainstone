@@ -614,7 +614,13 @@ onBeforeUnmount(() => {
             <p>
               {{ summary.observation_window.semantics }} interval in
               {{ summary.observation_window.timezone }}. Amounts are estimates in USD covering
-              compute only; disks, network, discounts, credits and taxes are excluded.
+              compute only, at Google Cloud's published on-demand prices; disks, network,
+              discounts, credits and taxes are excluded.
+            </p>
+            <p v-if="summary.price_list">
+              Price list updated {{ formatDateTime(summary.price_list.observed_at, state.timezone) }}.
+              <a v-if="summary.price_list.url" :href="summary.price_list.url" target="_blank" rel="noopener">
+                Price list used for these estimates</a>
             </p>
           </details>
         </div>

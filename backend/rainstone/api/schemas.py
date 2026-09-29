@@ -34,6 +34,12 @@ class UndatedEvidence(APIModel):
     incomplete: int
 
 
+class PriceList(APIModel):
+    catalog_id: str
+    observed_at: datetime
+    url: str | None
+
+
 class ReportMeta(APIModel):
     basis: Literal["additional", "allocated"]
     currency: Literal["USD"]
@@ -45,6 +51,7 @@ class ReportMeta(APIModel):
     priced_subtotal: str | None
     coverage: Coverage
     undated: UndatedEvidence | None = None
+    price_list: PriceList | None = None
 
 
 class ServerPrice(APIModel):

@@ -192,6 +192,13 @@ when there are none. A tenant restored from a captured snapshot carries an
 `imported_snapshot` capability, returned by the summary with its capture time,
 source cutoffs and digest; it is real data and is not marked as a demo.
 
+Every report's `meta.price_list` names the active price catalog and when its
+prices were read from Google Cloud (`observed_at`), or is null when no catalog
+is loaded. Its `url` is the published copy of that exact catalog version, so a
+reader sees the rates the estimates used rather than Google's page as it reads
+today; it is null for a catalog bundled with the release. Estimates always use
+Google's published on-demand prices, never an account's own discounted rates.
+
 ## Galaxy server since its current launch
 
 `/api/infrastructure` and the summary carry `current_launch`, under the same

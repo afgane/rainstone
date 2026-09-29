@@ -57,6 +57,8 @@ export interface Meta {
   coverage: { jobs: number; priced: number; incomplete: number; known_zero: number; temporally_unattributed: number };
   /** Jobs a dated report leaves out because their cost has no usable timing. */
   undated: { job_count: number; amount: string | null; incomplete: number } | null;
+  /** The price list current estimates come from, when it was read, and where it is published. */
+  price_list: { catalog_id: string; observed_at: string; url: string | null } | null;
 }
 
 /**
