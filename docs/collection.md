@@ -43,7 +43,9 @@ Workflow attribution uses the recursive query proven on the AnVIL dev instance:
 root invocations expand through subworkflow associations, and each step
 contributes direct jobs plus implicit-collection expansions. Invocation
 ownership comes from the invocation's history, because this schema has no
-`workflow_invocation.user_id`. Job ownership is enforced separately, so a
+`workflow_invocation.user_id`. The value stored as an invocation's
+`workflow_version` is Galaxy's internal workflow ID, not the version number
+Galaxy's own screens show, so reports carry it but never display it. Job ownership is enforced separately, so a
 mismatched membership never widens a viewer's authorized cohort. Invocations
 record whether their step scheduling has settled; membership is revisited until
 it has.

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class APIModel(BaseModel):
@@ -193,12 +193,15 @@ class InvocationItem(APIModel):
     id: str
     source_id: str
     workflow_id: str
+    workflow_key: str
     workflow_name: str
     workflow_version: str | None
     parent_id: str | None
     state: str
     run_status: str
     started_at: datetime
+    finished_at: datetime | None = None
+    duration_seconds: int | None = None
     job_count: int
     run_job_count: int
     amount: str | None
@@ -209,17 +212,120 @@ class InvocationItem(APIModel):
     run_unpriced_job_count: int
     reused_job_count: int
     timing_unavailable: bool
+    # The run's cost as the charts draw it, counting a shared job once.
+    chart_amount: str | None = None
+    shared_job_count: int = 0
+
+
+class RunTotals(APIModel):
+    amount: str | None
+    incomplete_run_count: int
+    shared_job_count: int
+    run_count: int
+    by_status: dict[str, int]
+    workflow_count: int
+    unfiltered_run_count: int
+
+
+class WorkflowOption(APIModel):
+    key: str
+    name: str
+    run_count: int
+
+
+class RunFilterOptions(APIModel):
+    by_status: dict[str, int]
+    workflows: list[WorkflowOption]
 
 
 class InvocationListResponse(APIModel):
     items: list[InvocationItem]
     total: int
+    limit: int
+    offset: int
+    totals: RunTotals
+    filter_options: RunFilterOptions
     meta: ReportMeta
 
 
 class InvocationDetailResponse(InvocationItem):
     steps: list[dict[str, Any]]
     children: list[InvocationItem]
+    meta: ReportMeta
+
+
+class BreakdownRun(APIModel):
+    id: str
+    amount: str | None
+    run_total: str | None
+    chart_amount: str | None
+    shared_job_count: int
+    run_total_complete: bool
+    status: str
+    started_at: datetime
+    duration_seconds: int | None = None
+
+
+class Remainder(APIModel):
+    count: int
+    amount: str
+    failed: int
+    running: int
+    # Only a workflow's remainder is selectable, by this exact run and amount.
+    boundary: dict[str, str] | None = None
+
+
+class WholeRunRange(APIModel):
+    minimum: str | None
+    maximum: str | None
+    included_run_count: int
+    excluded_run_count: int
+
+
+class BreakdownGroup(APIModel):
+    key: str
+    name: str
+    run_count: int
+    by_status: dict[str, int] = {}
+    amount: str | None
+    incomplete_run_count: int
+    runs: list[BreakdownRun]
+    remainder: Remainder
+    whole_run_range: WholeRunRange
+
+
+class BreakdownResponse(APIModel):
+    groups: list[BreakdownGroup]
+    meta: ReportMeta
+
+
+class TimelinePiece(APIModel):
+    id: str
+    amount: str
+    status: str
+
+
+class TimelineBucket(APIModel):
+    from_: datetime = Field(alias="from")
+    to: datetime
+    amount: str | None
+    run_count: int
+    by_status: dict[str, int] = {}
+    incomplete_run_count: int
+    provisional: bool
+    pieces: list[TimelinePiece]
+    remainder: Remainder
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+
+class TimelineResponse(APIModel):
+    bucket: Literal["hour", "day", "week"]
+    buckets: list[TimelineBucket]
+    axis: dict[str, str] | None
+    runs: dict[str, dict[str, Any]] = {}
+    label: str
+    unplaced: dict[str, Any] | None = None
     meta: ReportMeta
 
 

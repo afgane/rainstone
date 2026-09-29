@@ -6,6 +6,7 @@ from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 
 from rainstone.api.schemas import (
+    BreakdownResponse,
     CatalogResponse,
     DailyResponse,
     FreshnessResponse,
@@ -17,6 +18,7 @@ from rainstone.api.schemas import (
     MeResponse,
     StatusResponse,
     SummaryResponse,
+    TimelineResponse,
     ToolListResponse,
     UserListResponse,
 )
@@ -25,8 +27,9 @@ from rainstone.catalog import coverage as catalog_coverage
 from rainstone.config import Settings, get_settings
 from rainstone.db import get_session
 from rainstone.doctor import readiness, run_checks
-from rainstone.report_query import ReportQuery, report_query
+from rainstone.report_query import ReportQuery, RunReportQuery, report_query, run_report_query
 from rainstone.reporting import (
+    breakdown,
     daily,
     export_csv,
     freshness,
@@ -36,6 +39,7 @@ from rainstone.reporting import (
     job_detail,
     list_jobs,
     summary,
+    timeline,
     tools,
     users,
     validate_snapshot,
@@ -164,11 +168,30 @@ def get_tools(
 
 @router.get("/invocations", response_model=InvocationListResponse)
 def get_invocations(
-    query: ReportQuery = Depends(report_query),
+    query: RunReportQuery = Depends(run_report_query),
     session: Session = Depends(get_session),
     identity: Identity = Depends(current_identity),
 ) -> dict:
     return invocations(session, identity, query)
+
+
+# The two literal routes come before the `{invocation_id}` route below.
+@router.get("/invocations/breakdown", response_model=BreakdownResponse)
+def get_invocation_breakdown(
+    query: RunReportQuery = Depends(run_report_query),
+    session: Session = Depends(get_session),
+    identity: Identity = Depends(current_identity),
+) -> dict:
+    return breakdown(session, identity, query)
+
+
+@router.get("/invocations/timeline", response_model=TimelineResponse)
+def get_invocation_timeline(
+    query: RunReportQuery = Depends(run_report_query),
+    session: Session = Depends(get_session),
+    identity: Identity = Depends(current_identity),
+) -> dict:
+    return timeline(session, identity, query)
 
 
 @router.get("/invocations/{invocation_id}", response_model=InvocationDetailResponse)

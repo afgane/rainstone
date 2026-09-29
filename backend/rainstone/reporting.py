@@ -3,7 +3,9 @@ import hashlib
 import io
 import statistics
 import uuid
-from collections import defaultdict
+from collections import Counter, defaultdict
+from collections.abc import Callable, Hashable, Iterable, Iterator
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -38,7 +40,7 @@ from rainstone.models import (
     ResourceLifetime,
     Tenant,
 )
-from rainstone.report_query import ReportQuery
+from rainstone.report_query import ReportQuery, RunReportQuery, as_run_query
 
 ZERO = Decimal("0")
 SORT_FIELDS = {"created_at", "source_id", "tool_id", "state", "runner", "owner", "amount"}
@@ -260,7 +262,28 @@ def _workflow_job_ids(session: Session, identity: Identity, query: ReportQuery) 
     return {row.job_id for row in rows}, invocation_ids
 
 
-def _base_records(
+@dataclass
+class _JobFacts:
+    """What a report loads about its jobs before any period is applied.
+
+    A request that needs both a period's records and the whole-job records
+    loads these once and builds each set from them.
+    """
+
+    revision: CostRevision | None
+    workflow_jobs: set[uuid.UUID]
+    jobs: list
+    line_map: dict[uuid.UUID, list[tuple[CostLine, ResourceLifetime]]]
+    attempt_map: dict[uuid.UUID, list[ExecutionAttempt]]
+    lifetime_attempts: dict[uuid.UUID, list[ExecutionAttempt]]
+    as_of: datetime
+
+
+def _columns(model, *left_out: str) -> list:
+    return [column for column in model.__table__.c if column.name not in left_out]
+
+
+def _load_job_facts(
     session: Session,
     identity: Identity,
     query: ReportQuery,
@@ -268,26 +291,31 @@ def _base_records(
     candidate_offset: int | None = None,
     candidate_limit: int | None = None,
     candidate_count: list[int] | None = None,
-    undated: list[dict] | None = None,
-) -> tuple[list[dict], CostRevision | None]:
-    """Report records for the query, one per authorized job.
+    within_runs: bool = False,
+    lifetime_facts: bool = False,
+) -> _JobFacts:
+    """Load the jobs a report needs and what costs them.
 
-    Under a date filter, a job whose cost cannot be placed in time belongs to no
-    period: it is left out of the result and appended to `undated`, so period
-    totals, counts and rankings never absorb it.
+    Facts are read as plain rows, not ORM entities: a report reads tens of
+    thousands of them and never changes one, and row objects cost a fraction of
+    an entity's identity tracking. Related rows are fetched through the same
+    job filter as a subquery, so no request carries a list of job IDs.
+    `within_runs` narrows the jobs to those a workflow run contains. Free-form
+    evidence columns that no report total reads stay in the database;
+    `lifetime_facts` brings back a resource's, which a job's detail shows.
     """
     revision = _revision(session, identity, query.revision)
-    workflow_jobs, _ = _workflow_job_ids(session, identity, query)
-    statement = (
-        select(Job, Owner).join(Owner, Job.owner_id == Owner.id)
-        .where(Job.tenant_id == identity.tenant_id)
-    )
+    as_of = revision.created_at if revision else datetime.now(UTC)
+    workflow_jobs: set[uuid.UUID] = set()
+    if query.search or query.invocation_id or query.workflow_id:
+        workflow_jobs, _ = _workflow_job_ids(session, identity, query)
+    conditions = [Job.tenant_id == identity.tenant_id]
     if not identity.is_admin:
-        statement = statement.where(Job.owner_id == identity.owner_id)
+        conditions.append(Job.owner_id == identity.owner_id)
     if query.owner:
         if not identity.is_admin and query.owner != identity.source_id:
-            return [], revision
-        statement = statement.where(Owner.source_id == query.owner)
+            return _JobFacts(revision, workflow_jobs, [], {}, {}, {}, as_of)
+        conditions.append(Owner.source_id == query.owner)
     if query.search:
         term = f"%{query.search}%"
         job_match = (
@@ -296,17 +324,28 @@ def _base_records(
         )
         if workflow_jobs:
             job_match = job_match | Job.id.in_(workflow_jobs)
-        statement = statement.where(job_match)
-    if query.tool_id:
-        statement = statement.where(Job.tool_id == query.tool_id)
-    if query.tool_version:
-        statement = statement.where(Job.tool_version == query.tool_version)
-    if query.state:
-        statement = statement.where(Job.state == query.state)
-    if query.runner:
-        statement = statement.where(Job.runner == query.runner)
-    if query.destination:
-        statement = statement.where(Job.destination == query.destination)
+        conditions.append(job_match)
+    for column, value in (
+        (Job.tool_id, query.tool_id), (Job.tool_version, query.tool_version),
+        (Job.state, query.state), (Job.runner, query.runner),
+        (Job.destination, query.destination),
+    ):
+        if value:
+            conditions.append(column == value)
+    if within_runs:
+        in_a_run = (
+            select(InvocationJob.job_id)
+            .join(Invocation, InvocationJob.invocation_id == Invocation.id)
+            .where(Invocation.tenant_id == identity.tenant_id)
+        )
+        if not identity.is_admin:
+            in_a_run = in_a_run.where(Invocation.owner_id == identity.owner_id)
+        conditions.append(Job.id.in_(in_a_run))
+    joined = Job.__table__.join(Owner.__table__, Job.owner_id == Owner.id)
+    statement = select(
+        *_columns(Job, "resource_hints"), Owner.label.label("owner_label"),
+        Owner.source_id.label("owner_source_id"),
+    ).select_from(joined).where(*conditions)
     if candidate_offset is not None and candidate_limit is not None:
         sort_columns = {
             "created_at": Job.created_at, "source_id": Job.source_id, "tool_id": Job.tool_id,
@@ -318,35 +357,79 @@ def _base_records(
     jobs = session.execute(statement).all()
     if candidate_count is not None:
         candidate_count.append(len(jobs))
-    job_ids = [job.id for job, _ in jobs]
-    line_map: dict[uuid.UUID, list[tuple[CostLine, ResourceLifetime]]] = defaultdict(list)
-    attempt_map: dict[uuid.UUID, list[ExecutionAttempt]] = defaultdict(list)
-    lifetime_attempts: dict[uuid.UUID, list[ExecutionAttempt]] = defaultdict(list)
-    if job_ids:
-        for attempt in session.scalars(
-            select(ExecutionAttempt)
-            .where(ExecutionAttempt.job_id.in_(job_ids))
+    if candidate_limit is not None:
+        scope = [job.id for job in jobs]
+    else:
+        scope = select(Job.id).select_from(joined).where(*conditions)
+    line_map: dict[uuid.UUID, list[tuple]] = defaultdict(list)
+    attempt_map: dict[uuid.UUID, list] = defaultdict(list)
+    lifetime_attempts: dict[uuid.UUID, list] = defaultdict(list)
+    if jobs:
+        attempts_by_id = {}
+        for attempt in session.execute(
+            select(*_columns(ExecutionAttempt, "facts"))
+            .where(ExecutionAttempt.job_id.in_(scope))
             .order_by(ExecutionAttempt.source_attempt_id)
         ):
             attempt_map[attempt.job_id].append(attempt)
-        for lifetime_id, attempt in session.execute(
-            select(LifetimeAttempt.lifetime_id, ExecutionAttempt)
+            attempts_by_id[attempt.id] = attempt
+        for lifetime_id, attempt_id in session.execute(
+            select(LifetimeAttempt.lifetime_id, LifetimeAttempt.attempt_id)
             .join(ExecutionAttempt, LifetimeAttempt.attempt_id == ExecutionAttempt.id)
-            .where(ExecutionAttempt.job_id.in_(job_ids))
+            .where(ExecutionAttempt.job_id.in_(scope))
         ):
-            lifetime_attempts[lifetime_id].append(attempt)
-    if revision and job_ids:
-        rows = session.execute(
-            select(CostLine, ResourceLifetime)
-            .join(ResourceLifetime, CostLine.lifetime_id == ResourceLifetime.id)
-            .where(
-                CostLine.basis == query.basis,
-                CostLine.job_id.in_(job_ids),
+            lifetime_attempts[lifetime_id].append(attempts_by_id[attempt_id])
+    if revision and jobs:
+        lines = session.execute(
+            select(*CostLine.__table__.c).where(
+                CostLine.basis == query.basis, CostLine.job_id.in_(scope)
             )
-        )
-        for line, lifetime in rows:
-            line_map[line.job_id].append((line, lifetime))
+        ).all()
+        lifetimes = {
+            lifetime.id: lifetime for lifetime in session.execute(
+                select(*_columns(ResourceLifetime, *(() if lifetime_facts else ("facts",)))).where(ResourceLifetime.id.in_(
+                    select(CostLine.lifetime_id).where(
+                        CostLine.basis == query.basis, CostLine.job_id.in_(scope)
+                    )
+                ))
+            )
+        }
+        for line in lines:
+            line_map[line.job_id].append((line, lifetimes[line.lifetime_id]))
+    return _JobFacts(revision, workflow_jobs, jobs, line_map, attempt_map, lifetime_attempts, as_of)
 
+
+def _base_records(
+    session: Session,
+    identity: Identity,
+    query: ReportQuery,
+    *,
+    candidate_offset: int | None = None,
+    candidate_limit: int | None = None,
+    candidate_count: list[int] | None = None,
+    undated: list[dict] | None = None,
+    lifetime_facts: bool = False,
+) -> tuple[list[dict], CostRevision | None]:
+    """Report records for the query, one per authorized job.
+
+    Under a date filter, a job whose cost cannot be placed in time belongs to no
+    period: it is left out of the result and appended to `undated`, so period
+    totals, counts and rankings never absorb it.
+    """
+    facts = _load_job_facts(
+        session, identity, query, candidate_offset=candidate_offset,
+        candidate_limit=candidate_limit, candidate_count=candidate_count,
+        lifetime_facts=lifetime_facts,
+    )
+    return _records_from_facts(facts, query, undated), facts.revision
+
+
+def _records_from_facts(
+    facts: _JobFacts, query: ReportQuery, undated: list[dict] | None = None
+) -> list[dict]:
+    workflow_jobs, jobs = facts.workflow_jobs, facts.jobs
+    line_map, attempt_map = facts.line_map, facts.attempt_map
+    lifetime_attempts = facts.lifetime_attempts
     invocation_jobs: set[uuid.UUID] | None = None
     if query.invocation_id or query.workflow_id:
         invocation_jobs = workflow_jobs
@@ -354,10 +437,10 @@ def _base_records(
     resourced_attempts = {
         attempt.id for users in lifetime_attempts.values() for attempt in users
     }
-    as_of = revision.created_at if revision else datetime.now(UTC)
+    as_of = facts.as_of
     dated = bool(query.from_time or query.to_time)
     records: list[dict] = []
-    for job, owner in jobs:
+    for job in jobs:
         if invocation_jobs is not None and job.id not in invocation_jobs:
             continue
         pairs = line_map[job.id]
@@ -459,7 +542,7 @@ def _base_records(
         record = {
             "id": str(job.id), "source_id": job.source_id, "tool_id": job.tool_id,
             "tool_name": tool_display_name(job.tool_id),
-            "tool_version": job.tool_version, "owner": owner.label, "owner_id": owner.source_id,
+            "tool_version": job.tool_version, "owner": job.owner_label, "owner_id": job.owner_source_id,
             "state": job.state, "runner": job.runner, "destination": job.destination,
             "created_at": job.created_at, "updated_at": job.updated_at, "amount": amount,
             "currency": "USD", "quality": quality,
@@ -488,7 +571,7 @@ def _base_records(
                 undated.append(record)
             continue
         records.append(record)
-    return records, revision
+    return records
 
 
 def _window(query: ReportQuery, records: list[dict]) -> dict:
@@ -530,7 +613,10 @@ def _meta(
     return {
         "basis": query.basis, "currency": "USD",
         "applied_filters": query.model_dump(
-            mode="json", exclude={"limit", "offset", "undated_offset", "sort", "direction"}
+            mode="json",
+            exclude={
+                "limit", "offset", "undated_offset", "sort", "direction", "run_sort", "bucket",
+            },
         ),
         "observation_window": _window(query, records),
         "revision_id": str(revision.id) if revision else None,
@@ -669,7 +755,9 @@ def job_detail(session: Session, identity: Identity, job_id: uuid.UUID, query: R
         "min_cost": None, "max_cost": None, "quality": None,
     })
     undated: list[dict] = []
-    records, revision = _base_records(session, identity, unrestricted, undated=undated)
+    records, revision = _base_records(
+        session, identity, unrestricted, undated=undated, lifetime_facts=True
+    )
     record = next((r for r in [*records, *undated] if r["id"] == str(job_id)), None)
     if not record:
         return None
@@ -824,99 +912,377 @@ def _run_status(invocation_state: str, rows: list[dict]) -> str:
     return "completed"
 
 
-def invocations(session: Session, identity: Identity, query: ReportQuery, roots_only: bool = True) -> dict:
+def _money(value: Decimal | None) -> str | None:
+    """An exact decimal string; null stays unknown rather than becoming zero."""
+    return None if value is None else format(value, "f")
+
+
+def _sum_known(values: Iterable[Decimal | None]) -> Decimal | None:
+    known = [value for value in values if value is not None]
+    return sum(known, ZERO) if known else None
+
+
+@dataclass
+class _RunSet:
+    """Every run the shared filters admit, before any page filter narrows them."""
+
+    runs: list[dict]
+    records: list[dict]
+    record_by_job: dict[uuid.UUID, dict]
+    undated: list[dict]
+    revision: CostRevision | None
+    as_of: datetime
+
+
+@dataclass
+class _Matching:
+    """The runs every page filter admits, with each shared job assigned once."""
+
+    run_set: _RunSet
+    runs: list[dict]
+    # The matching root each job's cost is drawn under in the charts.
+    assigned: dict[uuid.UUID, uuid.UUID]
+    sharing: dict[uuid.UUID, int]
+
+
+def _invocation_job_sets(
+    session: Session, identity: Identity
+) -> tuple[list[Invocation], dict[uuid.UUID, set[uuid.UUID]]]:
+    """Each authorized invocation with its own jobs and those of every descendant.
+
+    A root run's jobs include the jobs of its child workflows, once, so a job
+    reachable through several nested memberships is one job of the root.
+    """
+    authorized = _authorized_invocations(session, identity)
+    by_id = {inv.id: inv for inv in authorized}
+    # A malformed cross-owner membership cannot expand a viewer's authorized cohort.
+    statement = (
+        select(InvocationJob.invocation_id, InvocationJob.job_id)
+        .join(Invocation, InvocationJob.invocation_id == Invocation.id)
+        .join(Job, InvocationJob.job_id == Job.id)
+        .where(
+            Invocation.tenant_id == identity.tenant_id,
+            Job.tenant_id == identity.tenant_id,
+            Job.owner_id == Invocation.owner_id,
+        )
+    )
+    if not identity.is_admin:
+        statement = statement.where(Invocation.owner_id == identity.owner_id)
+    own: dict[uuid.UUID, set[uuid.UUID]] = defaultdict(set)
+    for invocation_id, job_id in session.execute(statement):
+        own[invocation_id].add(job_id)
+    sets = {inv.id: set(own.get(inv.id, ())) for inv in authorized}
+    for inv in authorized:
+        jobs = own.get(inv.id)
+        if not jobs:
+            continue
+        seen = {inv.id}
+        ancestor = inv.parent_id
+        while ancestor in by_id and ancestor not in seen:
+            seen.add(ancestor)
+            sets[ancestor] |= jobs
+            ancestor = by_id[ancestor].parent_id
+    return authorized, sets
+
+
+def _job_amount(record: dict, query: ReportQuery) -> Decimal | None:
+    """A job's cost inside the report period, as runs count it.
+
+    Without a date range the period is all time, so cost with no usable timing
+    belongs to it: it is then part of the job's amount, not set beside it.
+    """
+    amount = record["amount"]
+    if amount is None or query.from_time or query.to_time or query.mode != "accrued":
+        return amount
+    return amount + record["unattributed_amount"]
+
+
+JOB_FILTERS = (
+    "tool_id", "tool_version", "state", "runner", "destination", "capacity", "quality",
+    "min_cost", "max_cost", "owner",
+)
+
+
+def _run_records(
+    session: Session, identity: Identity, query: RunReportQuery, roots_only: bool = True
+) -> _RunSet:
+    """One record per run: identity, status, timing, period share and whole-run total.
+
+    Job-level filters shape the jobs a run is made of; the workflow and run
+    selections in the query pick which runs are admitted here. Search and the
+    run-only filters are page filters and are applied by `_select_runs`.
+    """
+    job_query = query.model_copy(update={"search": None, "invocation_id": None, "workflow_id": None})
+    facts = _load_job_facts(session, identity, job_query, within_runs=True)
+    undated: list[dict] = []
+    records = _records_from_facts(facts, job_query, undated)
+    dated = bool(query.from_time or query.to_time)
+    full_records = _records_from_facts(
+        facts, job_query.model_copy(update={"from_time": None, "to_time": None})
+    ) if dated else records
+    by_id = {uuid.UUID(r["id"]): r for r in records}
+    full_by_id = {uuid.UUID(r["id"]): r for r in full_records}
+    authorized, job_sets = _invocation_job_sets(session, identity)
+    filtered_jobs = any(getattr(query, name) not in (None, "") for name in JOB_FILTERS)
+    requested_id: uuid.UUID | None = None
+    if query.invocation_id:
+        try:
+            requested_id = uuid.UUID(query.invocation_id)
+        except ValueError:
+            requested_id = None
+    runs: list[dict] = []
+    for inv in sorted(authorized, key=lambda value: value.created_at, reverse=True):
+        if roots_only and inv.parent_id is not None:
+            continue
+        if query.invocation_id and (
+            inv.id != requested_id if requested_id else inv.source_id != query.invocation_id
+        ):
+            continue
+        if query.workflow_id and (inv.workflow_id or inv.source_id) != query.workflow_id:
+            continue
+        job_ids = job_sets[inv.id]
+        rows = [by_id[job_id] for job_id in job_ids if job_id in by_id]
+        full_rows = [full_by_id[job_id] for job_id in job_ids if job_id in full_by_id]
+        started_at = min((row["created_at"] for row in full_rows), default=inv.created_at)
+        # A dated report lists the runs that used compute in the period. A run
+        # whose jobs have no usable timing belongs to no period; its jobs are
+        # reported beside the period as undated work instead.
+        if not rows and (filtered_jobs or dated):
+            continue
+        amounts = {uuid.UUID(row["id"]): _job_amount(row, job_query) for row in rows}
+        amount = _sum_known(amounts.values())
+        run_total = _sum_known(row["full_amount"] for row in full_rows)
+        unpriced = sum(row["quality"] in INCOMPLETE_QUALITIES for row in full_rows)
+        status = _run_status(inv.state, full_rows)
+        finishes = [
+            attempt.tool_finished_at for row in full_rows
+            for attempt in row["attempts"] if attempt.tool_finished_at
+        ]
+        finished_at = None if status == "running" or not finishes else max(finishes)
+        ends_at = facts.as_of if status == "running" else finished_at
+        runs.append({
+            "id": str(inv.id), "source_id": inv.source_id,
+            "workflow_id": inv.workflow_id or inv.source_id,
+            "workflow_key": inv.workflow_family_id or inv.workflow_id or inv.workflow_name,
+            "workflow_name": inv.workflow_name, "workflow_version": inv.workflow_version,
+            "parent_id": str(inv.parent_id) if inv.parent_id else None, "state": inv.state,
+            "run_status": status,
+            "started_at": started_at, "finished_at": finished_at,
+            "duration_seconds": (
+                int(max(0.0, (ends_at - started_at).total_seconds())) if ends_at else None
+            ),
+            "job_count": len(rows),
+            "run_job_count": len(full_rows),
+            # The period's share of this run, and the run as a whole.
+            "amount": _money(amount),
+            "run_total": _money(run_total),
+            "run_total_complete": unpriced == 0 and bool(full_rows),
+            "currency": "USD",
+            "unpriced_job_count": sum(row["quality"] in INCOMPLETE_QUALITIES for row in rows),
+            "run_unpriced_job_count": unpriced,
+            "reused_job_count": sum(bool(row["job"].copied_from_source_id) for row in full_rows),
+            "timing_unavailable": bool(full_rows) and all(
+                row["temporally_unattributed"] for row in full_rows
+            ),
+            "chart_amount": None, "shared_job_count": 0,
+            "_id": inv.id, "_amount": amount, "_run_total": run_total, "_amounts": amounts,
+            "_rows": rows,
+            "_search": f"{inv.source_id} {inv.workflow_id or ''} {inv.workflow_name}".casefold(),
+            "_focus_hit": None,
+        })
+    return _RunSet(runs, records, by_id, undated, facts.revision, facts.as_of)
+
+
+def _active_in_focus(run: dict, query: RunReportQuery, as_of: datetime) -> bool:
+    """Whether any of the run's jobs has timing inside the focus window."""
+    if run["_focus_hit"] is None:
+        window = query.model_copy(update={"from_time": query.focus_from, "to_time": query.focus_to})
+        hit = False
+        for record in run["_rows"]:
+            if query.mode == "completed":
+                completed_at = record["completed_at"]
+                hit = bool(completed_at) and query.focus_from <= completed_at < query.focus_to
+            else:
+                hit = any(
+                    _slice_fraction(start, end, window) > 0
+                    for line, lifetime in record["pairs"]
+                    for start, end, _ in _line_slices(line, lifetime, as_of)
+                )
+            if hit:
+                break
+        run["_focus_hit"] = hit
+    return run["_focus_hit"]
+
+
+def _select_runs(
+    run_set: _RunSet, query: RunReportQuery, *, ignoring: str | None = None
+) -> list[dict]:
+    """The runs that match every page filter.
+
+    `ignoring` names one control, `run_status` or `workflow_key`, whose own
+    choice is set aside to see what else it could select. The grouped bounds
+    describe the grouping that choice produced, so they are set aside with it.
+    """
+    term = (query.search or "").casefold()
+    boundary = uuid.UUID(query.boundary_run_id) if query.boundary_run_id else None
+    selected = []
+    for run in run_set.runs:
+        if term and term not in run["_search"]:
+            continue
+        if query.workflow_key and ignoring != "workflow_key" and run["workflow_key"] != query.workflow_key:
+            continue
+        if query.run_status and ignoring != "run_status" and run["run_status"] != query.run_status:
+            continue
+        if query.focus_from and not _active_in_focus(run, query, run_set.as_of):
+            continue
+        if boundary is not None and ignoring is None:
+            amount = run["_amount"]
+            if amount is None or not (
+                amount < query.max_run_amount
+                or (amount == query.max_run_amount and run["_id"] >= boundary)
+            ):
+                continue
+        selected.append(run)
+    return selected
+
+
+def _matching_runs(
+    session: Session, identity: Identity, query: RunReportQuery
+) -> _Matching:
+    run_set = _run_records(session, identity, query)
+    runs = _select_runs(run_set, query)
+    assigned, sharing = _attribute_shared_jobs(runs)
+    return _Matching(run_set, runs, assigned, sharing)
+
+
+def _attribute_shared_jobs(
+    runs: list[dict],
+) -> tuple[dict[uuid.UUID, uuid.UUID], dict[uuid.UUID, int]]:
+    """Draw each job's cost under one matching root, so charts add up to the card.
+
+    The root with the lowest UUID takes a shared job. This is a display rule,
+    not a claim about which run caused the work, and it changes only
+    `chart_amount` and `shared_job_count`: a run's own amount and whole-run
+    total keep counting every job it contains.
+    """
+    assigned: dict[uuid.UUID, uuid.UUID] = {}
+    sharing: dict[uuid.UUID, int] = defaultdict(int)
+    for run in runs:
+        for job_id in run["_amounts"]:
+            sharing[job_id] += 1
+            if job_id not in assigned or run["_id"] < assigned[job_id]:
+                assigned[job_id] = run["_id"]
+    for run in runs:
+        run["shared_job_count"] = sum(sharing[job_id] > 1 for job_id in run["_amounts"])
+        run["_chart_amount"] = None
+        if run["_amount"] is not None:
+            run["_chart_amount"] = _sum_known(
+                amount for job_id, amount in run["_amounts"].items()
+                if assigned[job_id] == run["_id"]
+            ) or ZERO
+        run["chart_amount"] = _money(run["_chart_amount"])
+    return assigned, sharing
+
+
+def _run_totals(matching: _Matching, unfiltered: int) -> dict:
+    runs = matching.runs
+    by_status: dict[str, int] = defaultdict(int)
+    for run in runs:
+        by_status[run["run_status"]] += 1
+    return {
+        # Summed over unique jobs, so a job shared by two runs is counted once.
+        "amount": _money(_sum_known(run["_chart_amount"] for run in runs)),
+        "incomplete_run_count": sum(run["unpriced_job_count"] > 0 for run in runs),
+        "shared_job_count": sum(count > 1 for count in matching.sharing.values()),
+        "run_count": len(runs),
+        "by_status": dict(by_status),
+        "workflow_count": len({run["workflow_key"] for run in runs}),
+        "unfiltered_run_count": unfiltered,
+    }
+
+
+def _filter_options(run_set: _RunSet, query: RunReportQuery) -> dict:
+    """What each sidebar control could select if its own choice were cleared."""
+    by_status: dict[str, int] = defaultdict(int)
+    for run in _select_runs(run_set, query, ignoring="run_status"):
+        by_status[run["run_status"]] += 1
+    if query.run_status:
+        by_status.setdefault(query.run_status, 0)
+    workflows: dict[str, dict] = {}
+    for run in sorted(
+        _select_runs(run_set, query, ignoring="workflow_key"), key=lambda value: value["started_at"]
+    ):
+        entry = workflows.setdefault(
+            run["workflow_key"], {"key": run["workflow_key"], "name": "", "run_count": 0}
+        )
+        # A workflow that was renamed is called by its newest name.
+        entry["name"] = run["workflow_name"]
+        entry["run_count"] += 1
+    if query.workflow_key and query.workflow_key not in workflows:
+        known = next((run for run in run_set.runs if run["workflow_key"] == query.workflow_key), None)
+        workflows[query.workflow_key] = {
+            "key": query.workflow_key, "run_count": 0,
+            "name": known["workflow_name"] if known else query.workflow_key,
+        }
+    return {
+        "by_status": dict(by_status),
+        "workflows": sorted(workflows.values(), key=lambda value: (value["name"].casefold(), value["key"])),
+    }
+
+
+def _public_run(run: dict) -> dict:
+    return {key: value for key, value in run.items() if not key.startswith("_")}
+
+
+RUN_SORT_VALUES = {
+    "started_at": lambda run: run["started_at"],
+    "amount": lambda run: run["_amount"],
+    "run_total": lambda run: run["_run_total"],
+    "duration": lambda run: run["duration_seconds"],
+}
+
+
+def _sort_runs(runs: list[dict], query: RunReportQuery) -> list[dict]:
+    value = RUN_SORT_VALUES[query.run_sort]
+    known = [run for run in runs if value(run) is not None]
+    missing = [run for run in runs if value(run) is None]
+    known.sort(key=lambda run: (value(run), run["id"]), reverse=query.direction == "desc")
+    return known + sorted(missing, key=lambda run: run["id"])
+
+
+def _run_meta(session: Session, identity: Identity, query: RunReportQuery, run_set: _RunSet) -> dict:
+    return _meta(session, identity, query, run_set.revision, run_set.records, run_set.undated)
+
+
+def invocations(session: Session, identity: Identity, query: ReportQuery) -> dict:
     """Workflow runs, with a full-run total beside the selected period's cost.
 
     "What did this run cost?" and "what did I spend last week?" are different
     questions: the run total covers the whole run, while the period amount is
-    the part accrued inside the selected interval.
+    the part accrued inside the selected interval. `totals` and
+    `filter_options` describe the whole filtered set, never the page.
     """
-    undated: list[dict] = []
-    records, revision = _base_records(session, identity, query, undated=undated)
-    by_id = {uuid.UUID(r["id"]): r for r in records}
-    full_query = query.model_copy(update={"from_time": None, "to_time": None})
-    dated = bool(query.from_time or query.to_time)
-    full_records = (
-        _base_records(session, identity, full_query)[0] if dated else records
-    )
-    full_by_id = {uuid.UUID(r["id"]): r for r in full_records}
-    permitted = _authorized_invocations(session, identity)
-    _, selected_ids = _workflow_job_ids(session, identity, query)
-    constrained = bool(query.invocation_id or query.workflow_id)
-    items = []
-    for inv in sorted(permitted, key=lambda value: value.created_at, reverse=True):
-        if roots_only and inv.parent_id is not None:
-            continue
-        if constrained and inv.id not in selected_ids:
-            continue
-        job_ids = set(session.scalars(
-            select(InvocationJob.job_id)
-            .join(Job, InvocationJob.job_id == Job.id)
-            .where(InvocationJob.invocation_id == inv.id, Job.owner_id == inv.owner_id)
-        ))
-        rows = [by_id[job_id] for job_id in job_ids if job_id in by_id]
-        full_rows = [full_by_id[job_id] for job_id in job_ids if job_id in full_by_id]
-        search_hit = (query.search or "").casefold() in (
-            f"{inv.source_id} {inv.workflow_name} {inv.workflow_version or ''}".casefold()
-        )
-        if query.search and not search_hit and not rows:
-            continue
-        started_at = min(
-            (row["created_at"] for row in full_rows), default=inv.created_at
-        )
-        # The period scopes which runs are listed: a run appears when it
-        # accrued cost inside it, or when the run itself started inside it.
-        if dated and not rows:
-            within = (not query.from_time or started_at >= query.from_time) and (
-                not query.to_time or started_at < query.to_time
-            )
-            if not within:
-                continue
-        known = [r["amount"] for r in rows if r["amount"] is not None]
-        full_known = [r["full_amount"] for r in full_rows if r["full_amount"] is not None]
-        incomplete = sum(
-            r["quality"] in INCOMPLETE_QUALITIES for r in full_rows
-        )
-        items.append({
-            "id": str(inv.id), "source_id": inv.source_id,
-            "workflow_id": inv.workflow_id or inv.source_id,
-            "workflow_name": inv.workflow_name, "workflow_version": inv.workflow_version,
-            "parent_id": str(inv.parent_id) if inv.parent_id else None, "state": inv.state,
-            "run_status": _run_status(inv.state, full_rows),
-            "started_at": started_at,
-            "job_count": len(rows),
-            "run_job_count": len(full_rows),
-            # The period's share of this run, and the run as a whole.
-            "amount": str(sum(known, ZERO)) if known else None,
-            "run_total": str(sum(full_known, ZERO)) if full_known else None,
-            "run_total_complete": incomplete == 0 and bool(full_rows),
-            "currency": "USD",
-            "unpriced_job_count": sum(r["quality"] in INCOMPLETE_QUALITIES for r in rows),
-            "run_unpriced_job_count": incomplete,
-            "reused_job_count": sum(bool(r["job"].copied_from_source_id) for r in full_rows),
-            "timing_unavailable": bool(full_rows) and all(
-                row["temporally_unattributed"] for row in full_rows
-            ),
-        })
+    query = as_run_query(query)
+    matching = _matching_runs(session, identity, query)
+    ordered = _sort_runs(matching.runs, query)
     return {
-        "items": items[query.offset:query.offset + query.limit], "total": len(items),
-        "limit": query.limit, "offset": query.offset,
-        "meta": _meta(session, identity, query, revision, records, undated),
+        "items": [_public_run(run) for run in ordered[query.offset:query.offset + query.limit]],
+        "total": len(ordered), "limit": query.limit, "offset": query.offset,
+        "totals": _run_totals(matching, len(matching.run_set.runs)),
+        "filter_options": _filter_options(matching.run_set, query),
+        "meta": _run_meta(session, identity, query, matching.run_set),
     }
 
 
 def invocation_detail(
     session: Session, identity: Identity, invocation_id: uuid.UUID, query: ReportQuery
 ) -> dict | None:
-    result = invocations(session, identity, query, roots_only=False)
-    item = next((value for value in result["items"] if value["id"] == str(invocation_id)), None)
+    query = as_run_query(query).model_copy(update={"invocation_id": None, "workflow_id": None})
+    run_set = _run_records(session, identity, query, roots_only=False)
+    item = next((run for run in run_set.runs if run["id"] == str(invocation_id)), None)
     if not item:
         return None
-    related = invocations(
-        session, identity,
-        query.model_copy(update={"invocation_id": None, "workflow_id": None, "search": None}),
-        roots_only=False,
-    )
+    item = _public_run(item)
     memberships = session.scalars(
         select(InvocationJob).where(InvocationJob.invocation_id == invocation_id)
         .order_by(InvocationJob.step_key)
@@ -932,10 +1298,275 @@ def invocation_detail(
         "job": by_id.get(str(membership.job_id)),
     } for membership in memberships]
     item["children"] = [
-        value for value in related["items"] if value["parent_id"] == str(invocation_id)
+        _public_run(run) for run in run_set.runs if run["parent_id"] == str(invocation_id)
     ]
-    item["meta"] = result["meta"]
+    item["meta"] = _run_meta(session, identity, query, run_set)
     return item
+
+
+# Runs drawn individually per workflow and pieces drawn individually per time
+# bucket; the rest are folded into one remainder the client draws as a segment.
+BREAKDOWN_RUN_LIMIT = 200
+TIMELINE_PIECE_LIMIT = 60
+
+
+def _fold(runs: list[dict], amounts: list[Decimal | None]) -> dict:
+    return {
+        "count": len(runs),
+        "amount": _money(_sum_known(amounts) or ZERO),
+        "failed": sum(run["run_status"] == "failed" for run in runs),
+        "running": sum(run["run_status"] == "running" for run in runs),
+    }
+
+
+def _whole_run_range(runs: list[dict]) -> dict:
+    """The cheapest and priciest finished run, judged by whole-run totals.
+
+    Runs that are still running, incomplete or have no known total say nothing
+    reliable about what a whole run costs, so they are counted, not ranged.
+    """
+    eligible = [
+        run["_run_total"] for run in runs
+        if run["run_status"] != "running" and run["run_total_complete"]
+        and run["_run_total"] is not None
+    ]
+    return {
+        "minimum": _money(min(eligible)) if eligible else None,
+        "maximum": _money(max(eligible)) if eligible else None,
+        "included_run_count": len(eligible),
+        "excluded_run_count": len(runs) - len(eligible),
+    }
+
+
+def _by_amount_then_id(run: dict) -> tuple:
+    return (-run["_amount"], run["_id"])
+
+
+def _group_by_workflow(runs: list[dict]) -> list[dict]:
+    """Group matching runs by stored workflow for the By workflow chart.
+
+    Each group lists up to `BREAKDOWN_RUN_LIMIT` runs with known period amounts,
+    largest first with ties broken by run UUID. The rest fold into a remainder
+    whose boundary is the first folded run's exact amount and ID, so a client
+    can select precisely the folded runs even when many share one amount.
+    """
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for run in runs:
+        grouped[run["workflow_key"]].append(run)
+    groups = []
+    for key, members in grouped.items():
+        priced = sorted((run for run in members if run["_amount"] is not None), key=_by_amount_then_id)
+        shown, folded = priced[:BREAKDOWN_RUN_LIMIT], priced[BREAKDOWN_RUN_LIMIT:]
+        remainder = _fold(folded, [run["_chart_amount"] for run in folded])
+        remainder["boundary"] = {
+            "amount": _money(folded[0]["_amount"]), "run_id": folded[0]["id"],
+        } if folded else None
+        newest = max(members, key=lambda run: run["started_at"])
+        groups.append({
+            "key": key, "name": newest["workflow_name"], "run_count": len(members),
+            "by_status": dict(Counter(run["run_status"] for run in members)),
+            "_amount": _sum_known(run["_chart_amount"] for run in members),
+            "incomplete_run_count": sum(run["unpriced_job_count"] > 0 for run in members),
+            "runs": [{
+                "id": run["id"], "amount": run["amount"], "run_total": run["run_total"],
+                "chart_amount": run["chart_amount"], "shared_job_count": run["shared_job_count"],
+                "run_total_complete": run["run_total_complete"], "status": run["run_status"],
+                "started_at": run["started_at"], "duration_seconds": run["duration_seconds"],
+            } for run in shown],
+            "remainder": remainder,
+            "whole_run_range": _whole_run_range(members),
+        })
+    groups.sort(key=lambda group: (
+        group["_amount"] is None, -(group["_amount"] or ZERO), group["name"], group["key"],
+    ))
+    for group in groups:
+        group["amount"] = _money(group.pop("_amount"))
+    return groups
+
+
+def breakdown(session: Session, identity: Identity, query: ReportQuery) -> dict:
+    """Matching runs grouped by stored workflow, for the By workflow chart."""
+    query = as_run_query(query)
+    matching = _matching_runs(session, identity, query)
+    groups = _group_by_workflow(matching.runs)
+    return {
+        "groups": groups,
+        "meta": _run_meta(session, identity, query, matching.run_set),
+    }
+
+
+def _bucket_function(
+    unit: str, timezone: ZoneInfo
+) -> Callable[[datetime], tuple[datetime, datetime]]:
+    """Maps an instant to its local bucket: its start and end, both in UTC.
+
+    Buckets follow local clock time, so a day is 23 or 25 hours across a
+    daylight-saving change and its hours are 23 or 25 buckets.
+    """
+    def bucket_of(instant: datetime) -> tuple[datetime, datetime]:
+        local = instant.astimezone(timezone)
+        if unit == "hour":
+            start = local.replace(minute=0, second=0, microsecond=0).astimezone(UTC)
+            return start, start + timedelta(hours=1)
+        first_day = local.date() - timedelta(days=local.weekday() if unit == "week" else 0)
+        last_day = first_day + timedelta(days=7 if unit == "week" else 1)
+        return tuple(
+            datetime.combine(day, datetime.min.time(), tzinfo=timezone).astimezone(UTC)
+            for day in (first_day, last_day)
+        )
+    return bucket_of
+
+
+def _resolve_bucket(query: RunReportQuery, timezone: ZoneInfo, matching: _Matching) -> str:
+    """Hours for a single local day, days up to 92, Monday-start weeks beyond."""
+    if query.bucket != "auto":
+        return query.bucket
+    lower, upper = query.from_time, query.to_time
+    if lower is None or upper is None:
+        window = _window(query, matching.run_set.records)
+        lower = lower or (datetime.fromisoformat(window["from"]) if window["from"] else None)
+        upper = upper or (datetime.fromisoformat(window["to"]) if window["to"] else None)
+    if lower is None or upper is None:
+        return "day"
+    span = upper.astimezone(timezone).replace(tzinfo=None) - lower.astimezone(timezone).replace(tzinfo=None)
+    days = span.total_seconds() / 86400
+    return "hour" if days <= 1 else "day" if days <= 92 else "week"
+
+
+def timeline(session: Session, identity: Identity, query: ReportQuery) -> dict:
+    """Matching runs' cost by local hour, day or week, for the Over time chart."""
+    query = as_run_query(query)
+    matching = _matching_runs(session, identity, query)
+    timezone = ZoneInfo(query.timezone)
+    unit = _resolve_bucket(query, timezone, matching)
+    bucket_of = _bucket_function(unit, timezone)
+    run_set = matching.run_set
+    cells: dict[tuple[datetime, uuid.UUID], dict] = {}
+    ends: dict[datetime, datetime] = {}
+
+    def accrue(start: datetime, end: datetime, run: dict, amount: Decimal | None, open_ended: bool):
+        ends[start] = end
+        cell = cells.setdefault((start, run["_id"]), {
+            "amount": None, "unknown": False, "open": False,
+        })
+        cell["open"] = cell["open"] or open_ended
+        if amount is None:
+            cell["unknown"] = True
+        else:
+            cell["amount"] = (cell["amount"] or ZERO) + amount
+
+    def bounded(instant: datetime) -> tuple[tuple[datetime, datetime], datetime]:
+        start, end = bucket_of(instant)
+        return (start, end), end
+
+    unbounded = query.mode == "accrued" and not (query.from_time or query.to_time)
+    unplaced_jobs, unplaced_amount = 0, None
+    for run in matching.runs:
+        for job_id in run["_amounts"]:
+            if matching.assigned[job_id] != run["_id"]:
+                continue
+            record = run_set.record_by_job[job_id]
+            # Cost with no usable timing cannot be drawn anywhere in time. A
+            # dated report leaves it out of the period; an unbounded one keeps
+            # it, so it is reported beside the buckets.
+            if unbounded and (record["unattributed_amount"] or record["temporally_unattributed"]):
+                unplaced_jobs += 1
+                if record["full_amount"] is not None:
+                    unplaced_amount = (unplaced_amount or ZERO) + record["unattributed_amount"]
+            for (start, end), amount, open_ended in _accrual_chunks(
+                record, query, run_set.as_of, bounded
+            ):
+                accrue(start, end, run, amount, open_ended)
+    runs_by_id = {run["_id"]: run for run in matching.runs}
+    by_bucket: dict[datetime, list[tuple[dict, dict]]] = defaultdict(list)
+    for (start, run_id), cell in cells.items():
+        by_bucket[start].append((runs_by_id[run_id], cell))
+    buckets = []
+    for start in sorted(by_bucket):
+        entries = by_bucket[start]
+        drawn = sorted(
+            (entry for entry in entries if entry[1]["amount"]),
+            key=lambda entry: (-entry[1]["amount"], entry[0]["_id"]),
+        )
+        shown, folded = drawn[:TIMELINE_PIECE_LIMIT], drawn[TIMELINE_PIECE_LIMIT:]
+        remainder = _fold([entry[0] for entry in folded], [entry[1]["amount"] for entry in folded])
+        buckets.append({
+            "from": start.astimezone(timezone).isoformat(),
+            "to": ends[start].astimezone(timezone).isoformat(),
+            "amount": _money(_sum_known(entry[1]["amount"] for entry in entries)),
+            "run_count": len(entries),
+            "by_status": dict(Counter(entry[0]["run_status"] for entry in entries)),
+            "incomplete_run_count": sum(entry[1]["unknown"] for entry in entries),
+            "provisional": any(
+                entry[1]["open"] or entry[0]["run_status"] == "running" for entry in entries
+            ),
+            "pieces": [{
+                "id": run["id"], "amount": _money(cell["amount"]), "status": run["run_status"],
+            } for run, cell in shown],
+            "remainder": remainder,
+        })
+    axis = None
+    if buckets:
+        first, last = min(by_bucket), max(by_bucket)
+        lower = bucket_of(query.from_time)[0] if query.from_time else first
+        upper = bucket_of(query.to_time - timedelta(microseconds=1))[1] if query.to_time else ends[last]
+        axis = {
+            "from": min(lower, first).astimezone(timezone).isoformat(),
+            "to": max(upper, ends[last]).astimezone(timezone).isoformat(),
+        }
+    drawn_ids = {piece["id"] for bucket in buckets for piece in bucket["pieces"]}
+    return {
+        "bucket": unit, "buckets": buckets, "axis": axis,
+        # What a tooltip says about each run a piece draws, once per run.
+        "runs": {
+            run["id"]: {
+                "workflow_name": run["workflow_name"], "started_at": run["started_at"],
+                "duration_seconds": run["duration_seconds"], "amount": run["amount"],
+                "run_total": run["run_total"], "shared_job_count": run["shared_job_count"],
+            }
+            for run in matching.runs if run["id"] in drawn_ids
+        },
+        "label": "Cost of jobs completed" if query.mode == "completed" else "Cost accrued",
+        "unplaced": {"job_count": unplaced_jobs, "amount": _money(unplaced_amount)}
+        if unplaced_jobs else None,
+        "meta": _run_meta(session, identity, query, run_set),
+    }
+
+
+def _accrual_chunks(
+    record: dict,
+    query: ReportQuery,
+    as_of: datetime,
+    bucket_of: Callable[[datetime], tuple[Hashable, datetime]],
+) -> Iterator[tuple[Hashable, Decimal | None, bool]]:
+    """One job's cost, split at bucket boundaries.
+
+    Yields each piece's bucket, its amount (None when the line has no known
+    cost) and whether the resource was still open. `bucket_of` names the bucket
+    an instant falls in and the instant that bucket ends. In completed mode the
+    whole job is one piece, placed where it finished.
+    """
+    if query.mode == "completed":
+        if record["completed_at"]:
+            yield bucket_of(record["completed_at"])[0], record["amount"], False
+        return
+    for line, lifetime in record["pairs"]:
+        open_ended = lifetime.observed_end is None
+        for start, end, slice_amount in _line_slices(line, lifetime, as_of):
+            if start == end:
+                if _slice_fraction(start, end, query) > 0:
+                    yield bucket_of(start)[0], slice_amount, open_ended
+                continue
+            total_seconds = Decimal(str((end - start).total_seconds()))
+            cursor = max(start, query.from_time or start)
+            limit = min(end, query.to_time or end)
+            while cursor < limit:
+                bucket, bucket_end = bucket_of(cursor)
+                chunk_end = min(limit, bucket_end)
+                yield bucket, None if slice_amount is None else (
+                    slice_amount * Decimal(str((chunk_end - cursor).total_seconds())) / total_seconds
+                ), open_ended
+                cursor = chunk_end
 
 
 def daily(session: Session, identity: Identity, query: ReportQuery) -> dict:
@@ -949,55 +1580,25 @@ def daily(session: Session, identity: Identity, query: ReportQuery) -> dict:
     })
     as_of = revision.created_at if revision else datetime.now(UTC)
 
-    def accrue(record: dict, instant: datetime, amount: Decimal | None, open_ended: bool) -> None:
-        bucket = buckets[instant.astimezone(timezone).date().isoformat()]
-        bucket["job_ids"].add(record["id"])
-        bucket["provisional"] = bucket["provisional"] or open_ended
-        if amount is None:
-            bucket["incomplete_ids"].add(record["id"])
-            return
-        bucket["amount"] += amount
-        bucket["by_runner"][record["runner"] or "unknown"] += amount
-        bucket["by_owner"][record["owner"]] += amount
-        bucket["by_tool"][f"{record['tool_id']}@{record['tool_version'] or ''}"] += amount
+    def local_day(instant: datetime) -> tuple[str, datetime]:
+        local = instant.astimezone(timezone)
+        next_day = datetime.combine(
+            local.date() + timedelta(days=1), datetime.min.time(), tzinfo=timezone
+        ).astimezone(UTC)
+        return local.date().isoformat(), next_day
 
     for record in records:
-        if query.mode == "completed":
-            completed_at = record["completed_at"]
-            if not completed_at:
-                continue
-            key = completed_at.astimezone(timezone).date().isoformat()
-            bucket = buckets[key]
+        for day, amount, open_ended in _accrual_chunks(record, query, as_of, local_day):
+            bucket = buckets[day]
             bucket["job_ids"].add(record["id"])
-            if record["amount"] is None:
+            bucket["provisional"] = bucket["provisional"] or open_ended
+            if amount is None:
                 bucket["incomplete_ids"].add(record["id"])
                 continue
-            amount = record["amount"]
             bucket["amount"] += amount
             bucket["by_runner"][record["runner"] or "unknown"] += amount
             bucket["by_owner"][record["owner"]] += amount
             bucket["by_tool"][f"{record['tool_id']}@{record['tool_version'] or ''}"] += amount
-            continue
-        for line, lifetime in record["pairs"]:
-            open_ended = lifetime.observed_end is None
-            for start, end, slice_amount in _line_slices(line, lifetime, as_of):
-                if start == end:
-                    if _slice_fraction(start, end, query) > 0:
-                        accrue(record, start, slice_amount, open_ended)
-                    continue
-                total_seconds = Decimal(str((end - start).total_seconds()))
-                cursor = max(start, query.from_time or start)
-                limit = min(end, query.to_time or end)
-                while cursor < limit:
-                    local = cursor.astimezone(timezone)
-                    next_day = datetime.combine(
-                        local.date() + timedelta(days=1), datetime.min.time(), tzinfo=timezone
-                    ).astimezone(UTC)
-                    chunk_end = min(limit, next_day)
-                    accrue(record, cursor, None if slice_amount is None else (
-                        slice_amount * Decimal(str((chunk_end - cursor).total_seconds())) / total_seconds
-                    ), open_ended)
-                    cursor = chunk_end
     items = [{
         "date": day, "amount": str(data["amount"]), "currency": "USD",
         "job_count": len(data["job_ids"]), "incomplete_count": len(data["incomplete_ids"]),
