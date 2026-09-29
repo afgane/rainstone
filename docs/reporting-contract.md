@@ -142,6 +142,26 @@ range to fill. A bucket is provisional while it holds a running run. Without a
 date range, cost with no usable timing is reported as `unplaced` beside the
 buckets and is part of the total, so the two reconcile.
 
+## Overview cost over time
+
+`/api/timeline` answers the Overview chart and its workload card from the shared
+filters and an optional `bucket` (`auto`, `hour`, `day` or `week`, resolved as
+for the workflow run timeline). Every job in the period is drawn in the column
+it accrued in, in one of two pieces: `runs` when a workflow run contains it, and
+`individual` when it ran on its own. Runs are not split by workflow, so a column
+never has more than two pieces however many workflows there are. A job in
+several runs is drawn once; every run that holds it still counts as a run.
+Pieces carry `amount`, `job_count`, `run_count` and the failed and still-running
+job counts; a column adds its own job and run counts.
+
+`totals` describes the whole period: `amount` (the same figure the summary
+reports), `job_count`, `by_outcome` (completed, failed, running, other),
+`run_count` and `workflow_count` (the runs and workflows that hold a job in the
+period, so they equal the workflow runs totals), and `individual_job_count`.
+Column amounts add up to `totals.amount`, and day columns equal the daily
+report for the same jobs. As elsewhere, an unbounded report keeps cost with no
+usable timing in `unplaced` beside the columns, and a dated one leaves it out.
+
 ## Resource lifetimes in reports (Phase 2B)
 
 Cost lines are keyed by chargeable resource lifetime and attributed job, not by

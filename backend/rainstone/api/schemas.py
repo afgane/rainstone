@@ -336,6 +336,51 @@ class TimelineResponse(APIModel):
     meta: ReportMeta
 
 
+class CostPiece(APIModel):
+    key: Literal["runs", "individual"]
+    kind: Literal["runs", "individual"]
+    name: str
+    amount: str
+    job_count: int
+    run_count: int
+    failed: int
+    running: int
+
+
+class CostBucket(APIModel):
+    from_: datetime = Field(alias="from")
+    to: datetime
+    amount: str | None
+    job_count: int
+    run_count: int
+    failed_job_count: int
+    running_job_count: int
+    incomplete_job_count: int
+    provisional: bool
+    pieces: list[CostPiece]
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+
+class WorkloadTotals(APIModel):
+    amount: str | None
+    job_count: int
+    by_outcome: dict[str, int]
+    run_count: int
+    workflow_count: int
+    individual_job_count: int
+
+
+class CostTimelineResponse(APIModel):
+    bucket: Literal["hour", "day", "week"]
+    buckets: list[CostBucket]
+    axis: dict[str, str] | None
+    totals: WorkloadTotals
+    label: str
+    unplaced: dict[str, Any] | None = None
+    meta: ReportMeta
+
+
 class DailyItem(APIModel):
     date: str
     amount: str

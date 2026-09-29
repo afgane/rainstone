@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from rainstone.api.schemas import (
     BreakdownResponse,
     CatalogResponse,
+    CostTimelineResponse,
     DailyResponse,
     FreshnessResponse,
     InfrastructureResponse,
@@ -27,7 +28,14 @@ from rainstone.catalog import coverage as catalog_coverage
 from rainstone.config import Settings, get_settings
 from rainstone.db import get_session
 from rainstone.doctor import readiness, run_checks
-from rainstone.report_query import ReportQuery, RunReportQuery, report_query, run_report_query
+from rainstone.overview import cost_timeline
+from rainstone.report_query import (
+    ReportQuery,
+    RunReportQuery,
+    cost_timeline_query,
+    report_query,
+    run_report_query,
+)
 from rainstone.reporting import (
     breakdown,
     daily,
@@ -205,6 +213,15 @@ def get_invocation(
     if result is None:
         raise HTTPException(404, "Invocation not found")
     return result
+
+
+@router.get("/timeline", response_model=CostTimelineResponse)
+def get_cost_timeline(
+    query: RunReportQuery = Depends(cost_timeline_query),
+    session: Session = Depends(get_session),
+    identity: Identity = Depends(current_identity),
+) -> dict:
+    return cost_timeline(session, identity, query)
 
 
 @router.get("/daily", response_model=DailyResponse)

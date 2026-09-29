@@ -27,6 +27,7 @@ from rainstone.models import (
     ResourceSegment,
     Tenant,
 )
+from rainstone.overview import cost_timeline
 from rainstone.report_query import ReportQuery, RunReportQuery
 from rainstone.reporting import breakdown, invocations, list_jobs, summary, timeline
 from sqlalchemy import insert, select, text
@@ -226,7 +227,7 @@ def main() -> None:
         )
         run_timings: dict[str, list[float]] = {
             "invocations_first_page": [], "invocations_deep_page": [], "breakdown_90_days": [],
-            "timeline_hour_2_days": [], "timeline_day_90_days": [],
+            "timeline_hour_2_days": [], "timeline_day_90_days": [], "overview_cost_day_90_days": [],
         }
         for _iteration in range(8):
             for name, call in (
@@ -239,6 +240,9 @@ def main() -> None:
                     session, identity, two_days.model_copy(update={"bucket": "hour"}),
                 )),
                 ("timeline_day_90_days", lambda: timeline(
+                    session, identity, ninety_days.model_copy(update={"bucket": "day"}),
+                )),
+                ("overview_cost_day_90_days", lambda: cost_timeline(
                     session, identity, ninety_days.model_copy(update={"bucket": "day"}),
                 )),
             ):
@@ -286,7 +290,7 @@ def main() -> None:
             "large run has a nested child workflow.",
             "- `invocations_*` request 20 runs of the 90-day period (`invocations_deep_page` "
             "the last page); `breakdown_90_days` and `timeline_day_90_days` cover 90 days; "
-            "`timeline_hour_2_days` covers the last two days by hour.",
+            "`timeline_hour_2_days` covers the last two days by hour; `overview_cost_day_90_days` is the Overview chart's request, which reads every job, in a run or not.",
             "- Every request also computes the list's totals and the sidebar's option counts, "
             "because each run endpoint answers from one matching set.", "",
             "| Request | Cold | Warm p50 | Warm p95 | Maximum |",

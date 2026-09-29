@@ -1419,13 +1419,13 @@ def _bucket_function(
     return bucket_of
 
 
-def _resolve_bucket(query: RunReportQuery, timezone: ZoneInfo, matching: _Matching) -> str:
+def _resolve_bucket(query: RunReportQuery, timezone: ZoneInfo, records: list[dict]) -> str:
     """Hours for a single local day, days up to 92, Monday-start weeks beyond."""
     if query.bucket != "auto":
         return query.bucket
     lower, upper = query.from_time, query.to_time
     if lower is None or upper is None:
-        window = _window(query, matching.run_set.records)
+        window = _window(query, records)
         lower = lower or (datetime.fromisoformat(window["from"]) if window["from"] else None)
         upper = upper or (datetime.fromisoformat(window["to"]) if window["to"] else None)
     if lower is None or upper is None:
@@ -1435,12 +1435,35 @@ def _resolve_bucket(query: RunReportQuery, timezone: ZoneInfo, matching: _Matchi
     return "hour" if days <= 1 else "day" if days <= 92 else "week"
 
 
+def _timeline_axis(
+    query: ReportQuery,
+    bucket_of: Callable[[datetime], tuple[datetime, datetime]],
+    timezone: ZoneInfo,
+    starts: Iterable[datetime],
+    ends: dict[datetime, datetime],
+) -> dict | None:
+    """The range a chart draws: the whole period, or the buckets when it has none.
+
+    Empty buckets are not returned, so a client fills the axis from this range.
+    """
+    found = sorted(starts)
+    if not found:
+        return None
+    first, last = found[0], found[-1]
+    lower = bucket_of(query.from_time)[0] if query.from_time else first
+    upper = bucket_of(query.to_time - timedelta(microseconds=1))[1] if query.to_time else ends[last]
+    return {
+        "from": min(lower, first).astimezone(timezone).isoformat(),
+        "to": max(upper, ends[last]).astimezone(timezone).isoformat(),
+    }
+
+
 def timeline(session: Session, identity: Identity, query: ReportQuery) -> dict:
     """Matching runs' cost by local hour, day or week, for the Over time chart."""
     query = as_run_query(query)
     matching = _matching_runs(session, identity, query)
     timezone = ZoneInfo(query.timezone)
-    unit = _resolve_bucket(query, timezone, matching)
+    unit = _resolve_bucket(query, timezone, matching.run_set.records)
     bucket_of = _bucket_function(unit, timezone)
     run_set = matching.run_set
     cells: dict[tuple[datetime, uuid.UUID], dict] = {}
@@ -1507,15 +1530,7 @@ def timeline(session: Session, identity: Identity, query: ReportQuery) -> dict:
             } for run, cell in shown],
             "remainder": remainder,
         })
-    axis = None
-    if buckets:
-        first, last = min(by_bucket), max(by_bucket)
-        lower = bucket_of(query.from_time)[0] if query.from_time else first
-        upper = bucket_of(query.to_time - timedelta(microseconds=1))[1] if query.to_time else ends[last]
-        axis = {
-            "from": min(lower, first).astimezone(timezone).isoformat(),
-            "to": max(upper, ends[last]).astimezone(timezone).isoformat(),
-        }
+    axis = _timeline_axis(query, bucket_of, timezone, by_bucket, ends)
     drawn_ids = {piece["id"] for bucket in buckets for piece in bucket["pieces"]}
     return {
         "bucket": unit, "buckets": buckets, "axis": axis,

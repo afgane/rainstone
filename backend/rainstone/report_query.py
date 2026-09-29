@@ -192,3 +192,10 @@ def run_report_query(
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+
+
+def cost_timeline_query(
+    shared: ReportQuery = Depends(report_query), bucket: RunBucket = "auto",
+) -> RunReportQuery:
+    """The shared filters plus the bucket size, for the Overview's cost over time."""
+    return RunReportQuery(**shared.model_dump(exclude={"limit"}), bucket=bucket)
