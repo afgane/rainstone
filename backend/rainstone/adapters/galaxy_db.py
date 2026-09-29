@@ -463,16 +463,37 @@ def _attempt_from_job(row: dict, metrics: dict[str, Decimal]) -> NormalizedAttem
     )
 
 
+def _never_dispatched(row: dict, metrics: dict[str, Decimal]) -> bool:
+    """A finished job Galaxy has no record of running anywhere.
+
+    With no runner and no start or finish time, no evidence can ever place or
+    time it, so it could only be reported as undated work. Jobs carried over
+    from an earlier Galaxy and tools Galaxy completes without a job runner
+    look like this.
+    """
+    return (
+        row["state"] in TERMINAL_STATES
+        and not row["runner"]
+        and "core.start_epoch" not in metrics
+        and "core.end_epoch" not in metrics
+    )
+
+
 def _normalize_jobs(
     rows: Sequence[dict],
     metrics: dict[str, list[tuple[str, str, Decimal]]],
     events: dict[str, list[tuple[str, datetime]]],
-) -> list[NormalizedJob]:
+) -> tuple[list[NormalizedJob], list[str]]:
+    """The jobs to record, and the source IDs of never-dispatched jobs to withdraw."""
     jobs: list[NormalizedJob] = []
+    withdrawn: list[str] = []
     for row in rows:
         source_id = row["source_id"]
         job_metrics = metrics.get(source_id, [])
         flat = {f"{plugin}.{name}": value for plugin, name, value in job_metrics}
+        if _never_dispatched(row, flat):
+            withdrawn.append(source_id)
+            continue
         hints = {
             key: str(flat[key])
             for key in ("core.galaxy_slots", "core.galaxy_memory_mb", "core.runtime_seconds")
@@ -502,7 +523,7 @@ def _normalize_jobs(
                 attempts=(_attempt_from_job(row, flat),),
             )
         )
-    return jobs
+    return jobs, withdrawn
 
 
 def _fetch_details(
@@ -654,8 +675,12 @@ class GalaxyDatabaseAdapter:
             owners=batch.owners,
             jobs=batch.jobs,
             invocations=batch.invocations,
+            withdrawn_jobs=batch.withdrawn_jobs,
             cursor=state,
-            metrics={"phase": "backfill", "rows": len(rows), "ceiling": ceiling},
+            metrics={
+                "phase": "backfill", "rows": len(rows), "ceiling": ceiling,
+                "withdrawn": len(batch.withdrawn_jobs),
+            },
             exhausted=exhausted,
         )
 
@@ -694,11 +719,13 @@ class GalaxyDatabaseAdapter:
             owners=batch.owners,
             jobs=batch.jobs,
             invocations=batch.invocations,
+            withdrawn_jobs=batch.withdrawn_jobs,
             cursor=state,
             metrics={
                 "phase": "incremental",
                 "rows": len(rows),
                 "reconciled": len(reconciled),
+                "withdrawn": len(batch.withdrawn_jobs),
                 "replay_overlap_seconds": int(self._overlap.total_seconds()),
             },
             exhausted=exhausted,
@@ -756,7 +783,7 @@ class GalaxyDatabaseAdapter:
         ids = _job_ids(rows)
         metrics, events = _fetch_details(connection, ids)
         owners = _fetch_owners(connection, {row["owner_source_id"] for row in rows})
-        jobs = _normalize_jobs(rows, metrics, events)
+        jobs, withdrawn = _normalize_jobs(rows, metrics, events)
         if root_ids is None and ids:
             root_ids = sorted(set(connection.scalars(INVOCATION_ROOTS_FOR_JOBS, {"ids": ids})))
         invocations = _fetch_invocations(connection, root_ids=root_ids or None) if root_ids else []
@@ -769,6 +796,7 @@ class GalaxyDatabaseAdapter:
             owners=tuple(owners),
             jobs=tuple(jobs),
             invocations=tuple(invocations),
+            withdrawn_jobs=tuple(withdrawn),
             metrics={"phase": source_phase},
         )
 

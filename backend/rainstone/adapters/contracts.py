@@ -12,7 +12,7 @@ from typing import Protocol
 
 from rainstone.models import CapacityRelationship
 
-CONTRACT_VERSION = 3
+CONTRACT_VERSION = 4
 
 # Galaxy's own record of a job's execution. Provider adapters observe the same
 # execution separately, so this is evidence about an attempt, not an attempt of
@@ -193,6 +193,9 @@ class ObservationBatch:
     attempts: tuple[NormalizedAttempt, ...] = ()
     gaps: tuple[NormalizedGap, ...] = ()
     servers: tuple[NormalizedServerObservation, ...] = ()
+    # Source job IDs to remove: finished jobs the source says never ran
+    # anywhere, including ones collected earlier while still queued.
+    withdrawn_jobs: tuple[str, ...] = ()
     cursor: dict = field(default_factory=dict)
     metrics: dict = field(default_factory=dict)
     exhausted: bool = True

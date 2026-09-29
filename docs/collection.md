@@ -39,6 +39,16 @@ feed: a metric or a collection membership can appear without the parent job's
 timestamp changing. The sweep wraps when it reaches the end, so older records
 are eventually revisited.
 
+A finished job that Galaxy never dispatched is not collected: one with no
+runner and no recorded start or finish time. Nothing can ever place or time
+such a job, so it could only be reported as undated work. This covers jobs
+carried over in Galaxy's database from before Rainstone was installed, and
+tools Galaxy completes without a job runner. A job collected while still queued
+and later finished without being dispatched, such as one deleted from the queue,
+is withdrawn with its attempts and workflow memberships. A job that did run
+after installation stays collected even if its execution evidence never
+arrives, so a collection failure remains visible as undated work.
+
 Workflow attribution uses the recursive query proven on the AnVIL dev instance:
 root invocations expand through subworkflow associations, and each step
 contributes direct jobs plus implicit-collection expansions. Invocation

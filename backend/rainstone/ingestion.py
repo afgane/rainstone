@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from rainstone.adapters.contracts import (
@@ -466,6 +466,7 @@ def batch_digest(batch: ObservationBatch) -> str:
                 ]
             ],
             "invocations": [invocation.source_id for invocation in batch.invocations],
+            "withdrawn_jobs": list(batch.withdrawn_jobs),
             "servers": [
                 (server.session_key, server.machine_type, server.purchase_model, server.state)
                 for server in batch.servers
@@ -494,6 +495,11 @@ def apply_batch(
     session.flush()
     for job in batch.jobs:
         upsert_job(session, tenant_id, job)
+    if batch.withdrawn_jobs:
+        # Attempts, cost lines and workflow memberships go with the job.
+        session.execute(delete(Job).where(Job.id.in_([
+            stable_id(str(tenant_id), "job", source_id) for source_id in batch.withdrawn_jobs
+        ])))
     session.flush()
     orphans = 0
     for attempt in batch.attempts:

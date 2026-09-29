@@ -380,6 +380,36 @@ def test_late_collection_membership_is_recovered_after_the_jobs_arrive(source_en
         assert sorted(sources) == ["45", "46", "70"]
 
 
+def test_jobs_galaxy_never_dispatched_are_not_collected(source_engine) -> None:
+    """A finished job with no runner and no start or finish time could only be undated."""
+    with source_engine.begin() as connection:
+        # Carried over from an earlier Galaxy: finished, with nothing about where it ran.
+        connection.execute(text(
+            "INSERT INTO job VALUES (80, '2023-04-06 16:53:54', '2023-04-06 17:31:35', 1, 1, "
+            "'seqtk_sample', '1.3.2', 'ok', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)"
+        ))
+        # Still queued, so it may yet run.
+        connection.execute(text(
+            "INSERT INTO job VALUES (81, now(), now(), 1, 1, "
+            "'cat1', '1.0.0', 'queued', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)"
+        ))
+    drain(GalaxyDatabaseAdapter(source_engine))
+    with Session(engine) as session:
+        collected = set(session.scalars(
+            select(Job.source_id).where(Job.tenant_id == TENANT_ID, Job.source_id.in_(["80", "81"]))
+        ))
+    assert collected == {"81"}
+
+    # Deleted before any runner took it: the queued record is withdrawn.
+    with source_engine.begin() as connection:
+        connection.execute(text(
+            "UPDATE job SET state = 'deleted', update_time = now() + interval '1 second' WHERE id = 81"
+        ))
+    drain(GalaxyDatabaseAdapter(source_engine))
+    with Session(engine) as session:
+        assert session.get(Job, stable_id(str(TENANT_ID), "job", "81")) is None
+
+
 def test_a_failing_source_records_status_without_advancing_the_cursor(source_engine) -> None:
     drain(GalaxyDatabaseAdapter(source_engine))
     with Session(engine) as session:
