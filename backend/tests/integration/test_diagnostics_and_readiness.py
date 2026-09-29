@@ -7,7 +7,7 @@ import pytest
 from rainstone.config import Settings, get_settings
 from rainstone.db import engine
 from rainstone.doctor import readiness, record_report, run_checks
-from rainstone.ingestion import stable_id
+from rainstone.ingestion import CATALOG_FEED_SOURCE, record_catalog_refresh, stable_id
 from rainstone.main import app
 from rainstone.models import CapabilityReport
 from sqlalchemy.orm import Session
@@ -230,3 +230,40 @@ def test_readiness_waits_for_this_release_initialization() -> None:
         # A later release is not covered by an earlier marker.
         later = settings.model_copy(update={"installation_id": f"{release}-2"})
         assert readiness(session, later)["ready"] is False
+
+
+def test_a_failing_price_feed_is_reported_rather_than_passing_as_an_older_catalog() -> None:
+    settings = WORKSPACE.model_copy(
+        update={"catalog_feed_url": "https://feed.invalid/gcp/latest.json"}
+    )
+    with Session(engine) as session:
+        for _ in range(2):
+            record_catalog_refresh(
+                session,
+                TENANT_ID,
+                {
+                    "status": "last_known_good",
+                    "catalog_id": "gcp-official-page-2026-09-19",
+                    "error": "HTTP Error 404: Not Found",
+                },
+            )
+        report = run_checks(session, settings, context="web")
+        catalog = next(check for check in report["checks"] if check["name"] == "price_catalog")
+        assert catalog["status"] == "warn"
+        assert "last 2 refreshes from the feed failed" in catalog["detail"]
+        assert "404" in catalog["detail"]
+        assert catalog["facts"]["feed"]["status"] == "degraded"
+        # The feed refreshes every few hours; judging it by collection lag would
+        # report a healthy feed as stale.
+        names = {check["name"] for check in report["checks"]}
+        assert f"collection:{CATALOG_FEED_SOURCE}" not in names
+
+        record_catalog_refresh(
+            session, TENANT_ID, {"status": "refreshed", "catalog_id": "gcp-t2d-n2-test"}
+        )
+        report = run_checks(session, settings, context="web")
+        catalog = next(check for check in report["checks"] if check["name"] == "price_catalog")
+        assert catalog["facts"]["feed"]["status"] == "healthy"
+        assert catalog["facts"]["feed"]["consecutive_failures"] == 0
+        assert "feed failed" not in catalog["detail"]
+        session.rollback()

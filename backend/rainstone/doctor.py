@@ -25,6 +25,7 @@ from rainstone.catalog import coverage as catalog_coverage
 from rainstone.config import Settings, get_settings
 from rainstone.costing import CALCULATION_VERSION
 from rainstone.enrollment import configured_owners, source_engine
+from rainstone.ingestion import CATALOG_FEED_SOURCE
 from rainstone.models import (
     CapabilityReport,
     CostRevision,
@@ -450,7 +451,12 @@ def _catalog(session: Session, settings: Settings) -> list[Check]:
         ]
     observed = datetime.fromisoformat(facts["observed_at"])
     age_days = (datetime.now(UTC) - observed).days
-    status = "pass" if settings.catalog_feed_url and age_days <= 7 else "warn"
+    feed = _catalog_feed(session, settings)
+    status = (
+        "pass"
+        if settings.catalog_feed_url and age_days <= 7 and feed.get("status") != "degraded"
+        else "warn"
+    )
     detail = (
         f"Active catalog {facts['active_catalog_id']} has {facts['active_rate_count']} rates, "
         f"observed {age_days} days ago. Across {facts['retained_rate_count']} retained rates "
@@ -459,12 +465,18 @@ def _catalog(session: Session, settings: Settings) -> list[Check]:
     )
     if not settings.catalog_feed_url:
         detail += " No refresh feed is configured, so this is a pinned snapshot."
+    elif feed.get("status") == "degraded":
+        detail += (
+            f" The last {feed['consecutive_failures']} refreshes from the feed failed"
+            f" ({feed['error']}), so this older catalog is still in use."
+        )
     return [
         Check(
             "price_catalog",
             status,
             detail,
             {
+                "feed": feed,
                 "active_catalog_id": facts["active_catalog_id"],
                 "observed_at": facts["observed_at"],
                 "imported_at": facts["imported_at"],
@@ -480,6 +492,26 @@ def _catalog(session: Session, settings: Settings) -> list[Check]:
     ]
 
 
+def _catalog_feed(session: Session, settings: Settings) -> dict:
+    """The last recorded refresh from the configured feed, if there was one."""
+    if not settings.catalog_feed_url:
+        return {}
+    state = session.scalar(
+        select(IngestionState)
+        .join(Tenant, Tenant.id == IngestionState.tenant_id)
+        .where(Tenant.slug == settings.tenant_slug, IngestionState.source == CATALOG_FEED_SOURCE)
+    )
+    if state is None:
+        return {"status": "not_attempted"}
+    return {
+        "status": state.status,
+        "last_attempt_at": state.last_attempt_at.isoformat() if state.last_attempt_at else None,
+        "last_success_at": state.last_success_at.isoformat() if state.last_success_at else None,
+        "consecutive_failures": state.consecutive_failures,
+        "error": (state.error or "")[:300] or None,
+    }
+
+
 def _collection(session: Session, settings: Settings) -> list[Check]:
     tenant = session.scalar(select(Tenant).where(Tenant.slug == settings.tenant_slug))
     if tenant is None:
@@ -487,7 +519,10 @@ def _collection(session: Session, settings: Settings) -> list[Check]:
     states = list(
         session.scalars(
             select(IngestionState)
-            .where(IngestionState.tenant_id == tenant.id)
+            .where(
+                IngestionState.tenant_id == tenant.id,
+                IngestionState.source != CATALOG_FEED_SOURCE,
+            )
             .order_by(IngestionState.source)
         )
     )

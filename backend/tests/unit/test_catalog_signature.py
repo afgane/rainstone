@@ -213,3 +213,35 @@ def test_a_feed_refresh_rejects_unsigned_content_by_default(monkeypatch) -> None
     assert result["catalog_id"] == "bundled"
     assert session.rolled_back is True
     assert "required but absent" in result["error"]
+
+
+def test_falling_back_to_the_bundled_catalog_keeps_the_feed_error(monkeypatch) -> None:
+    """With no catalog yet, the bundled one is imported, but the failure stays visible."""
+    from pathlib import Path
+
+    from rainstone import catalog as catalog_module
+
+    class FailedSession:
+        def rollback(self) -> None:
+            pass
+
+        def commit(self) -> None:
+            pass
+
+    def unreachable(*_: object, **__: object) -> None:
+        raise OSError("HTTP Error 404: Not Found")
+
+    monkeypatch.setattr(catalog_module, "active_catalog", lambda _: None)
+    monkeypatch.setattr(catalog_module, "fetch", unreachable)
+    monkeypatch.setattr(catalog_module, "load_file", lambda *_, **__: object())
+    monkeypatch.setattr(
+        catalog_module, "import_catalog", lambda *_: {"catalog_id": "bundled"}
+    )
+    result = catalog_module.refresh(
+        FailedSession(),
+        url="https://feed.invalid/latest.json",
+        bundled_path=Path("catalog/gcp-2026-09-19.json"),
+    )
+    assert result["status"] == "bundled"
+    assert result["catalog_id"] == "bundled"
+    assert "404" in result["error"]

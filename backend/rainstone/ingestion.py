@@ -598,6 +598,37 @@ def record_failure(
     return state
 
 
+CATALOG_FEED_SOURCE = "price_feed"
+
+
+def record_catalog_refresh(
+    session: Session, tenant_id: uuid.UUID, result: dict
+) -> IngestionState:
+    """Keep the outcome of a feed refresh where the status report can see it.
+
+    A failed download falls back to an older catalog and keeps pricing, so
+    without this record a feed that never answers looks like a healthy, merely
+    ageing catalog.
+    """
+    state = _state(session, tenant_id, CATALOG_FEED_SOURCE)
+    now = datetime.now(UTC)
+    state.last_attempt_at = now
+    if result["status"] == "refreshed":
+        state.last_success_at = now
+        state.consecutive_failures = 0
+        state.error = None
+        state.status = "healthy"
+        state.cursor = {"catalog_id": result["catalog_id"]}
+    else:
+        state.consecutive_failures = (state.consecutive_failures or 0) + 1
+        state.error = result.get("error", "")[:2000]
+        # Pricing continues from an older catalog, so this degrades coverage
+        # rather than stopping it; only having no catalog at all is a failure.
+        state.status = "failed" if result["status"] == "unavailable" else "degraded"
+    session.flush()
+    return state
+
+
 def reclassify_baseline(
     session: Session, tenant_id: uuid.UUID, profile: BaselineProfile | None
 ) -> dict[str, int]:

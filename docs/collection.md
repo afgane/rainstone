@@ -162,8 +162,12 @@ through the UI.
 Catalog artifacts are content-addressed and immutable: a published catalog ID
 cannot be replaced with different content. A refresh validates the artifact
 before trusting it, imports prices and activates the version in one transaction,
-and on failure keeps the last known good catalog. Without a configured feed the
-active catalog is a pinned historical snapshot, and the status report says so.
+and on failure keeps the last known good catalog. Each refresh from the feed is
+recorded as the `price_feed` source: a failure is logged, marks that source
+degraded, and turns the `price_catalog` self-check into a warning that names
+the error, so a feed that stops answering does not pass for an ageing catalog.
+Without a configured feed the active catalog is a pinned historical snapshot,
+and the status report says so.
 
 An artifact from a feed always needs a verified Ed25519 signature over its
 canonical content, against a release-pinned public key configured as

@@ -324,6 +324,7 @@ def refresh(
     already works.
     """
     current = active_catalog(session)
+    feed_error: dict[str, str] = {}
     if url:
         try:
             catalog = fetch(url, trusted_keys=trusted_keys)
@@ -332,14 +333,15 @@ def refresh(
             return {**result, "status": "refreshed"}
         except (OSError, CatalogError) as error:
             session.rollback()
+            feed_error = {"error": str(error)}
             if current is not None:
                 return {
                     "status": "last_known_good",
                     "catalog_id": current.catalog_id,
-                    "error": str(error),
+                    **feed_error,
                 }
             if bundled_path is None:
-                return {"status": "unavailable", "error": str(error)}
+                return {"status": "unavailable", **feed_error}
     if current is not None and url is None:
         return {"status": "current", "catalog_id": current.catalog_id}
     if bundled_path is None:
@@ -349,7 +351,7 @@ def refresh(
     catalog = load_file(bundled_path, trusted_keys=trusted_keys)
     result = import_catalog(session, catalog)
     session.commit()
-    return {**result, "status": "bundled"}
+    return {**result, "status": "bundled", **feed_error}
 
 
 def coverage(session: Session) -> dict:

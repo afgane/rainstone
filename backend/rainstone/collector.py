@@ -40,6 +40,7 @@ from rainstone.ingestion import (
     apply_batch,
     read_cursor,
     reclassify_baseline,
+    record_catalog_refresh,
     record_failure,
     stable_id,
 )
@@ -311,6 +312,16 @@ class Collector:
                 require_signature=self._settings.catalog_require_signature,
                 trusted_keys=parse_trusted_keys(self._settings.catalog_trusted_keys),
             )
+            if self._settings.catalog_feed_url:
+                record_catalog_refresh(session, self._tenant_id, result)
+                session.commit()
+            if "error" in result:
+                logger.warning(
+                    "price catalog feed refresh failed (%s); using %s: %s",
+                    result["status"],
+                    result.get("catalog_id", "no catalog"),
+                    result["error"],
+                )
             if result["status"] in {"refreshed", "bundled"}:
                 # New prices change report facts, so recalculate rather than
                 # leaving pinned snapshots stale until the next source batch.

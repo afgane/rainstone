@@ -3,10 +3,11 @@ import json
 import sys
 from pathlib import Path
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from rainstone.db import engine
-from rainstone.ingestion import ingest_fixture
+from rainstone.ingestion import ingest_fixture, record_catalog_refresh
 
 
 def _print(payload: dict | list) -> None:
@@ -307,16 +308,23 @@ def main() -> None:
                 _print(result)
                 return
             if action == "refresh":
+                from rainstone.models import Tenant
+
                 with Session(engine) as session:
-                    _print(
-                        refresh(
-                            session,
-                            url=settings.catalog_feed_url,
-                            bundled_path=settings.catalog_path,
-                            require_signature=settings.catalog_require_signature,
-                            trusted_keys=trusted,
-                        )
+                    result = refresh(
+                        session,
+                        url=settings.catalog_feed_url,
+                        bundled_path=settings.catalog_path,
+                        require_signature=settings.catalog_require_signature,
+                        trusted_keys=trusted,
                     )
+                    tenant_id = session.scalar(
+                        select(Tenant.id).where(Tenant.slug == settings.tenant_slug)
+                    )
+                    if settings.catalog_feed_url and tenant_id is not None:
+                        record_catalog_refresh(session, tenant_id, result)
+                        session.commit()
+                _print(result)
                 return
             with Session(engine) as session:
                 _print(coverage(session))
