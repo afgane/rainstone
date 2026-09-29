@@ -53,7 +53,7 @@ make benchmark  # rolled-back 100,000-job reporting benchmark
 The release image exposes one CLI, a web process, and a collector process:
 
 ```console
-rainstone ingest-fixtures --path fixtures/phase1.json
+rainstone ingest-fixtures --path fixtures/phase1.json [--path …]
 rainstone collect [--cycles N]
 rainstone discover [--values values.yaml]
 rainstone enroll --shared-account … [--replace-source]

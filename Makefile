@@ -38,10 +38,11 @@ migrate:
 	$(COMPOSE) run --rm init alembic upgrade head
 
 seed:
-	$(COMPOSE) run --rm init rainstone ingest-fixtures --path fixtures/phase1.json
+	$(COMPOSE) run --rm init rainstone ingest-fixtures \
+		--path fixtures/phase1.json --path fixtures/runs-demo.json
 
 benchmark:
-	$(COMPOSE) exec -T backend python scripts/benchmark_reporting.py --jobs 100000
+	$(COMPOSE) exec -T backend python scripts/benchmark_reporting.py
 
 collect:
 	$(COMPOSE) run --rm backend rainstone collect --cycles 1

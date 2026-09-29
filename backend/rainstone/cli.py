@@ -21,7 +21,10 @@ def main() -> None:
     ingest = commands.add_parser(
         "ingest-fixtures", help="Idempotently ingest normalized fixture observations"
     )
-    ingest.add_argument("--path", type=Path, required=True)
+    ingest.add_argument(
+        "--path", type=Path, required=True, action="append",
+        help="Fixture file to ingest; repeat to load several, in order",
+    )
 
     collect = commands.add_parser("collect", help="Run the unattended collector")
     collect.add_argument(
@@ -123,8 +126,9 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "ingest-fixtures":
-        with Session(engine) as session:
-            _print(ingest_fixture(session, args.path))
+        for path in args.path:
+            with Session(engine) as session:
+                _print(ingest_fixture(session, path))
         return
 
     if args.command == "collect":
