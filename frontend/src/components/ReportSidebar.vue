@@ -78,7 +78,10 @@ const showControls = computed(() => props.state.view !== "status");
         </div>
       </div>
 
-      <div class="control-group">
+      <!-- Filters that belong to one page sit under Period, apart from app-wide controls. -->
+      <slot name="page-filters" />
+
+      <div v-if="state.view !== 'runs'" class="control-group">
         <label class="search"><Search :size="16" aria-hidden="true" />
           <span class="sr-only">{{ searchLabel }}</span>
           <input :value="state.search" :placeholder="searchLabel" @input="update('search', $event)">

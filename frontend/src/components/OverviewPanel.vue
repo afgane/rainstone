@@ -18,7 +18,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   view: [view: "runs" | "tool-runs" | "tools" | "daily" | "server"];
-  run: [id: string];
+  run: [id: string, opener: HTMLElement];
   day: [date: string];
   "demo-period": [];
 }>();
@@ -27,10 +27,8 @@ const period = computed(() => periodOf(props.state));
 const incomplete = computed(() => props.summary.unpriced_job_count);
 const recordedSoFar = computed(() => incomplete.value > 0 && props.summary.amount !== null);
 const maxDay = computed(() => Math.max(0, ...props.days.map(day => Number(day.amount))));
-const topRuns = computed(() =>
-  [...props.runs]
-    .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
-    .slice(0, 4));
+// The server ranks the period's runs by cost, so the top four are the period's, not a page's.
+const topRuns = computed(() => props.runs.slice(0, 4));
 const topTools = computed(() =>
   [...props.tools]
     .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
@@ -125,7 +123,10 @@ const repeatedSentence = computed(() => {
         <button class="link-button" @click="emit('view', 'runs')">See all runs</button>
       </div>
       <div v-if="!topRuns.length" class="empty">No workflow runs in this period.</div>
-      <button v-for="run in topRuns" :key="run.id" class="rank-row" @click="emit('run', run.id)">
+      <button
+        v-for="run in topRuns" :key="run.id" class="rank-row" data-detail-trigger
+        @click="emit('run', run.id, $event.currentTarget as HTMLElement)"
+      >
         <span>
           <strong>{{ run.workflow_name }}</strong>
           <small>{{ formatDate(run.started_at, state.timezone) }} · {{ runStatusLabel(run.run_status) }}</small>

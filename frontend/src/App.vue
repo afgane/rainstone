@@ -1,24 +1,26 @@
 <script setup lang="ts">
 import { CircleDollarSign, Filter, RefreshCw } from "@lucide/vue";
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import {
-  ADVANCED_FILTERS, activeFilters, collectionCutoff, downloadExport, get, loadReport, periodOf,
-  queryString,
+  ADVANCED_FILTERS, ApiError, activeFilters, chartsNeeded, collectionCutoff, DEFAULT_RUN_CONTROLS,
+  downloadExport, get, loadMoreRuns, loadReport, loadRunChart, NO_RUN_FILTERS, periodOf, queryString,
+  stateFromUrl, urlQuery,
   type AdvancedFilter, type DailyItem, type Freshness, type GroupItem, type Infrastructure,
-  type Invocation, type JobList, type Me, type ReportState, type Status, type Summary, type View,
+  type Invocation, type JobList, type Me, type ReportState, type RunsView, type RunStatus,
+  type Status, type Summary, type View,
 } from "./api";
-import DetailDialog from "./components/DetailDialog.vue";
+import DetailDrawer from "./components/DetailDrawer.vue";
 import OverviewPanel from "./components/OverviewPanel.vue";
 import ReportSidebar from "./components/ReportSidebar.vue";
-import RunsPanel from "./components/RunsPanel.vue";
+import PageFilters from "./components/runs/PageFilters.vue";
+import RunsPage from "./components/runs/RunsPage.vue";
 import ServerPanel from "./components/ServerPanel.vue";
 import StatusPanel from "./components/StatusPanel.vue";
 import ToolRunsPanel from "./components/ToolRunsPanel.vue";
 import ToolsPanel from "./components/ToolsPanel.vue";
 import { describePeriod, PERIOD_LABELS, todayIn, type PeriodId } from "./periods";
-import { formatCost, formatDateTime, measureName } from "./vocabulary";
+import { formatCost, formatDateTime, measureName, RUN_SORTS } from "./vocabulary";
 
-const VIEWS: View[] = ["overview", "runs", "tool-runs", "tools", "daily", "users", "server", "status"];
 const TITLES: Record<View, string> = {
   overview: "Overview",
   runs: "Workflow runs",
@@ -30,31 +32,7 @@ const TITLES: Record<View, string> = {
   status: "Status",
 };
 
-function stateFromUrl(): ReportState {
-  const params = new URLSearchParams(location.search);
-  const view = params.get("view") as View;
-  const period = (params.get("period") || "this-month") as PeriodId;
-  return {
-    view: VIEWS.includes(view) ? view : "overview",
-    period,
-    basis: params.get("basis") === "allocated" ? "allocated" : "additional",
-    mode: "accrued",
-    fromTime: params.get("from") || "",
-    toTime: params.get("to") || "",
-    timezone: params.get("timezone") || "UTC",
-    search: params.get("search") || "", owner: params.get("owner") || "",
-    toolId: params.get("tool_id") || "", toolVersion: params.get("tool_version") || "",
-    invocationId: params.get("invocation_id") || "", workflowId: params.get("workflow_id") || "",
-    state: params.get("state") || "", runner: params.get("runner") || "",
-    destination: params.get("destination") || "", capacity: params.get("capacity") || "",
-    quality: params.get("quality") || "", minCost: params.get("min_cost") || "",
-    maxCost: params.get("max_cost") || "", sort: params.get("sort") || "created_at",
-    direction: params.get("direction") === "asc" ? "asc" : "desc",
-    offset: Number(params.get("offset")) || 0,
-  };
-}
-
-const state = reactive<ReportState>(stateFromUrl());
+const state = reactive<ReportState>(stateFromUrl(location.search));
 const summary = ref<Summary | null>(null);
 const jobs = ref<Pick<JobList, "items" | "undated_items" | "total" | "limit">>({
   items: [], undated_items: [], total: 0, limit: 50,
@@ -62,17 +40,31 @@ const jobs = ref<Pick<JobList, "items" | "undated_items" | "total" | "limit">>({
 const freshness = ref<Freshness | null>(null);
 const me = ref<Me | null>(null);
 const viewData = ref<unknown>(null);
+// The view the page last drew, so a refetch of the same view can keep it on screen.
+const renderedView = ref<View | null>(null);
 const loading = ref(true);
 const error = ref("");
 const detail = ref<Record<string, unknown> | null>(null);
 const detailKind = ref<"runs" | "tool-runs" | null>(null);
+const detailId = ref("");
 const detailLoading = ref(false);
 const advancedOpen = ref(false);
 const drawerOpen = ref(false);
+const hoverRunId = ref("");
+const loadingMore = ref(false);
+const loadingChart = ref(false);
+// A minimum height for the page while a narrower answer would otherwise make it jump; 0 for none.
+const holdHeight = ref(0);
 let detailOpener: HTMLElement | null = null;
 let controller: AbortController | null = null;
 let timer = 0;
 let firstLoad = true;
+// Each load or page fetch belongs to the report it started from; a result that
+// arrives after the report has changed is dropped, never mixed into the new one.
+let generation = 0;
+let detailToken = 0;
+// Runs and jobs opened from inside the drawer, so its back button can retrace them.
+const detailTrail = ref<Array<{ kind: "runs" | "tool-runs"; id: string }>>([]);
 
 const period = computed(() => periodOf(state));
 const periodLabel = computed(() => (state.period === "custom"
@@ -90,25 +82,25 @@ const tools = computed(() => (state.view === "overview"
   : ((viewData.value as { items?: GroupItem[] } | null)?.items || [])));
 const runs = computed(() => (state.view === "overview"
   ? (overviewParts.value[2]?.items || []) as Invocation[]
-  : ((viewData.value as { items?: Invocation[] } | null)?.items || [])));
+  : []));
+const runsView = computed(() => (state.view === "runs" && renderedView.value === "runs" && viewData.value
+  ? viewData.value as RunsView : null));
 const server = computed(() => (state.view === "server"
   ? viewData.value as Infrastructure | null
   : null));
 const status = computed(() => (state.view === "status" ? viewData.value as Status | null : null));
 const collection = computed(() => collectionCutoff(freshness.value));
 const page = computed(() => Math.floor(state.offset / 50) + 1);
+const openRunId = computed(() => (detailKind.value === "runs" ? detailId.value : ""));
+// Refetching the runs page keeps the last picture, dimmed, instead of a skeleton,
+// so nothing on the page moves while the answer changes.
+const keepPrevious = computed(() => loading.value && runsView.value !== null);
+const runSortChoice = computed(() => RUN_SORTS.find(
+  choice => choice.sort === state.runSort && choice.direction === state.runDirection,
+)?.id ?? RUN_SORTS[0].id);
 
 function updateUrl(push = false) {
-  const query = new URLSearchParams(queryString(state));
-  query.set("view", state.view);
-  query.set("period", state.period);
-  // Period presets resolve their own dates; only custom dates travel in the URL.
-  query.delete("from");
-  query.delete("to");
-  if (state.period === "custom") {
-    query.set("from", state.fromTime);
-    query.set("to", state.toTime);
-  }
+  const query = urlQuery(state);
   const current = new URLSearchParams(location.search);
   if (current.get("detail_kind") && current.get("detail_id")) {
     query.set("detail_kind", current.get("detail_kind")!);
@@ -120,27 +112,72 @@ function updateUrl(push = false) {
 async function refresh(push = false) {
   controller?.abort();
   controller = new AbortController();
+  const mine = ++generation;
+  // Refetching the page being read must not move the reader.
+  const scrolledTo = renderedView.value === state.view ? window.scrollY : null;
+  if (scrolledTo !== null) holdHeight.value = document.getElementById("main")?.offsetHeight ?? 0;
   loading.value = true; error.value = "";
   updateUrl(push && !firstLoad);
   try {
     const result = await loadReport(state, controller.signal);
+    if (mine !== generation) return;
+    // The totals, the charts and the list are committed together, so a new
+    // total is never shown beside the previous filter's chart.
     summary.value = result.summary; jobs.value = result.jobs;
     freshness.value = result.freshness; me.value = result.me; viewData.value = result.view;
+    renderedView.value = state.view;
     firstLoad = false;
+    if (scrolledTo !== null) await keepPlace(scrolledTo);
   } catch (reason) {
-    if ((reason as Error).name !== "AbortError") {
+    if ((reason as Error).name !== "AbortError" && mine === generation) {
       error.value = reason instanceof Error ? reason.message : "Unable to load reporting data";
     }
   } finally {
-    loading.value = false;
+    if (mine === generation) loading.value = false;
   }
 }
 
+/**
+ * Put the reader back where they were after a refetch. A narrower answer makes
+ * the page shorter, and a browser clamps the scroll position to the shorter
+ * page, which reads as a jump towards the top. When that would happen the page
+ * is held tall enough, and the hold is dropped again on the next refetch.
+ */
+async function keepPlace(top: number) {
+  holdHeight.value = 0;
+  await nextTick();
+  const main = document.getElementById("main");
+  const wanted = top + window.innerHeight;
+  if (main && wanted > document.documentElement.scrollHeight) {
+    // A page shorter than the window reports the window's height, so the first
+    // guess can fall short; the second pass measures what is left.
+    holdHeight.value = main.offsetHeight + (wanted - document.documentElement.scrollHeight);
+    await nextTick();
+    const short = wanted - document.documentElement.scrollHeight;
+    if (short > 0) {
+      holdHeight.value += short;
+      await nextTick();
+    }
+  }
+  window.scrollTo({ top });
+}
+
+function resetRunPage() {
+  Object.assign(state, NO_RUN_FILTERS, DEFAULT_RUN_CONTROLS);
+}
+/** A grouped selection describes the grouping that produced it, so any other change clears it. */
+function clearGrouped() {
+  state.maxRunAmount = ""; state.boundaryRunId = "";
+}
 function changeView(view: View) {
-  state.view = view; state.offset = 0; drawerOpen.value = false; void refresh(true);
+  if (state.view !== view) resetRunPage();
+  state.view = view; state.offset = 0; drawerOpen.value = false; closeDetail(false, false);
+  void refresh(true);
 }
 function changePeriod(id: PeriodId) {
   state.period = id; state.offset = 0;
+  // A focus window and a grouped selection belong to the period they were made in.
+  state.focusFrom = ""; state.focusTo = ""; clearGrouped();
   if (id === "custom" && !state.fromTime) {
     state.fromTime = period.value.fromDate; state.toTime = period.value.toDate;
   }
@@ -148,6 +185,7 @@ function changePeriod(id: PeriodId) {
 }
 function setField(key: string, value: string) {
   (state as unknown as Record<string, unknown>)[key] = value;
+  clearGrouped();
   changeFilters();
 }
 function changeFilters() {
@@ -158,11 +196,13 @@ function changeFilters() {
 }
 function clearFilter(key: AdvancedFilter) {
   (state as unknown as Record<string, unknown>)[key] = "";
+  clearGrouped();
   void refresh(true);
 }
 function clearFilters() {
   for (const key of ADVANCED_FILTERS) (state as unknown as Record<string, unknown>)[key] = "";
   state.search = "";
+  clearGrouped();
   void refresh(true);
 }
 function sort(field: string) {
@@ -198,32 +238,185 @@ function selectTool(toolId: string) {
   state.toolId = toolId; changeView("tool-runs");
 }
 
-async function showDetail(kind: "runs" | "tool-runs", id: string, updateHistory = true) {
-  detailOpener = document.activeElement as HTMLElement | null;
+/* The Workflow runs page. Every control below narrows the list, the totals and
+   the chart together, and a filter that changes clears any grouped selection. */
+function pinned(): ReportState {
+  return { ...state, revision: summary.value?.revision_id || state.revision };
+}
+/** A page fetch that hit a superseded snapshot starts over on the latest one. */
+function recoverFrom(reason: unknown, mine: number, fallback: string) {
+  if (mine !== generation || (reason as Error).name === "AbortError") return;
+  if (reason instanceof ApiError && reason.status === 409) void refresh(false);
+  else error.value = reason instanceof Error ? reason.message : fallback;
+}
+function runFilterChanged() {
+  clearGrouped();
+  state.offset = 0;
+  void refresh(true);
+}
+function selectWorkflow(key: string) {
+  state.workflowKey = state.workflowKey === key ? "" : key;
+  runFilterChanged();
+}
+function chooseWorkflow(key: string) {
+  state.workflowKey = key;
+  runFilterChanged();
+}
+function selectOutcome(outcome: string) {
+  state.runStatus = outcome as RunStatus | "";
+  runFilterChanged();
+}
+function changeRunSearch(text: string) {
+  state.search = text;
+  clearGrouped();
+  changeFilters();
+}
+function toggleFocus(window: { from: string; to: string }) {
+  const same = state.focusFrom === window.from && state.focusTo === window.to;
+  state.focusFrom = same ? "" : window.from;
+  state.focusTo = same ? "" : window.to;
+  runFilterChanged();
+}
+function selectGrouped(key: string, boundary: { amount: string; runId: string } | null) {
+  if (!boundary) return;
+  // The other filters stay; the grouped runs are chosen within them.
+  state.workflowKey = key;
+  state.maxRunAmount = boundary.amount;
+  state.boundaryRunId = boundary.runId;
+  state.offset = 0;
+  void refresh(true);
+}
+function clearFocus() {
+  state.focusFrom = ""; state.focusTo = "";
+  runFilterChanged();
+}
+function clearGroupedSelection() {
+  clearGrouped();
+  void refresh(true);
+}
+function clearRunFilters() {
+  Object.assign(state, NO_RUN_FILTERS);
+  state.search = "";
+  void refresh(true);
+}
+async function reloadRuns(choice: string) {
+  const next = RUN_SORTS.find(candidate => candidate.id === choice) ?? RUN_SORTS[0];
+  state.runSort = next.sort as ReportState["runSort"];
+  state.runDirection = next.direction;
+  updateUrl(true);
+  const current = runsView.value;
+  if (!current) return;
+  // Sorting reorders the list only, so the totals and charts are not fetched again.
+  const mine = generation;
+  try {
+    const list = await loadMoreRuns(pinned(), 0);
+    if (mine !== generation) return;
+    viewData.value = { ...current, list };
+  } catch (reason) {
+    recoverFrom(reason, mine, "Unable to sort the runs");
+  }
+}
+async function moreRuns() {
+  const current = runsView.value;
+  if (!current || loadingMore.value) return;
+  const mine = generation;
+  loadingMore.value = true;
+  try {
+    const next = await loadMoreRuns(pinned(), current.list.items.length);
+    if (mine !== generation) return;
+    viewData.value = {
+      ...current, list: { ...current.list, items: [...current.list.items, ...next.items], total: next.total },
+    };
+  } catch (reason) {
+    recoverFrom(reason, mine, "Unable to load more runs");
+  } finally {
+    loadingMore.value = false;
+  }
+}
+async function chooseChart(kind: "workflow" | "time") {
+  state.runChart = kind;
+  updateUrl(true);
+  const current = runsView.value;
+  if (!current) return;
+  const needed = chartsNeeded(state);
+  const missing = needed.breakdown && !current.breakdown ? "breakdown"
+    : needed.timeline && !current.timeline ? "timeline" : null;
+  if (!missing) return;
+  // The other tab loads lazily, from the same revision the page already shows.
+  const mine = generation;
+  loadingChart.value = true;
+  try {
+    const charts = await loadRunChart(pinned(), missing);
+    if (mine !== generation) return;
+    viewData.value = {
+      ...current, breakdown: charts.breakdown ?? current.breakdown, timeline: charts.timeline ?? current.timeline,
+    };
+  } catch (reason) {
+    recoverFrom(reason, mine, "Unable to load the chart");
+  } finally {
+    loadingChart.value = false;
+  }
+}
+async function downloadRuns() {
+  await download();
+}
+
+async function showDetail(
+  kind: "runs" | "tool-runs", id: string, updateHistory = true, opener: HTMLElement | null = null,
+  trail: "reset" | "push" | "keep" = "reset",
+) {
+  // Pressing the open run's own trigger closes the drawer again.
+  if (detailKind.value === kind && detailId.value === id && detail.value) {
+    closeDetail(true);
+    return;
+  }
+  const swapping = detailKind.value !== null;
+  if (trail === "reset") detailTrail.value = [];
+  else if (trail === "push" && detailKind.value) {
+    detailTrail.value = [...detailTrail.value, { kind: detailKind.value, id: detailId.value }];
+  }
+  // Focus goes back to whatever the person last used to open a run.
+  if (!swapping || opener) detailOpener = opener ?? (document.activeElement as HTMLElement | null);
+  const mine = ++detailToken;
   detailKind.value = kind;
+  detailId.value = id;
   if (updateHistory) {
     const params = new URLSearchParams(location.search);
     params.set("detail_kind", kind); params.set("detail_id", id);
-    history.pushState({}, "", `${location.pathname}?${params}`);
+    // A swap replaces the entry, so Back leaves the drawer rather than stepping through runs.
+    history[swapping ? "replaceState" : "pushState"]({}, "", `${location.pathname}?${params}`);
   }
   detailLoading.value = true;
   const path = kind === "runs" ? "invocations" : "jobs";
   try {
-    detail.value = await get<Record<string, unknown>>(`/${path}/${id}?${queryString(state)}`);
+    const result = await get<Record<string, unknown>>(`/${path}/${id}?${queryString(state)}`);
+    if (mine === detailToken) detail.value = result;
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : "Unable to load detail";
+    if (mine === detailToken) error.value = reason instanceof Error ? reason.message : "Unable to load detail";
   } finally {
-    detailLoading.value = false;
+    if (mine === detailToken) detailLoading.value = false;
   }
 }
-function closeDetail(updateHistory = true) {
-  detail.value = null; detailKind.value = null;
-  if (updateHistory) {
+function detailBack() {
+  const previous = detailTrail.value[detailTrail.value.length - 1];
+  if (!previous) return;
+  detailTrail.value = detailTrail.value.slice(0, -1);
+  void showDetail(previous.kind, previous.id, true, null, "keep");
+}
+function closeDetail(returnFocus = true, updateHistory = true) {
+  detailToken += 1;
+  detailTrail.value = [];
+  const wasOpen = detailKind.value !== null;
+  detail.value = null; detailKind.value = null; detailId.value = ""; detailLoading.value = false;
+  if (updateHistory && wasOpen) {
     const params = new URLSearchParams(location.search);
     params.delete("detail_kind"); params.delete("detail_id");
     history.pushState({}, "", `${location.pathname}?${params}`);
   }
-  detailOpener?.focus();
+  // A press outside moves focus where the person pointed, so only Escape and
+  // the close button send it back to the opener.
+  if (returnFocus && wasOpen) detailOpener?.focus();
+  detailOpener = null;
 }
 function refreshLatest() { void refresh(true); }
 async function download() {
@@ -233,14 +426,13 @@ async function download() {
 function onPopState() {
   const params = new URLSearchParams(location.search);
   const kind = params.get("detail_kind"); const id = params.get("detail_id");
-  Object.assign(state, stateFromUrl()); void refresh(false);
+  Object.assign(state, stateFromUrl(location.search)); void refresh(false);
   if ((kind === "runs" || kind === "tool-runs") && id) void showDetail(kind, id, false);
-  else closeDetail(false);
+  else closeDetail(false, false);
 }
 function onKey(event: KeyboardEvent) {
-  if (event.key !== "Escape") return;
-  if (detail.value) closeDetail();
-  else drawerOpen.value = false;
+  // The detail drawer closes itself on Escape; this closes the filters panel on narrow screens.
+  if (event.key === "Escape" && !detailKind.value) drawerOpen.value = false;
 }
 
 watch(() => state.basis, () => { state.offset = 0; void refresh(true); });
@@ -290,37 +482,53 @@ onBeforeUnmount(() => {
         @toggle-advanced="advancedOpen = !advancedOpen"
         @clear-filter="clearFilter"
         @clear="clearFilters"
-      />
+      >
+        <template v-if="state.view === 'runs'" #page-filters>
+          <PageFilters
+            :state="state" :options="runsView?.list.filter_options ?? null"
+            @workflow="chooseWorkflow" @outcome="selectOutcome" @search="changeRunSearch"
+            @clear-focus="clearFocus" @clear-grouped="clearGroupedSelection" @clear="clearRunFilters"
+          />
+        </template>
+      </ReportSidebar>
     </div>
 
-    <main id="main" class="page">
+    <main id="main" class="page" :style="{ minHeight: holdHeight ? `${holdHeight}px` : undefined }">
       <h1 class="page-title">{{ TITLES[state.view] }}</h1>
       <div v-if="error" class="error" role="alert">
         <strong>Reporting data unavailable.</strong> {{ error }}
       </div>
-      <div v-if="loading" class="loading" aria-live="polite">
+      <div v-if="loading && !keepPrevious" class="loading" aria-live="polite">
         <RefreshCw class="spin" :size="18" /> Loading…
       </div>
 
-      <template v-if="summary && !loading">
+      <div
+        v-if="summary && (!loading || keepPrevious)" :class="{ refetching: keepPrevious }"
+        :aria-busy="keepPrevious"
+      >
         <OverviewPanel
           v-if="state.view === 'overview'"
           :state="state" :summary="summary" :days="days" :tools="tools" :runs="runs"
-          @view="changeView" @run="id => showDetail('runs', id)" @day="selectDay"
+          @view="changeView" @run="(id, opener) => showDetail('runs', id, true, opener)" @day="selectDay"
           @demo-period="showDemoPeriod"
         />
 
-        <RunsPanel
-          v-else-if="state.view === 'runs'"
-          :runs="runs" :period-label="periodLabel" :timezone="state.timezone"
-          @run="id => showDetail('runs', id)" @export="download"
+        <RunsPage
+          v-else-if="state.view === 'runs' && runsView"
+          :state="state" :view="runsView" :sort="runSortChoice" :open-run-id="openRunId"
+          :hover-run-id="hoverRunId" :loading-more="loadingMore" :loading-chart="loadingChart"
+          :as-of="summary.as_of"
+          @chart="chooseChart" @workflow="selectWorkflow"
+          @run="(id, opener) => showDetail('runs', id, true, opener)"
+          @grouped="selectGrouped" @column="toggleFocus" @hover="hoverRunId = $event ?? ''"
+          @sort="reloadRuns" @more="moreRuns" @clear="clearRunFilters" @export="downloadRuns"
         />
 
         <ToolRunsPanel
           v-else-if="state.view === 'tool-runs'"
           :jobs="jobs.items" :undated-jobs="jobs.undated_items" :total="jobs.total"
           :undated="summary.undated" :period-label="periodLabel" :timezone="state.timezone"
-          @detail="id => showDetail('tool-runs', id)" @sort="sort" @export="download"
+          @detail="(id, opener) => showDetail('tool-runs', id, true, opener)" @sort="sort" @export="download"
           @more-undated="moreUndated"
         />
 
@@ -410,13 +618,14 @@ onBeforeUnmount(() => {
             </p>
           </details>
         </div>
-      </template>
+      </div>
     </main>
   </div>
 
-  <DetailDialog
+  <DetailDrawer
     :kind="detailKind" :detail="detail" :loading="detailLoading" :period-label="periodLabel"
-    :timezone="state.timezone"
-    @close="closeDetail" @open="(kind, id) => showDetail(kind, id)"
+    :timezone="state.timezone" :back-label="detailTrail.length ? (detailTrail[detailTrail.length - 1].kind === 'runs' ? 'Back to workflow run' : 'Back to job') : ''"
+    @close="closeDetail(true)" @dismiss="closeDetail(false)" @back="detailBack"
+    @open="(kind, id) => showDetail(kind, id, true, null, 'push')"
   />
 </template>

@@ -167,3 +167,119 @@ export function needsCostData(count: number, noun = "step"): string {
 export function pluralize(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
+
+/** A whole-dollar tick as "$5", a cent tick as "$0.25". */
+export function formatAxisCost(value: number): string {
+  return Number.isInteger(value) ? `$${value}` : `$${value.toFixed(2)}`;
+}
+
+/** Wall-clock time: "45 min", "2 h 5 min". A run under a minute reads as one. */
+export function formatDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) return "Not available";
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} h ${rest} min` : `${hours} h`;
+}
+
+/** How long a run has been going, or ran for. */
+export function durationText(seconds: number | null | undefined, status: string): string {
+  return `${formatDuration(seconds)}${status === "running" && seconds !== null && seconds !== undefined ? " so far" : ""}`;
+}
+
+/* The Workflow runs page. */
+export const PAGE_FILTERS_HEADING = "Filters for this page";
+export const PAGE_FILTERS_NOTE = "Workflow runs only. The period above applies everywhere.";
+export const WORKFLOW_FIELD = "Workflow";
+export const ALL_WORKFLOWS = "All workflows";
+export const OUTCOME_FIELD = "Outcome";
+export const NO_ACTIVE_FILTERS = "Showing every run in this period.";
+export const CLEAR_FILTERS = "Clear filters";
+export const COST_SO_FAR = "Cost so far";
+export const RUN_TOTAL = "Run total";
+export const WORKFLOW_JOBS = "Workflow jobs";
+export const SHARED_JOBS_NOTE = "Jobs shared by these runs are counted once";
+export const STRIP_TITLE = "Every run, at its own scale";
+export const STRIP_HINT = "Choose a workflow in the filters or above to see each of its runs here at full width.";
+export const STRAGGLE_NOTE =
+  "Runs that began before this period, or are still going after it, show only the part inside it. "
+  + "The list shows each run's whole total.";
+export const RUN_CHART_HINT =
+  "Pointer-only shortcut. The run list below and the table under this chart hold the same "
+  + "information for keyboard and screen reader use.";
+
+export const OUTCOMES: Array<{ id: string; label: string }> = [
+  { id: "", label: "All" },
+  { id: "completed", label: "Completed" },
+  { id: "failed", label: "Failed" },
+  { id: "running", label: "Running" },
+  { id: "cancelled", label: "Cancelled" },
+];
+
+export const RUN_SORTS: Array<{ id: string; label: string; sort: string; direction: "asc" | "desc" }> = [
+  { id: "newest", label: "Newest first", sort: "started_at", direction: "desc" },
+  { id: "oldest", label: "Oldest first", sort: "started_at", direction: "asc" },
+  { id: "highest", label: "Highest cost", sort: "run_total", direction: "desc" },
+  { id: "lowest", label: "Lowest cost", sort: "run_total", direction: "asc" },
+  { id: "longest", label: "Longest running", sort: "duration", direction: "desc" },
+];
+
+export function acrossWorkflows(count: number): string {
+  return `Across ${pluralize(count, "workflow")}`;
+}
+
+export function outOfRuns(count: number): string {
+  return `Out of ${pluralize(count, "run")} in this period`;
+}
+
+export function showingOf(shown: number, total: number): string {
+  return `Showing ${shown} of ${total}`;
+}
+
+export function showMore(count: number): string {
+  return `Show ${count} more`;
+}
+
+/** "3 completed · 1 failed", in the order a reader expects; empty when there are no runs. */
+export function outcomeMix(byStatus: Record<string, number>): string {
+  return ["completed", "failed", "running", "cancelled"]
+    .filter(status => byStatus[status])
+    .map(status => `${byStatus[status]} ${status}`)
+    .join(" · ");
+}
+
+export function smallerRuns(count: number): string {
+  return pluralize(count, "smaller run");
+}
+
+export function rangeCaption(range: {
+  minimum: string | null; maximum: string | null; included_run_count: number; excluded_run_count: number;
+}): string {
+  const excluded = range.excluded_run_count
+    ? ` ${pluralize(range.excluded_run_count, "run")} left out: still running or missing cost data.`
+    : "";
+  if (!range.included_run_count) return `Whole-run range not available.${excluded}`;
+  if (range.included_run_count === 1 || range.minimum === range.maximum) {
+    return `One run, ${formatCost(range.minimum)} in total.${excluded}`;
+  }
+  return `Whole-run totals range from ${formatCost(range.minimum)} to ${formatCost(range.maximum)}.${excluded}`;
+}
+
+/** The chip for a focus window: which runs were active then. */
+export function focusChipLabel(from: string, to: string, timezone: string, mode = "accrued"): string {
+  const lead = mode === "completed" ? "Runs with jobs completed" : "Runs active";
+  const start = Date.parse(from);
+  const end = Date.parse(to);
+  const day = (instant: number) =>
+    new Date(instant).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: timezone });
+  const hour = (instant: number) =>
+    new Date(instant).toLocaleTimeString("en-US", { hour: "numeric", timeZone: timezone });
+  if (end - start <= 3600e3 + 1) return `${lead} ${day(start)}, ${hour(start)}–${hour(end)}`;
+  const last = day(end - 60e3);
+  return `${lead} ${day(start) === last ? day(start) : `${day(start)}–${last}`}`;
+}
+
+export function groupedChipLabel(workflowName: string): string {
+  return `Smaller runs in ${workflowName}`;
+}

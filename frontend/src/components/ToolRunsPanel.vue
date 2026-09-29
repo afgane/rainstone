@@ -14,7 +14,7 @@ defineProps<{
   timezone: string;
 }>();
 const emit = defineEmits<{
-  detail: [id: string]; sort: [field: string]; export: []; "more-undated": [];
+  detail: [id: string, opener: HTMLElement]; sort: [field: string]; export: []; "more-undated": [];
 }>();
 </script>
 
@@ -42,7 +42,10 @@ const emit = defineEmits<{
         <tbody>
           <tr v-for="job in jobs" :key="job.id">
             <td>
-              <button class="link-button" @click="emit('detail', job.id)">{{ job.tool_name }}</button>
+              <button
+                class="link-button" data-detail-trigger
+                @click="emit('detail', job.id, $event.currentTarget as HTMLElement)"
+              >{{ job.tool_name }}</button>
               <small>{{ job.tool_version || "Unversioned" }}</small>
             </td>
             <td>{{ formatDateTime(job.created_at, timezone) }}</td>
@@ -64,7 +67,10 @@ const emit = defineEmits<{
       </p>
       <ul class="step-list">
         <li v-for="job in undatedJobs" :key="job.id">
-          <button class="link-button" @click="emit('detail', job.id)">{{ job.tool_name }}</button>
+          <button
+                class="link-button" data-detail-trigger
+                @click="emit('detail', job.id, $event.currentTarget as HTMLElement)"
+              >{{ job.tool_name }}</button>
           <span>{{ jobStateLabel(job.state) }}</span>
           <small>Submitted {{ formatDateTime(job.created_at, timezone) }} · {{ qualityLabel(job.quality) }}</small>
         </li>

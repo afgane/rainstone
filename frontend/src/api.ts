@@ -30,7 +30,21 @@ export interface ReportState {
   direction: "asc" | "desc";
   offset: number;
   revision?: string;
+  // Filters and controls only the Workflow runs page has. They never travel
+  // with job or tool requests.
+  workflowKey: string;
+  runStatus: RunStatus | "";
+  focusFrom: string;
+  focusTo: string;
+  maxRunAmount: string;
+  boundaryRunId: string;
+  runSort: RunSort;
+  runDirection: "asc" | "desc";
+  runChart: "workflow" | "time";
 }
+
+export type RunStatus = "completed" | "failed" | "running" | "cancelled";
+export type RunSort = "started_at" | "amount" | "run_total" | "duration";
 
 export interface Meta {
   basis: Basis;
@@ -132,9 +146,14 @@ export interface Infrastructure {
 }
 
 export interface Invocation {
-  id: string; source_id: string; workflow_id: string; workflow_name: string;
+  id: string; source_id: string; workflow_id: string; workflow_key: string; workflow_name: string;
+  /** Galaxy's internal workflow ID, not a version number; it is never displayed. */
   workflow_version: string | null; parent_id: string | null; state: string;
   run_status: string; started_at: string;
+  /** Null while the run is still running. */
+  finished_at: string | null;
+  /** Wall clock from the first job's submission; to the revision time while running. */
+  duration_seconds: number | null;
   job_count: number; run_job_count: number;
   /** Cost accrued inside the selected period. */
   amount: string | null;
@@ -144,6 +163,87 @@ export interface Invocation {
   currency: string;
   unpriced_job_count: number; run_unpriced_job_count: number; reused_job_count: number;
   timing_unavailable: boolean;
+  /** What the charts draw for this run, with a shared job counted under one run only. */
+  chart_amount: string | null;
+  shared_job_count: number;
+}
+
+/** The whole filtered set, never the loaded page. */
+export interface RunTotals {
+  amount: string | null;
+  incomplete_run_count: number;
+  shared_job_count: number;
+  run_count: number;
+  by_status: Record<string, number>;
+  workflow_count: number;
+  unfiltered_run_count: number;
+}
+
+export interface WorkflowOption { key: string; name: string; run_count: number }
+
+/** What each sidebar control could select if its own choice were cleared. */
+export interface RunFilterOptions {
+  by_status: Record<string, number>;
+  workflows: WorkflowOption[];
+}
+
+export interface InvocationList {
+  items: Invocation[]; total: number; limit: number; offset: number;
+  totals: RunTotals; filter_options: RunFilterOptions; meta: Meta;
+}
+
+export interface BreakdownRun {
+  id: string; amount: string | null; run_total: string | null; chart_amount: string | null;
+  shared_job_count: number; run_total_complete: boolean; status: string;
+  started_at: string; duration_seconds: number | null;
+}
+
+export interface Remainder {
+  count: number; amount: string; failed: number; running: number;
+  boundary?: { amount: string; run_id: string } | null;
+}
+
+export interface BreakdownGroup {
+  key: string; name: string; run_count: number; by_status: Record<string, number>;
+  amount: string | null;
+  incomplete_run_count: number; runs: BreakdownRun[]; remainder: Remainder;
+  whole_run_range: {
+    minimum: string | null; maximum: string | null;
+    included_run_count: number; excluded_run_count: number;
+  };
+}
+
+export interface Breakdown { groups: BreakdownGroup[]; meta: Meta }
+
+export interface TimelinePiece { id: string; amount: string; status: string }
+
+export interface TimelineBucket {
+  from: string; to: string; amount: string | null; run_count: number;
+  by_status: Record<string, number>; incomplete_run_count: number; provisional: boolean;
+  pieces: TimelinePiece[]; remainder: Remainder;
+}
+
+export type BucketUnit = "hour" | "day" | "week";
+
+/** What a tooltip says about a run a timeline piece draws. */
+export interface TimelineRun {
+  workflow_name: string; started_at: string; duration_seconds: number | null;
+  amount: string | null; run_total: string | null; shared_job_count: number;
+}
+
+export interface Timeline {
+  bucket: BucketUnit; buckets: TimelineBucket[]; axis: { from: string; to: string } | null;
+  runs: Record<string, TimelineRun>; label: string; unplaced: { job_count: number; amount: string | null } | null; meta: Meta;
+}
+
+/** Everything the Workflow runs page draws, from one calculation revision. */
+export interface RunsView {
+  list: InvocationList;
+  /** Every workflow the other filters leave, so choosing one never hides the rest. */
+  breakdown: Breakdown | null;
+  timeline: Timeline | null;
+  /** The chosen workflow alone, under every filter, for the strip below the chart. */
+  strip: Breakdown | null;
 }
 
 export interface GroupItem {
@@ -260,7 +360,117 @@ export function queryString(state: ReportState, now = new Date()): string {
   return query.toString();
 }
 
-function offsetBoundary(value: string, timezone: string): string {
+/**
+ * The shared fields plus the run-only ones, for the run endpoints alone. Job
+ * sorting and paging are dropped: runs sort by `run_sort` and page by an
+ * explicit offset.
+ */
+export function runQueryString(
+  state: ReportState, page: { limit?: number; offset?: number } = {}, now = new Date(),
+): string {
+  const query = new URLSearchParams(queryString(state, now));
+  query.delete("sort");
+  query.set("direction", state.runDirection);
+  query.set("offset", String(page.offset ?? 0));
+  if (page.limit) query.set("limit", String(page.limit));
+  query.set("run_sort", state.runSort);
+  const runFilters = {
+    workflow_key: state.workflowKey, run_status: state.runStatus,
+    focus_from: state.focusFrom, focus_to: state.focusTo,
+    max_run_amount: state.maxRunAmount, boundary_run_id: state.boundaryRunId,
+  };
+  for (const [key, value] of Object.entries(runFilters)) {
+    if (value) query.set(key, value);
+  }
+  return query.toString();
+}
+
+/** The page filters that narrow the runs, in the order the sidebar lists them. */
+export const RUN_FILTER_FIELDS = [
+  "workflowKey", "runStatus", "focusFrom", "focusTo", "maxRunAmount", "boundaryRunId",
+] as const;
+
+export const NO_RUN_FILTERS: Pick<ReportState, (typeof RUN_FILTER_FIELDS)[number]> = {
+  workflowKey: "", runStatus: "", focusFrom: "", focusTo: "", maxRunAmount: "", boundaryRunId: "",
+};
+
+/** The page's own controls, back to what a first visit shows. */
+export const DEFAULT_RUN_CONTROLS = {
+  runSort: "started_at", runDirection: "desc", runChart: "workflow",
+} as const;
+
+const VIEWS: View[] = ["overview", "runs", "tool-runs", "tools", "daily", "users", "server", "status"];
+const RUN_STATUSES: RunStatus[] = ["completed", "failed", "running", "cancelled"];
+const RUN_SORTS: RunSort[] = ["started_at", "amount", "run_total", "duration"];
+
+/** The report a URL describes. Anything missing or unrecognised falls back to its default. */
+export function stateFromUrl(search: string): ReportState {
+  const params = new URLSearchParams(search);
+  const view = params.get("view") as View;
+  const outcome = params.get("outcome") as RunStatus;
+  const runSort = params.get("run_sort") as RunSort;
+  return {
+    view: VIEWS.includes(view) ? view : "overview",
+    period: (params.get("period") || "this-month") as PeriodId,
+    basis: params.get("basis") === "allocated" ? "allocated" : "additional",
+    mode: "accrued",
+    fromTime: params.get("from") || "",
+    toTime: params.get("to") || "",
+    timezone: params.get("timezone") || "UTC",
+    search: params.get("search") || "", owner: params.get("owner") || "",
+    toolId: params.get("tool_id") || "", toolVersion: params.get("tool_version") || "",
+    invocationId: params.get("invocation_id") || "", workflowId: params.get("workflow_id") || "",
+    state: params.get("state") || "", runner: params.get("runner") || "",
+    destination: params.get("destination") || "", capacity: params.get("capacity") || "",
+    quality: params.get("quality") || "", minCost: params.get("min_cost") || "",
+    maxCost: params.get("max_cost") || "", sort: params.get("sort") || "created_at",
+    direction: params.get("direction") === "asc" ? "asc" : "desc",
+    offset: Number(params.get("offset")) || 0,
+    workflowKey: params.get("workflow") || "",
+    runStatus: RUN_STATUSES.includes(outcome) ? outcome : "",
+    focusFrom: params.get("focus_from") || "",
+    focusTo: params.get("focus_to") || "",
+    maxRunAmount: params.get("max_amount") || "",
+    boundaryRunId: params.get("boundary_run_id") || "",
+    runSort: RUN_SORTS.includes(runSort) ? runSort : DEFAULT_RUN_CONTROLS.runSort,
+    runDirection: params.get("run_dir") === "asc" ? "asc" : "desc",
+    runChart: params.get("chart") === "time" ? "time" : DEFAULT_RUN_CONTROLS.runChart,
+  };
+}
+
+/**
+ * The URL query that reproduces a view. Defaults are left out, and the run-only
+ * parameters appear only on the Workflow runs page, so other links stay clean.
+ */
+export function urlQuery(state: ReportState): URLSearchParams {
+  const query = new URLSearchParams(queryString(state));
+  query.set("view", state.view);
+  query.set("period", state.period);
+  // Period presets resolve their own dates; only custom dates travel in the URL.
+  query.delete("from");
+  query.delete("to");
+  if (state.period === "custom") {
+    query.set("from", state.fromTime);
+    query.set("to", state.toTime);
+  }
+  if (state.view === "runs") {
+    const entries: Array<[string, string, string]> = [
+      ["workflow", state.workflowKey, ""], ["outcome", state.runStatus, ""],
+      ["focus_from", state.focusFrom, ""], ["focus_to", state.focusTo, ""],
+      ["max_amount", state.maxRunAmount, ""], ["boundary_run_id", state.boundaryRunId, ""],
+      ["run_sort", state.runSort, DEFAULT_RUN_CONTROLS.runSort],
+      ["run_dir", state.runDirection, DEFAULT_RUN_CONTROLS.runDirection],
+      ["chart", state.runChart, DEFAULT_RUN_CONTROLS.runChart],
+    ];
+    for (const [key, value, fallback] of entries) {
+      if (value && value !== fallback) query.set(key, value);
+    }
+  }
+  return query;
+}
+
+/** The UTC instant of a local calendar date or date-time in the report's timezone. */
+export function offsetBoundary(value: string, timezone: string): string {
   if (/Z$|[+-]\d\d:\d\d$/.test(value)) return value;
   const local = value.length === 10 ? `${value}T00:00:00` : value;
   const [date, clock] = local.split("T");
@@ -313,32 +523,90 @@ export async function loadReport(state: ReportState, signal?: AbortSignal) {
   }
 }
 
+/** Runs listed per page, and how many more each "Show more" appends. */
+export const RUN_PAGE_SIZE = 20;
+const TOP_RUNS = 4;
+
+/** The charts a runs view needs: the active tab's, and the strip's when a workflow is chosen. */
+export function chartsNeeded(state: ReportState): { breakdown: boolean; timeline: boolean; strip: boolean } {
+  return {
+    breakdown: state.runChart === "workflow",
+    timeline: state.runChart === "time",
+    strip: Boolean(state.workflowKey),
+  };
+}
+
+async function loadRunCharts(
+  state: ReportState,
+  wanted: { breakdown?: boolean; timeline?: boolean; strip?: boolean },
+  signal?: AbortSignal,
+) {
+  const query = runQueryString(state);
+  // The By workflow chart keeps every workflow visible while one is chosen, so
+  // it is asked without that choice (and the grouped runs that belong to it).
+  const allWorkflows = runQueryString({ ...state, workflowKey: "", maxRunAmount: "", boundaryRunId: "" });
+  const [breakdown, timeline, strip] = await Promise.all([
+    wanted.breakdown ? get<Breakdown>(`/invocations/breakdown?${allWorkflows}`, signal) : null,
+    wanted.timeline ? get<Timeline>(`/invocations/timeline?${query}`, signal) : null,
+    wanted.strip ? get<Breakdown>(`/invocations/breakdown?${query}`, signal) : null,
+  ]);
+  return { breakdown, timeline, strip };
+}
+
+/** The runs a pinned report has not yet shown, one page at a time. */
+export function loadMoreRuns(state: ReportState, offset: number, signal?: AbortSignal) {
+  return get<InvocationList>(
+    `/invocations?${runQueryString(state, { limit: RUN_PAGE_SIZE, offset })}`, signal,
+  );
+}
+
+/** A chart the page has not loaded yet, from the revision the rest of the page shows. */
+export function loadRunChart(state: ReportState, kind: "breakdown" | "timeline", signal?: AbortSignal) {
+  return loadRunCharts(state, { [kind]: true }, signal);
+}
+
+/** Overview lists the period's most expensive runs, on the server, whatever the runs page filters. */
+function topRunsQuery(state: ReportState): string {
+  return runQueryString(
+    { ...state, ...NO_RUN_FILTERS, runSort: "amount", runDirection: "desc", search: "" },
+    { limit: TOP_RUNS },
+  );
+}
+
 /** One view, assembled from a single calculation revision. */
 async function loadPinnedReport(state: ReportState, signal?: AbortSignal) {
   const initialQuery = queryString(state);
   const summary = await get<Summary>(`/summary?${initialQuery}`, signal);
   const snapshotState = { ...state, revision: summary.revision_id || state.revision };
   const query = queryString(snapshotState);
-  const common = [
-    get<JobList>(`/jobs?${query}`, signal),
-    get<Freshness>("/freshness", signal),
-    get<Me>("/me", signal),
-  ] as const;
+  // The runs page reads everything it shows from the run endpoints.
+  const jobs = state.view === "runs"
+    ? Promise.resolve<JobList>({ items: [], undated_items: [], total: 0, limit: 50, offset: 0, meta: summary })
+    : get<JobList>(`/jobs?${query}`, signal);
+  const common = [jobs, get<Freshness>("/freshness", signal), get<Me>("/me", signal)] as const;
   const viewRequest = state.view === "overview"
     ? Promise.all([
         get<{ items: DailyItem[]; meta: Meta }>(`/daily?${query}`, signal),
         get<{ items: GroupItem[]; meta: Meta }>(`/tools?${query}`, signal),
-        get<{ items: Invocation[]; meta: Meta }>(`/invocations?${query}`, signal),
+        get<InvocationList>(`/invocations?${topRunsQuery(snapshotState)}`, signal),
       ])
     : state.view === "tools" ? get<{ items: GroupItem[]; meta: Meta }>(`/tools?${query}`, signal)
-    : state.view === "runs" ? get<{ items: Invocation[]; meta: Meta }>(`/invocations?${query}`, signal)
+    : state.view === "runs" ? loadRunsView(snapshotState, signal)
     : state.view === "daily" ? get<{ items: DailyItem[]; meta: Meta }>(`/daily?${query}`, signal)
     : state.view === "users" ? get<{ items: GroupItem[]; meta: Meta }>(`/users?${query}`, signal)
     : state.view === "server" ? get<Infrastructure>(`/infrastructure?${query}`, signal)
     : state.view === "status" ? get<Status>("/status", signal)
     : Promise.resolve(null);
-  const [jobs, freshness, me, view] = await Promise.all([...common, viewRequest]);
-  return { summary, jobs, freshness, me, view };
+  const [loadedJobs, freshness, me, view] = await Promise.all([...common, viewRequest]);
+  return { summary, jobs: loadedJobs, freshness, me, view };
+}
+
+async function loadRunsView(state: ReportState, signal?: AbortSignal): Promise<RunsView> {
+  const [list, charts] = await Promise.all([
+    get<InvocationList>(`/invocations?${runQueryString(state, { limit: RUN_PAGE_SIZE })}`, signal),
+    loadRunCharts(state, chartsNeeded(state), signal),
+  ]);
+  return { list, ...charts };
 }
 
 /** Report sources, as opposed to the price catalog, which is versioned separately. */

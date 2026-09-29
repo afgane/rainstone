@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  capacityLabel, coverageSentence, costExplanation, formatCost, formatDate, formatRate, qualityLabel,
-  undatedSentence,
+  acrossWorkflows, capacityLabel, coverageSentence, costExplanation, durationText, focusChipLabel,
+  formatAxisCost, formatCost, formatDate, formatDuration, formatRate, outcomeMix, outOfRuns,
+  qualityLabel, rangeCaption, showingOf, showMore, undatedSentence,
 } from "./vocabulary";
 
 describe("money", () => {
@@ -66,5 +67,53 @@ describe("dates", () => {
     const lateUtc = "2026-09-23T00:58:23.099351Z";
     expect(formatDate(lateUtc, "UTC")).toContain("23");
     expect(formatDate(lateUtc, "America/New_York")).toContain("22");
+  });
+});
+
+describe("the Workflow runs vocabulary", () => {
+  it("writes axis ticks in whole dollars or cents", () => {
+    expect(formatAxisCost(5)).toBe("$5");
+    expect(formatAxisCost(0.25)).toBe("$0.25");
+    expect(formatAxisCost(2.5)).toBe("$2.50");
+  });
+
+  it("writes a duration in minutes or hours, and 'so far' while running", () => {
+    expect(formatDuration(20)).toBe("1 min");
+    expect(formatDuration(2700)).toBe("45 min");
+    expect(formatDuration(7500)).toBe("2 h 5 min");
+    expect(formatDuration(7200)).toBe("2 h");
+    expect(formatDuration(null)).toBe("Not available");
+    expect(durationText(600, "running")).toBe("10 min so far");
+    expect(durationText(600, "completed")).toBe("10 min");
+  });
+
+  it("counts runs and workflows with correct grammar", () => {
+    expect(acrossWorkflows(1)).toBe("Across 1 workflow");
+    expect(acrossWorkflows(8)).toBe("Across 8 workflows");
+    expect(outOfRuns(147)).toBe("Out of 147 runs in this period");
+    expect(showingOf(20, 147)).toBe("Showing 20 of 147");
+    expect(showMore(20)).toBe("Show 20 more");
+  });
+
+  it("names the outcome mix in a fixed order and leaves out what is absent", () => {
+    expect(outcomeMix({ failed: 13, completed: 131, running: 3 })).toBe("131 completed · 13 failed · 3 running");
+    expect(outcomeMix({})).toBe("");
+  });
+
+  it("describes a whole-run range and what it leaves out", () => {
+    const range = { minimum: "0.05", maximum: "1.51", included_run_count: 2, excluded_run_count: 0 };
+    expect(rangeCaption(range)).toBe("Whole-run totals range from $0.05 to $1.51.");
+    expect(rangeCaption({ ...range, minimum: "1.51", included_run_count: 1 })).toBe("One run, $1.51 in total.");
+    expect(rangeCaption({ ...range, excluded_run_count: 3 })).toContain("3 runs left out");
+    expect(rangeCaption({ minimum: null, maximum: null, included_run_count: 0, excluded_run_count: 1 }))
+      .toBe("Whole-run range not available. 1 run left out: still running or missing cost data.");
+  });
+
+  it("names a focus window by its day, days or hour", () => {
+    expect(focusChipLabel("2026-09-28T00:00:00Z", "2026-09-29T00:00:00Z", "UTC")).toBe("Runs active Sep 28");
+    expect(focusChipLabel("2026-09-21T00:00:00Z", "2026-09-28T00:00:00Z", "UTC")).toBe("Runs active Sep 21–Sep 27");
+    expect(focusChipLabel("2026-09-28T15:00:00Z", "2026-09-28T16:00:00Z", "UTC")).toBe("Runs active Sep 28, 3 PM–4 PM");
+    expect(focusChipLabel("2026-09-28T00:00:00Z", "2026-09-29T00:00:00Z", "UTC", "completed"))
+      .toBe("Runs with jobs completed Sep 28");
   });
 });
