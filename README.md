@@ -90,10 +90,13 @@ export query applies the resolved tenant and owner scope on the backend.
 
 - `additional`: known zero for policy-verified baseline capacity; dedicated VM
   lifecycle cost when priced; unknown remains null.
-- `allocated`: dedicated VM cost, while baseline allocation remains unavailable
-  until a valid T2D component/allocation policy exists.
-- Baseline infrastructure cost is shown separately and is never added to job
-  allocations.
+- Work on the already-running Galaxy host adds nothing to the bill, so it is
+  reported as $0 extra ("Used your Galaxy server"). The host's cost is shown
+  separately as the Galaxy server's cost and is never divided among jobs. This
+  is a decision, not a missing policy: a per-job share of the host would change
+  nothing a user pays.
+- `allocated`: dedicated VM cost. It is unavailable for work on the Galaxy
+  host, for the reason above.
 - The default reporting mode accrues cost within half-open from/to intervals.
   Minimum-charge uplift is distributed proportionally across the observed
   positive-duration lifetime; untimed costs remain unattributed.

@@ -44,7 +44,7 @@ total substituted for "what did I spend yesterday".
 | Internal value | What the user reads |
 | --- | --- |
 | `additional` basis | Estimated run compute cost, with "Compute started for your tool and workflow runs. Your already-running Galaxy server is shown separately." |
-| `allocated` basis | Resource allocation estimate, with its own explanation |
+| `allocated` basis | Resource allocation estimate, with its own explanation; unavailable by design for work on the Galaxy server |
 | `current_launch` | Galaxy server compute cost: $X/hour while running and total since launched, with launch time and cutoff, in a quieter section |
 | `known_zero` | $0 extra compute · Used your Galaxy server |
 | `partial` / `unpriced` | Cost incomplete / Price unavailable, each with a reason |

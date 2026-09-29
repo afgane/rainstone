@@ -180,7 +180,8 @@ def calculate_lifetime(
                 "allocated",
                 None,
                 Quality.unpriced,
-                "Allocated cost is unavailable because this catalog has no valid baseline allocation policy.",
+                "Ran on the already-running Galaxy server, whose cost is reported once for the "
+                "server and never divided among jobs.",
             ),
         ]
     if relationship == CapacityRelationship.unknown:

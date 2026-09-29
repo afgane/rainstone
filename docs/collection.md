@@ -99,10 +99,14 @@ zone and numeric instance ID for a GCE VM. Attempts associate with it. CI job
   repeats the full amount;
 - two different VMs used by retries still produce two lifetime charges.
 
-If more than one Galaxy job shares a lifetime, the charge becomes unavailable
-with a reason, pending an explicit allocation policy and occupancy coverage.
-Verified baseline capacity keeps its known-zero additional spend independently
-of sharing.
+If more than one Galaxy job shares a dedicated lifetime, the charge becomes
+unavailable with a reason, pending an explicit allocation policy and occupancy
+coverage.
+
+The Galaxy host is not such a case. Verified baseline capacity keeps its
+known-zero additional spend however many jobs share it, and its cost is never
+divided among them: it is reported once, as the Galaxy server's cost. No
+allocation policy for the host is planned.
 
 Several observations of one resource are merged by evidence precedence:
 provider-billable, then live Compute timestamps, then audit lifecycle markers,
