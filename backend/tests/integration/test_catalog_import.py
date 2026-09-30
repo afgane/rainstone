@@ -10,7 +10,7 @@ from rainstone.models import CatalogVersion, PriceVersion
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-BUNDLED = Path("catalog/gcp-2026-09-19.json")
+BUNDLED = Path("fixtures/price-catalog-pilot.json")
 
 
 @pytest.fixture()

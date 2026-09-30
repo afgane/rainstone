@@ -2,10 +2,12 @@ import json
 from pathlib import Path
 
 import pytest
-from rainstone.catalog import CatalogError, published_url, validate
+from rainstone.catalog import CatalogError, parse_trusted_keys, published_url, validate
+from rainstone.config import Settings
 from rainstone.models import CatalogVersion
 
-BUNDLED = Path("catalog/gcp-2026-09-19.json")
+PILOT = Path("fixtures/price-catalog-pilot.json")
+BUNDLED = Path("catalog/gcp-2026-09-30.json")
 
 
 def artifact(**overrides) -> bytes:
@@ -29,11 +31,26 @@ def artifact(**overrides) -> bytes:
     return json.dumps(payload).encode()
 
 
-def test_bundled_catalog_validates() -> None:
-    catalog = validate(BUNDLED.read_bytes(), source=str(BUNDLED))
+def test_an_unsigned_hand_captured_catalog_validates() -> None:
+    catalog = validate(PILOT.read_bytes(), source=str(PILOT))
     assert catalog.rates
     assert catalog.currency == "USD"
     assert catalog.provenance["historical_effective_time_available"] is False
+
+
+def test_the_bundled_catalog_is_the_signed_published_one() -> None:
+    catalog = validate(
+        BUNDLED.read_bytes(),
+        source=str(BUNDLED),
+        require_signature=True,
+        trusted_keys=parse_trusted_keys(Settings().catalog_trusted_keys),
+    )
+    assert catalog.signature_verified is True
+    assert catalog.provenance["historical_effective_time_available"] is True
+    assert catalog.coverage["machine_families"] == ["t2d", "n2", "g2"]
+    assert all(rate["region"].startswith("us-") for rate in catalog.rates)
+    assert all(rate["effective_from"] for rate in catalog.rates)
+    assert {"g2-standard-4", "n2-standard-2", "t2d-standard-4"} <= {rate["machine_type"] for rate in catalog.rates}
 
 
 def test_duplicate_resolver_keys_are_rejected() -> None:
@@ -98,5 +115,5 @@ def test_a_fetched_catalog_links_its_own_published_version() -> None:
     assert published_url(fetched) == (
         "https://example.github.io/rainstone/gcp/versions/gcp-t2d-n2-20260923T004653Z.json"
     )
-    bundled = CatalogVersion(catalog_id="bundled", source="catalog/gcp-2026-09-19.json")
+    bundled = CatalogVersion(catalog_id="bundled", source="catalog/gcp-2026-09-30.json")
     assert published_url(bundled) is None

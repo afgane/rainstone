@@ -206,7 +206,7 @@ def test_a_feed_refresh_rejects_unsigned_content_by_default(monkeypatch) -> None
     result = catalog_module.refresh(
         session,
         url="https://feed.invalid/latest.json",
-        bundled_path=Path("catalog/gcp-2026-09-19.json"),
+        bundled_path=Path("catalog/gcp-2026-09-30.json"),
         trusted_keys=trusted(key),
     )
     assert result["status"] == "last_known_good"
@@ -240,7 +240,7 @@ def test_falling_back_to_the_bundled_catalog_keeps_the_feed_error(monkeypatch) -
     result = catalog_module.refresh(
         FailedSession(),
         url="https://feed.invalid/latest.json",
-        bundled_path=Path("catalog/gcp-2026-09-19.json"),
+        bundled_path=Path("catalog/gcp-2026-09-30.json"),
     )
     assert result["status"] == "bundled"
     assert result["catalog_id"] == "bundled"

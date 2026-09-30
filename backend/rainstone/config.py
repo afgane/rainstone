@@ -111,7 +111,7 @@ class Settings(BaseSettings):
     # published from github.com/afgane/rainstone), so an installation need
     # not configure either; `chart/values.yaml`'s catalog.feedUrl/trustedKeys
     # only need setting to override them, e.g. for a fork's own feed.
-    catalog_path: Path = Path("catalog/gcp-2026-09-19.json")
+    catalog_path: Path = Path("catalog/gcp-2026-09-30.json")
     # What the machine types the catalog prices are made of, from Google's published specifications.
     machine_shapes_path: Path = Path("catalog/gcp-machine-shapes.json")
     catalog_feed_url: str | None = "https://afgane.github.io/rainstone/gcp/latest.json"

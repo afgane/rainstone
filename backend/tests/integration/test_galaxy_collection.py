@@ -505,7 +505,7 @@ def test_provider_retry_charges_one_shared_vm_lifetime(source_engine) -> None:
         assert len(lines) == 1
         assert lines[0].attempt_id is None
         assert lines[0].details["shared_attempt_count"] == 2
-        # us-east4 is outside the bundled catalog, so it stays visibly unpriced
+        # us-east4 is outside the pilot price catalog the tests import, so it stays visibly unpriced
         # rather than borrowing another region's rate.
         assert lines[0].amount is None
         assert lines[0].quality.value == "unpriced"

@@ -44,8 +44,9 @@ def seeded_database(tmp_path_factory, fixture_clock) -> None:
     with Session(engine) as session:
         ingest_fixture(session, Path("fixtures/phase1.json"))
         ingest_fixture(session, runs_path)
-        # A running service has its bundled price catalog imported before it reports anything.
-        import_catalog(session, load_file(Path("catalog/gcp-2026-09-19.json")))
+        # A running service has a price catalog imported before it reports anything. The
+        # tests use the hand-captured pilot, whose gaps (us-central1 only) they rely on.
+        import_catalog(session, load_file(Path("fixtures/price-catalog-pilot.json")))
         for tenant_id in session.scalars(select(Tenant.id)).all():
             calculate_tenant(session, tenant_id, reason="bundled price catalog")
         session.commit()

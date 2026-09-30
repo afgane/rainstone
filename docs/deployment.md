@@ -378,16 +378,16 @@ automatically; submitting synthetic jobs is an opt-in development action.
 
 ## Current limitations
 
-- Price coverage is a pilot: the bundled artifact declares `us-central1` only,
-  from a 2026-09-19 snapshot captured by hand from the official pricing page. A
-  provider catalog is meant to carry every region for the families it supports,
-  maintained by a publisher that fetches official data and signs versioned
-  artifacts. That publisher is not yet operated, so shapes elsewhere — including
-  the observed `us-east4` N2 shapes — stay visibly unpriced rather than
-  borrowing another region's rate, and this release cannot claim unattended
-  current-price reporting. Enabling a feed requires `catalog.trustedKeys`; the
-  chart refuses to render a feed URL without one, and a downloaded artifact
-  always needs a verified signature regardless of settings.
+- Price coverage is limited to the `t2d`, `n2` and `g2` families, on-demand,
+  in US regions, dated back a year from each monthly publication
+  ([`docs/gcp-pricing-publisher.md`](gcp-pricing-publisher.md)). Other
+  machines, regions, and older work stay visibly unpriced rather than
+  borrowing another rate. The image bundles the catalog observed on
+  2026-09-30, so an installation that cannot reach the feed prices work from
+  October 2025 on and falls behind price changes after that. A custom feed
+  requires `catalog.trustedKeys`; the chart refuses to render a feed URL
+  without one, and a downloaded artifact always needs a verified signature
+  regardless of settings.
 - The Galaxy server's own running cost is never reported on a real
   installation. That server runs whether or not anyone submits a job, and the
   Server view exists to show what it costs over the period being viewed.
