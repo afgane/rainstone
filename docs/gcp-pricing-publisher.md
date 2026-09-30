@@ -62,6 +62,32 @@ US family/region combination also fails the run, unless explicitly
 acknowledged with `--acknowledge-regression family:region` (repeatable).
 Regions outside the US in a previous catalog are out of scope, not lost.
 
+## How prices are dated
+
+The application never applies a price to work that ran before the price's
+`effective_from`. The latest-pricing listing dates every price to midnight
+Pacific on the day it is read, so a catalog built from it alone could price
+nothing that had already run. Each price is therefore dated from the SKU's
+price history instead.
+
+The Catalog API returns pricing versions for a time range only within one
+Pacific calendar month, so the publisher lists each month back from the
+current one, up to `--history-months` (default 12), and for every CPU, RAM
+and GPU SKU it uses walks back while the SKU kept its current price:
+
+- A month showing only the current price counts in full, and the walk goes on.
+- At a month where the price differs, a change back to the current price
+  dated after that month began is when it took effect; otherwise the price is
+  dated from the start of the following month.
+- A month that no longer lists the SKU, or cannot be read, ends the walk at
+  the last month that could. An unreadable month is logged.
+
+A price is never dated earlier than this evidence shows, and one with no
+readable history keeps the listing's date. A machine's rate is dated by its
+latest component, so it applies to work since all of its prices were in
+effect. Work older than the horizon stays unpriced unless an earlier catalog
+covers it.
+
 ## Running locally
 
 Fixture-only, no network access needed for the test suite (see `make

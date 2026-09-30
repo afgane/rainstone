@@ -139,6 +139,25 @@ def test_a_g2_rate_includes_its_l4_gpus_and_skips_the_workstation_sku(key_pair) 
     assert by_key[("g2-standard-4", "us-east1")]["provenance"]["gpu_sku_id"] == "L4G1-0000-0003"
 
 
+def test_prices_unchanged_through_their_history_are_dated_to_its_start(key_pair) -> None:
+    """The fixtures list the same prices for every month asked about, so each
+    rate is in effect for the whole default twelve months: from 1 October 2025
+    in Pacific time, not from the day the catalog was read.
+    """
+    key, _public = key_pair
+    document = cli.run(
+        api_key="fake-key",
+        key_id="release-2026",
+        private_key=key,
+        shapes_path=SHAPES_PATH,
+        output_dir=None,
+        previous_catalog=None,
+        now=NOW,
+    )
+    assert {rate["effective_from"] for rate in document["rates"]} == {"2025-10-01T07:00:00Z"}
+    assert document["historical_effective_time_available"] is True
+
+
 def test_a_coverage_regression_blocks_the_run(tmp_path, key_pair) -> None:
     key, _public = key_pair
     previous = tmp_path / "previous-latest.json"

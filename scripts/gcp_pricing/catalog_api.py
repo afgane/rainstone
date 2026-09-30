@@ -12,6 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 BASE_URL = "https://cloudbilling.googleapis.com/v1"
@@ -53,6 +54,10 @@ def _request(
     if not isinstance(payload, dict):
         raise CatalogFetchError(f"Catalog API returned a non-object response for {path}")
     return payload
+
+
+def _rfc3339(moment: datetime) -> str:
+    return moment.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _open(request: urllib.request.Request, timeout: int):
@@ -100,21 +105,33 @@ def list_skus(
     *,
     currency_code: str = "USD",
     page_size: int = 5000,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
     timeout: int = 30,
     retries: int = 3,
     opener: Callable[[urllib.request.Request, int], Any] = _open,
 ) -> list[dict]:
     """Paginate a service's complete SKU listing.
 
+    Without a time range this is the latest pricing. With one, each SKU lists
+    every pricing version in effect during that range, which the API only
+    accepts within one calendar month in America/Los_Angeles and not in the
+    future.
+
     A page with a ``nextPageToken`` but no ``skus`` is an incomplete response,
     not an empty page, and is rejected rather than silently truncating the
     catalog.
     """
+    time_range: dict[str, str] = {}
+    if (start_time is None) != (end_time is None):
+        raise ValueError("a SKU time range needs both start_time and end_time")
+    if start_time is not None and end_time is not None:
+        time_range = {"startTime": _rfc3339(start_time), "endTime": _rfc3339(end_time)}
     skus: list[dict] = []
     page_token: str | None = None
     seen_tokens: set[str] = set()
     while True:
-        params: dict[str, Any] = {"currencyCode": currency_code, "pageSize": page_size}
+        params: dict[str, Any] = {"currencyCode": currency_code, "pageSize": page_size, **time_range}
         if page_token:
             params["pageToken"] = page_token
         payload = _request(

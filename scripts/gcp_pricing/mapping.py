@@ -148,6 +148,17 @@ def _select_pricing_info(sku: dict, *, now: datetime) -> dict:
 def price_point(sku: dict, component: Component, *, now: datetime) -> PricePoint:
     sku_id = sku.get("skuId", "?")
     info = _select_pricing_info(sku, now=now)
+    return PricePoint(
+        sku_id=sku_id,
+        description=sku.get("description", ""),
+        rate_per_unit=info_rate(info, component, sku_id=sku_id),
+        usage_unit=EXPECTED_USAGE_UNIT[component],
+        effective_time=info.get("effectiveTime"),
+    )
+
+
+def info_rate(info: dict, component: Component, *, sku_id: str) -> Decimal:
+    """The per-unit USD rate one pricing entry states, or MappingError."""
     if info.get("currencyConversionRate", 1) != 1:
         raise MappingError(f"SKU {sku_id} carries a non-unit currency conversion rate")
     expression = info.get("pricingExpression") or {}
@@ -166,13 +177,7 @@ def price_point(sku: dict, component: Component, *, now: datetime) -> PricePoint
     unit_price = tier.get("unitPrice") or {}
     if unit_price.get("currencyCode") != "USD":
         raise MappingError(f"SKU {sku_id} is not priced in USD")
-    return PricePoint(
-        sku_id=sku_id,
-        description=sku.get("description", ""),
-        rate_per_unit=_money_to_decimal(unit_price, sku_id=sku_id),
-        usage_unit=usage_unit,
-        effective_time=info.get("effectiveTime"),
-    )
+    return _money_to_decimal(unit_price, sku_id=sku_id)
 
 
 def build_region_rates(

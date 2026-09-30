@@ -7,6 +7,7 @@ requires.
 
 import json
 import urllib.error
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -156,3 +157,37 @@ def test_the_api_key_never_appears_in_the_request_url() -> None:
     discover_compute_engine_service("super-secret-key", opener=opener)
     assert "super-secret-key" not in captured["url"]
     assert captured["headers"].get("X-goog-api-key") == "super-secret-key"
+
+
+def test_a_time_range_is_sent_as_rfc3339_start_and_end() -> None:
+    urls: list[str] = []
+
+    def opener(request, _timeout):
+        urls.append(request.full_url)
+        return FakeResponse({"skus": PAGE_1["skus"]})
+
+    list_skus(
+        "services/6F81-5844-456A",
+        "fake-key",
+        start_time=datetime(2026, 8, 1, 7, tzinfo=UTC),
+        end_time=datetime(2026, 9, 1, 7, tzinfo=UTC),
+        opener=opener,
+    )
+    assert "startTime=2026-08-01T07%3A00%3A00Z" in urls[0]
+    assert "endTime=2026-09-01T07%3A00%3A00Z" in urls[0]
+
+
+def test_latest_pricing_sends_no_time_range() -> None:
+    urls: list[str] = []
+
+    def opener(request, _timeout):
+        urls.append(request.full_url)
+        return FakeResponse({"skus": PAGE_1["skus"]})
+
+    list_skus("services/6F81-5844-456A", "fake-key", opener=opener)
+    assert "startTime" not in urls[0] and "endTime" not in urls[0]
+
+
+def test_a_time_range_needs_both_ends() -> None:
+    with pytest.raises(ValueError, match="both"):
+        list_skus("services/x", "fake-key", start_time=datetime(2026, 8, 1, tzinfo=UTC))

@@ -22,6 +22,7 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from gcp_pricing.catalog_api import CatalogFetchError, discover_compute_engine_service, list_skus
+from gcp_pricing.history import DEFAULT_HISTORY_MONTHS, date_from_history
 from gcp_pricing.mapping import MAPPING_VERSION, MappingError, build_region_rates
 from gcp_pricing.output import (
     PublishError,
@@ -61,6 +62,7 @@ def run(
     output_dir: Path | None,
     previous_catalog: str | None,
     acknowledged_regressions: tuple[tuple[str, str], ...] = (),
+    history_months: int = DEFAULT_HISTORY_MONTHS,
     timeout: int = 30,
     retries: int = 3,
     now: datetime | None = None,
@@ -75,7 +77,15 @@ def run(
     service_name = discover_compute_engine_service(api_key, timeout=timeout, retries=retries)
     skus = list_skus(service_name, api_key, timeout=timeout, retries=retries)
     region_rates, problems = build_region_rates(skus, now=observed_at)
-    for problem in problems:
+    region_rates, history_problems = date_from_history(
+        region_rates,
+        lambda start, end: list_skus(
+            service_name, api_key, start_time=start, end_time=end, timeout=timeout, retries=retries
+        ),
+        now=observed_at,
+        months=history_months,
+    )
+    for problem in problems + history_problems:
         print(f"gcp_pricing: {problem}", file=sys.stderr)
     check_required_regions(region_rates)
     rates = build_rates(shapes, region_rates, observed_at=observed_at, mapping_version=MAPPING_VERSION)
@@ -129,6 +139,12 @@ def main(argv: list[str] | None = None) -> int:
         metavar="FAMILY:REGION",
         help="Explicitly accept losing coverage for family:region (repeatable)",
     )
+    parser.add_argument(
+        "--history-months",
+        type=int,
+        default=DEFAULT_HISTORY_MONTHS,
+        help="How many Pacific calendar months of price history to date each price from",
+    )
     parser.add_argument("--timeout", type=int, default=30)
     parser.add_argument("--retries", type=int, default=3)
     parser.add_argument("--dry-run", action="store_true", help="Fetch, map and sign, but write nothing")
@@ -151,6 +167,7 @@ def main(argv: list[str] | None = None) -> int:
             output_dir=None if args.dry_run else args.output_dir,
             previous_catalog=args.previous_catalog,
             acknowledged_regressions=_parse_acknowledged(args.acknowledge_regression),
+            history_months=args.history_months,
             timeout=args.timeout,
             retries=args.retries,
         )
