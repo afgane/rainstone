@@ -8,9 +8,10 @@ kept its current price.
 
 Whatever the API does with a version that began before the queried month, the
 date published here is never earlier than the evidence: a month counts only
-when it shows the current price and nothing else, a change inside a month is
-used only when it is dated after that month began, and a month that cannot be
-read or no longer lists the SKU ends the walk at the last month that could.
+when the current price is its only price and was already in effect when the
+month began, a price that began inside a month is dated from when it began,
+and a month that cannot be read, no longer lists the SKU, or lists a version
+dated after the month ends the walk at the last month that could.
 """
 
 from collections.abc import Callable, Iterator
@@ -81,16 +82,20 @@ def _in_effect_since(
     for month, listing in zip(months, listings, strict=True):
         sku = listing.get(point.sku_id) if listing is not None else None
         versions = _versions(sku, component) if sku is not None else None
-        if versions is None:
+        # A version dated after the month cannot describe it: the response is
+        # not that month's history, however its prices compare.
+        if versions is None or any(time >= month.end for time, _rate in versions):
             return verified
-        if all(rate == point.rate_per_unit for _time, rate in versions):
-            verified = month.start
-            continue
-        last_other = max(index for index, (_time, rate) in enumerate(versions) if rate != point.rate_per_unit)
-        later = versions[last_other + 1 :]
-        if later and later[0][0] > month.start:
-            return later[0][0]
-        return verified
+        others = [index for index, (_time, rate) in enumerate(versions) if rate != point.rate_per_unit]
+        current = versions[others[-1] + 1 :] if others else versions
+        if not current:
+            return verified
+        began = current[0][0]
+        if began > month.start:
+            return began
+        if others:
+            return verified
+        verified = month.start
     return verified
 
 

@@ -75,12 +75,15 @@ Pacific calendar month, so the publisher lists each month back from the
 current one, up to `--history-months` (default 12), and for every CPU, RAM
 and GPU SKU it uses walks back while the SKU kept its current price:
 
-- A month showing only the current price counts in full, and the walk goes on.
-- At a month where the price differs, a change back to the current price
-  dated after that month began is when it took effect; otherwise the price is
-  dated from the start of the following month.
-- A month that no longer lists the SKU, or cannot be read, ends the walk at
-  the last month that could. An unreadable month is logged.
+- A month whose only price is the current one, already in effect when the
+  month began, counts in full, and the walk goes on.
+- A current price that began inside a month is dated from when it began.
+  Otherwise, a month with a different price dates it from the start of the
+  following month.
+- A month that no longer lists the SKU, cannot be read, or lists a version
+  dated after the month ends the walk at the last month that could; the last
+  case means the answer was not that month's history. An unreadable month is
+  logged.
 
 A price is never dated earlier than this evidence shows, and one with no
 readable history keeps the listing's date. A machine's rate is dated by its

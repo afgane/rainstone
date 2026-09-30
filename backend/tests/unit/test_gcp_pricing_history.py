@@ -136,6 +136,34 @@ def test_a_month_that_no_longer_lists_the_sku_ends_the_walk() -> None:
     assert dated(rates) == ("2026-09-01T07:00:00Z", "2026-07-01T07:00:00Z")
 
 
+def test_a_listing_dated_after_the_month_asked_for_is_not_its_history() -> None:
+    """Latest pricing returned for a past month would show the current price
+    dated today, which says nothing about that month.
+    """
+    listing = ram_unchanged(SEPTEMBER, AUGUST)
+    listing[SEPTEMBER] = listing[SEPTEMBER] + [sku("cpu", ("2026-09-01T07:00:00Z", "0.031611"))]
+    listing[AUGUST] = listing[AUGUST] + [sku("cpu", (LISTING_DAY, "0.031611"))]
+    rates, _problems = date_from_history(n2_rates(), history(listing), now=NOW, months=2)
+    assert dated(rates) == ("2026-09-01T07:00:00Z", "2026-08-01T07:00:00Z")
+
+
+def test_a_price_that_began_late_in_a_month_is_not_credited_for_all_of_it() -> None:
+    began = "2026-08-31T20:00:00Z"
+    listing = ram_unchanged(SEPTEMBER, AUGUST)
+    listing[SEPTEMBER] = listing[SEPTEMBER] + [sku("cpu", ("2026-09-01T07:00:00Z", "0.031611"))]
+    listing[AUGUST] = listing[AUGUST] + [sku("cpu", (began, "0.031611"))]
+    rates, _problems = date_from_history(n2_rates(), history(listing), now=NOW, months=2)
+    assert dated(rates)[0] == began
+
+
+def test_a_price_dated_long_before_the_month_counts_the_whole_month() -> None:
+    listing = ram_unchanged(SEPTEMBER, AUGUST)
+    listing[SEPTEMBER] = listing[SEPTEMBER] + [sku("cpu", ("2024-03-01T08:00:00Z", "0.031611"))]
+    listing[AUGUST] = listing[AUGUST] + [sku("cpu", ("2024-03-01T08:00:00Z", "0.031611"))]
+    rates, _problems = date_from_history(n2_rates(), history(listing), now=NOW, months=2)
+    assert dated(rates)[0] == "2026-08-01T07:00:00Z"
+
+
 def test_a_month_that_cannot_be_read_is_reported_and_ends_the_walk() -> None:
     listing: dict = {
         SEPTEMBER: [sku("cpu", ("2026-09-01T07:00:00Z", "0.031611")), *ram_unchanged(SEPTEMBER)[SEPTEMBER]],

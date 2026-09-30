@@ -139,10 +139,11 @@ def test_a_g2_rate_includes_its_l4_gpus_and_skips_the_workstation_sku(key_pair) 
     assert by_key[("g2-standard-4", "us-east1")]["provenance"]["gpu_sku_id"] == "L4G1-0000-0003"
 
 
-def test_prices_unchanged_through_their_history_are_dated_to_its_start(key_pair) -> None:
-    """The fixtures list the same prices for every month asked about, so each
-    rate is in effect for the whole default twelve months: from 1 October 2025
-    in Pacific time, not from the day the catalog was read.
+def test_prices_are_dated_from_their_history_not_the_day_they_were_read(key_pair) -> None:
+    """The fixtures answer every month with the same prices, each dated
+    2026-01-01T00:00Z, which is 31 December in Pacific time. January is covered
+    in full and December from that moment; earlier months, answered with a
+    version dated after they ended, are not history and end the walk there.
     """
     key, _public = key_pair
     document = cli.run(
@@ -154,7 +155,7 @@ def test_prices_unchanged_through_their_history_are_dated_to_its_start(key_pair)
         previous_catalog=None,
         now=NOW,
     )
-    assert {rate["effective_from"] for rate in document["rates"]} == {"2025-10-01T07:00:00Z"}
+    assert {rate["effective_from"] for rate in document["rates"]} == {"2026-01-01T00:00:00Z"}
     assert document["historical_effective_time_available"] is True
 
 
