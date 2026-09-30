@@ -376,6 +376,15 @@ class TimelinePiece(APIModel):
     status: str
 
 
+class TimelineAxis(APIModel):
+    """The range a chart draws, written like its buckets' own instants."""
+
+    from_: datetime = Field(alias="from")
+    to: datetime
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+
 class TimelineBucket(APIModel):
     from_: datetime = Field(alias="from")
     to: datetime
@@ -393,7 +402,7 @@ class TimelineBucket(APIModel):
 class TimelineResponse(APIModel):
     bucket: Literal["hour", "day", "week"]
     buckets: list[TimelineBucket]
-    axis: dict[str, str] | None
+    axis: TimelineAxis | None
     runs: dict[str, dict[str, Any]] = {}
     label: str
     unplaced: dict[str, Any] | None = None
@@ -438,7 +447,7 @@ class WorkloadTotals(APIModel):
 class CostTimelineResponse(APIModel):
     bucket: Literal["hour", "day", "week"]
     buckets: list[CostBucket]
-    axis: dict[str, str] | None
+    axis: TimelineAxis | None
     totals: WorkloadTotals
     label: str
     unplaced: dict[str, Any] | None = None
@@ -447,7 +456,8 @@ class CostTimelineResponse(APIModel):
 
 class DailyItem(APIModel):
     date: str
-    amount: str
+    # Null when no job of the day has a known cost; an observed zero is "0".
+    amount: str | None
     currency: Literal["USD"]
     job_count: int
     incomplete_count: int

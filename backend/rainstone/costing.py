@@ -395,6 +395,12 @@ def current_generation(session: Session, tenant_id: uuid.UUID) -> int:
     return row.generation
 
 
+def utcnow() -> datetime:
+    """When a calculation is stamped. Open-ended work is costed up to this instant, so a test
+    that needs a steady report replaces it."""
+    return datetime.now(UTC)
+
+
 def _ensure_generation(session: Session, tenant_id: uuid.UUID) -> int:
     row = session.get(ReportGeneration, tenant_id)
     if row is None:
@@ -469,7 +475,7 @@ def calculate_tenant(
     current.input_digest = digest
     current.facts_generation = generation
     current.reason = reason
-    current.created_at = datetime.now(UTC)
+    current.created_at = utcnow()
     session.flush()
     return current
 

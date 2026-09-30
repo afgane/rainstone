@@ -37,16 +37,23 @@ class TestTotals:
 
     def test_a_dated_columns_equal_the_daily_report_for_the_same_jobs(self, client) -> None:
         by_day = {
-            bucket["from"][:10]: Decimal(bucket["amount"])
+            bucket["from"][:10]: bucket["amount"]
             for bucket in timeline(client, bucket="day", timezone="UTC")["buckets"]
         }
         expected = {
-            item["date"]: Decimal(item["amount"])
-            for item in call(client, "daily", timezone="UTC")["items"]
+            item["date"]: item["amount"] for item in call(client, "daily", timezone="UTC")["items"]
         }
         assert by_day.keys() == expected.keys() and by_day
         for day, amount in expected.items():
-            assert abs(by_day[day] - amount) < TOLERANCE
+            # An unknown day is unknown in both, never a zero in one of them.
+            if amount is None:
+                assert by_day[day] is None
+            else:
+                assert abs(Decimal(by_day[day]) - Decimal(amount)) < TOLERANCE
+
+    def test_reports_are_calculated_at_the_fixtures_own_time(self, client) -> None:
+        # Open-ended work is costed up to the calculation's time, so the tests pin it.
+        assert timeline(client)["meta"]["as_of"].startswith("2026-09-29T12:00")
 
     def test_runs_and_workflows_match_the_workflow_runs_page(self, client) -> None:
         totals = timeline(client)["totals"]

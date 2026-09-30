@@ -347,7 +347,7 @@ export interface GroupItem {
 }
 
 export interface DailyItem {
-  date: string; amount: string; currency: string; job_count: number; provisional: boolean;
+  date: string; amount: string | null; currency: string; job_count: number; provisional: boolean;
   incomplete_count: number;
   by_runner: Record<string, string>; by_owner: Record<string, string>; by_tool: Record<string, string>;
 }

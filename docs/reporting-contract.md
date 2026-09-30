@@ -187,9 +187,10 @@ beyond. A run that spans buckets appears in each with the cost attributed to
 that bucket, the same slicing the daily report uses, so day buckets equal that
 report for the same unique jobs. At most 60 pieces are returned per bucket and
 the rest fold into `remainder`; empty buckets are omitted and `axis` gives the
-range to fill. A bucket is provisional while it holds a running run. Without a
-date range, cost with no usable timing is reported as `unplaced` beside the
-buckets and is part of the total, so the two reconcile.
+range to fill, written like the buckets' own instants. A bucket is provisional
+while it holds a running run. Without a date range, cost with no usable timing
+is reported as `unplaced` beside the buckets and is part of the total, so the
+two reconcile.
 
 ## Overview cost over time
 
@@ -207,9 +208,12 @@ job counts; a column adds its own job and run counts.
 reports), `job_count`, `by_outcome` (completed, failed, running, other),
 `run_count` and `workflow_count` (the runs and workflows that hold a job in the
 period, so they equal the workflow runs totals), and `individual_job_count`.
-Column amounts add up to `totals.amount`, and day columns equal the daily
-report for the same jobs. As elsewhere, an unbounded report keeps cost with no
-usable timing in `unplaced` beside the columns, and a dated one leaves it out.
+Column amounts add up to `totals.amount`, and day columns equal the daily report
+for the same jobs. A day whose jobs all lack a known cost has a null `amount` in
+the daily report and in the timelines alike, with its incomplete count beside
+it; only an observed zero is `0`. As elsewhere, an unbounded report keeps cost
+with no usable timing in `unplaced` beside the columns, and a dated one leaves
+it out.
 
 ## Resource lifetimes in reports (Phase 2B)
 

@@ -1748,7 +1748,7 @@ def daily(session: Session, identity: Identity, query: ReportQuery) -> dict:
     records, revision = _base_records(session, identity, query, undated=undated)
     timezone = ZoneInfo(query.timezone)
     buckets: dict[str, dict] = defaultdict(lambda: {
-        "amount": ZERO, "job_ids": set(), "incomplete_ids": set(), "provisional": False,
+        "amount": None, "job_ids": set(), "incomplete_ids": set(), "provisional": False,
         "by_runner": defaultdict(Decimal), "by_owner": defaultdict(Decimal),
         "by_tool": defaultdict(Decimal),
     })
@@ -1769,7 +1769,7 @@ def daily(session: Session, identity: Identity, query: ReportQuery) -> dict:
             if amount is None:
                 bucket["incomplete_ids"].add(record["id"])
                 continue
-            bucket["amount"] += amount
+            bucket["amount"] = (bucket["amount"] or ZERO) + amount
             bucket["by_runner"][record["runner"] or "unknown"] += amount
             bucket["by_owner"][record["owner"]] += amount
             bucket["by_tool"][f"{record['tool_id']}@{record['tool_version'] or ''}"] += amount

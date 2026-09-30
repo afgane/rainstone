@@ -311,3 +311,23 @@ describe("the run drawer's address", () => {
     expect(wrapper.find(".drawer [role='alert']").exists()).toBe(false);
   });
 });
+
+describe("the Daily cost page", () => {
+  it("says a day with no known cost is not available, never $0.00", async () => {
+    stubFetch(new Set(), path => (path.endsWith("/daily") ? json({
+      items: [
+        { date: "2026-09-02", amount: null, currency: "USD", job_count: 2, incomplete_count: 2, provisional: false },
+        { date: "2026-09-03", amount: "1.25", currency: "USD", job_count: 1, incomplete_count: 0, provisional: false },
+      ],
+    }) : undefined));
+    history.replaceState({}, "", "/?view=daily&period=custom&from=2026-09-01&to=2026-09-29");
+    const wrapper = mount(App, { attachTo: document.body });
+    apps.push(wrapper);
+    await flushPromises();
+    const rows = wrapper.findAll("tbody tr").map(row => row.text());
+    expect(rows[0]).toContain("Not available");
+    expect(rows[0]).toContain("2 still need cost data");
+    expect(rows[0]).not.toContain("$0.00");
+    expect(rows[1]).toContain("$1.25");
+  });
+});
