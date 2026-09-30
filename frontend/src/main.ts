@@ -5,5 +5,6 @@ import "@fontsource/atkinson-hyperlegible/700.css";
 import "@galaxyproject/brand-tokens/tokens.css";
 import "./assets/main.css";
 import "./assets/run-drawer.css";
+import "./assets/job-drawer.css";
 
 createApp(App).mount("#app");

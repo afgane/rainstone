@@ -23,6 +23,8 @@ from rainstone.costing import (
     calculate_server_session,
     current_generation,
 )
+from rainstone.job_use import job_resource_use
+from rainstone.machine_shapes import machine_capacity
 from rainstone.models import (
     CostLine,
     CostRevision,
@@ -33,6 +35,7 @@ from rainstone.models import (
     Invocation,
     InvocationJob,
     Job,
+    JobMetric,
     LifetimeAttempt,
     ObservationGap,
     Owner,
@@ -294,6 +297,7 @@ def _load_job_facts(
     candidate_count: list[int] | None = None,
     within_runs: bool = False,
     lifetime_facts: bool = False,
+    only_job: uuid.UUID | None = None,
 ) -> _JobFacts:
     """Load the jobs a report needs and what costs them.
 
@@ -301,7 +305,8 @@ def _load_job_facts(
     thousands of them and never changes one, and row objects cost a fraction of
     an entity's identity tracking. Related rows are fetched through the same
     job filter as a subquery, so no request carries a list of job IDs.
-    `within_runs` narrows the jobs to those a workflow run contains. Free-form
+    `within_runs` narrows the jobs to those a workflow run contains and
+    `only_job` to one job, on top of every authorization condition. Free-form
     evidence columns that no report total reads stay in the database;
     `lifetime_facts` brings back a resource's, which a job's detail shows.
     """
@@ -313,6 +318,8 @@ def _load_job_facts(
     conditions = [Job.tenant_id == identity.tenant_id]
     if not identity.is_admin:
         conditions.append(Job.owner_id == identity.owner_id)
+    if only_job is not None:
+        conditions.append(Job.id == only_job)
     if query.owner:
         if not identity.is_admin and query.owner != identity.source_id:
             return _JobFacts(revision, workflow_jobs, [], {}, {}, {}, as_of)
@@ -751,24 +758,64 @@ def list_jobs(session: Session, identity: Identity, query: ReportQuery, paginate
     }
 
 
+def _execution_duration(
+    attempt: ExecutionAttempt, running: bool, as_of: datetime
+) -> tuple[int | None, bool]:
+    """How long one execution ran, and whether that is elapsed so far.
+
+    An execution that finished before it started, or that never recorded its
+    end once the job is over, has no duration.
+    """
+    start, finish = attempt.tool_started_at, attempt.tool_finished_at
+    if start is None:
+        return None, False
+    ongoing = finish is None and running
+    finish = as_of if ongoing else finish
+    if finish is None or finish < start:
+        return None, False
+    return int((finish - start).total_seconds()), ongoing
+
+
+def _timing_issue(created_at: datetime | None, executions: list[ExecutionAttempt]) -> str | None:
+    """A recording fault that leaves some of a job's timing unavailable."""
+    if any(
+        attempt.tool_started_at and attempt.tool_finished_at
+        and attempt.tool_finished_at < attempt.tool_started_at
+        for attempt in executions
+    ):
+        return "finished_before_started"
+    if created_at and any(
+        attempt.tool_started_at and attempt.tool_started_at < created_at for attempt in executions
+    ):
+        return "started_before_submitted"
+    return None
+
+
 def job_detail(session: Session, identity: Identity, job_id: uuid.UUID, query: ReportQuery) -> dict | None:
+    """One job, its whole cost and everything the drawer explains it with.
+
+    The period's records decide whether the viewer may see the job and what
+    part of it falls in the period. Everything else, from resources and
+    executions to measured use, is built from the job's whole record, so a
+    whole-job headline is never shown beside period-only evidence.
+    """
     unrestricted = query.model_copy(update={
         "search": None, "tool_id": None, "tool_version": None, "invocation_id": None,
         "min_cost": None, "max_cost": None, "quality": None,
     })
+    facts = _load_job_facts(session, identity, unrestricted, lifetime_facts=True, only_job=job_id)
     undated: list[dict] = []
-    records, revision = _base_records(
-        session, identity, unrestricted, undated=undated, lifetime_facts=True
-    )
+    records = _records_from_facts(facts, unrestricted, undated)
     record = next((r for r in [*records, *undated] if r["id"] == str(job_id)), None)
     if not record:
         return None
-    full_records, _ = _base_records(session, identity, unrestricted.model_copy(update={"from_time": None, "to_time": None}))
-    full = next(r for r in full_records if r["id"] == str(job_id))
-    lifetime_attempts = record["lifetime_attempts"]
+    whole = unrestricted.model_copy(update={"from_time": None, "to_time": None})
+    full = next(r for r in _records_from_facts(facts, whole) if r["id"] == str(job_id))
+    revision, as_of = facts.revision, facts.as_of
+    lifetime_attempts = full["lifetime_attempts"]
     resources = []
-    charged_alone: dict[uuid.UUID, dict] = {}
-    for line, lifetime in record["pairs"]:
+    charged_alone: dict[uuid.UUID, list[dict]] = defaultdict(list)
+    for line, lifetime in full["pairs"]:
         sharing = sorted(
             lifetime_attempts.get(lifetime.id, []), key=lambda value: value.source_attempt_id
         )
@@ -778,6 +825,7 @@ def job_detail(session: Session, identity: Identity, job_id: uuid.UUID, query: R
             "resource_uid": lifetime.resource_uid,
             "provider": lifetime.provider,
             "machine_type": lifetime.machine_type,
+            "machine_capacity": machine_capacity(lifetime.provider, lifetime.machine_type),
             "region": lifetime.region,
             "zone": lifetime.zone,
             "purchase_model": lifetime.purchase_model,
@@ -801,18 +849,20 @@ def job_detail(session: Session, identity: Identity, job_id: uuid.UUID, query: R
         }
         resources.append(entry)
         if len(sharing) == 1:
-            charged_alone[sharing[0].id] = entry
-    first, repeats, _ = _executions(record["attempts"], {
-        attempt.id for users in lifetime_attempts.values() for attempt in users
-    })
+            charged_alone[sharing[0].id].append(entry)
+    resourced = {attempt.id for users in lifetime_attempts.values() for attempt in users}
+    first, repeats, _ = _executions(full["attempts"], resourced)
+    executions = [*first, *repeats]
     roles = {attempt.id: "first" for attempt in first} | {attempt.id: "repeat" for attempt in repeats}
+    running = full["state"] in EXECUTING_STATES
     attempts = []
-    for attempt in record["attempts"]:
+    for attempt in full["attempts"]:
         used = [
             entry for entry in resources
             if str(attempt.id) in entry["shared_attempt_ids"]
         ]
-        alone = charged_alone.get(attempt.id)
+        alone = charged_alone.get(attempt.id, [])
+        duration, ongoing = _execution_duration(attempt, running, as_of)
         attempts.append({
             "id": str(attempt.id), "source_attempt_id": attempt.source_attempt_id,
             "runner": attempt.runner, "outcome": attempt.outcome,
@@ -820,22 +870,52 @@ def job_detail(session: Session, identity: Identity, job_id: uuid.UUID, query: R
             "task_index": attempt.task_index, "attempt_ordinal": attempt.attempt_ordinal,
             "tool_started_at": attempt.tool_started_at,
             "tool_finished_at": attempt.tool_finished_at,
+            "duration_seconds": duration, "duration_running": ongoing,
             # An observation describes an execution counted under another row.
             "role": roles.get(attempt.id, "observation"),
             "resource_keys": [entry["resource_key"] for entry in used],
             # A lifetime shared by retries is charged once; its amount appears
-            # on the resource, not repeated on each attempt row.
-            "amount": alone["amount"] if alone else None,
+            # on the resource, not repeated on each attempt row. An attempt
+            # that was the sole user of several resources owns all of them.
+            "amount": (
+                _money(sum((Decimal(entry["amount"]) for entry in alone), ZERO))
+                if alone and all(entry["amount"] is not None for entry in alone) else None
+            ),
             "amount_shared_with_attempts": [
                 other for entry in used for other in entry["shared_attempt_ids"]
                 if len(entry["shared_attempt_ids"]) > 1 and other != str(attempt.id)
             ],
         })
+    span = _execution_span(full, resourced, as_of)
+    before_start = None
+    if span["started_at"] and full["created_at"]:
+        waited = (span["started_at"] - full["created_at"]).total_seconds()
+        before_start = int(waited) if waited >= 0 else None
+    metrics = {
+        (row.plugin, row.name): row.numeric_value
+        for row in session.execute(
+            select(JobMetric.plugin, JobMetric.name, JobMetric.numeric_value).where(
+                JobMetric.job_id == full["job"].id
+            )
+        )
+    }
     result = _public(record)
     result.update({
         "interval_amount": result["amount"],
         "full_job_amount": _money(full["amount"]) if full["amount"] is not None else None,
+        "full_quality": full["quality"], "full_reason": full["reason"],
+        "full_capacities": full["capacities"],
+        "started_at": span["started_at"], "finished_at": span["finished_at"],
+        "duration_seconds": span["duration_seconds"], "duration_running": span["duration_running"],
+        "duration_cutoff": as_of if span["duration_running"] else None,
+        "before_start_seconds": before_start,
+        "timing_issue": _timing_issue(full["created_at"], executions),
         "basis": query.basis, "attempts": attempts, "resources": resources,
+        "resource_use": job_resource_use(
+            metrics, running=running,
+            executions=[(a.tool_started_at, a.tool_finished_at) for a in executions],
+            resources=resources,
+        ),
         "revision_id": str(revision.id) if revision else None,
     })
     result["cost"] = {
@@ -1314,7 +1394,8 @@ def _execution_span(
     The duration is the union of its executions' observed intervals: neither
     queue time, nor the time a resource was held, nor the overlap of parallel
     attempts counts twice. A job that never started has none, and neither does
-    a finished job with an execution whose end was never recorded.
+    a finished job with an execution whose end was never recorded or was
+    recorded before its start.
     """
     none = {"started_at": None, "finished_at": None, "duration_seconds": None, "duration_running": False}
     if record["state"] in UNSTARTED_STATES:
@@ -1332,7 +1413,10 @@ def _execution_span(
             if not running:
                 return none
             finish, open_ended = as_of, True
-        intervals.append((start, max(start, finish)))
+        if finish < start:
+            # A finish before its start is a recording fault, not a zero-length run.
+            return none
+        intervals.append((start, finish))
     if not intervals:
         return none
     intervals.sort()

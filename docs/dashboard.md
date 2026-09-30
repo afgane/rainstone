@@ -76,12 +76,59 @@ out of a dated period.
 
 Opening a run leads with the run total and its completion and coverage status,
 then where its cost went, the jobs, child workflows counted once, reused
-outputs and any steps still missing cost data. A job's detail leads with its
-own cost, an explanation in ordinary language, the resource it used (with a
-retry's shared charge stated once), and its attempts. Galaxy's record of an
-execution a provider also observed is not listed as a second attempt. The jobs
-table calls a job's creation time **Submitted**, because Galaxy creates a job
-before it starts running.
+outputs and any steps still missing cost data. Galaxy's record of an execution
+a provider also observed is not listed as a second attempt. The jobs table
+calls a job's creation time **Submitted**, because Galaxy creates a job before
+it starts running.
+
+## Job details
+
+A job opens in the same drawer as a run, with the same shell, scrolling, Back
+link and restoration. It leads with the tool's name and its state in words, and
+the whole job's estimated compute cost as the largest figure. When the selected
+period holds only part of the job, that share is said in a sentence beside it,
+never added to it. A complete estimate needs no further sentence; a missing,
+partial or provisional cost keeps its reason next to the figure, and work on
+your Galaxy server says it added no compute charge.
+
+In order, the drawer then shows:
+
+- **Timing**: when the job was submitted, how long it waited to start
+  (*Waited to start*) and how long the tool ran (*Ran for*). The wait is
+  everything between submission and the tool starting, so it holds queueing,
+  setup or both; nothing says which. A running job is timed up to the snapshot
+  ("so far"), a job that has not started shows none, and an unavailable
+  duration is a dash, never zero. A failed job adds its recorded exit code.
+- **Timeline**: a shallow line from submission to start to finish, drawn at
+  real relative times, with every event and its time listed beneath it as the
+  text alternative. Several runs, or times that contradict each other, are
+  listed without a span.
+- **Compute**: where it ran (the verified environment), the machine and how it
+  was bought, the machine's own size (vCPUs and memory, for the machine types
+  we have published specifications for, kept apart from what the job asked
+  for), and whether its runs shared it.
+- **Resource use**: two flat bars, each a measurement against what was
+  requested, with the numbers beside them. *Average CPU use* is the CPU time
+  the run used over how long the tool ran; *Peak memory use* is the most memory
+  it held at once. Neither is an efficiency score, and there is no peak CPU or
+  history, because none is collected. A request is a reference, not a limit: use
+  above it stretches that row's bar and marks the request, and shows the real
+  percentage. A bar is drawn only when the job's counters and its request
+  describe the same run. A retried job, a running job, a job on your
+  Galaxy server, a request that may cover more than the tool, or a missing
+  request each say so instead, and a measurement that was not recorded is never
+  shown as zero.
+- **Runs**, only when there is more than one: retries, or parallel work, each
+  opened in place for its exact times, exit code and machine. A summary says
+  how the job ended after how many runs, or that they ran in parallel. Opening
+  one changes nothing above it.
+- **How this cost was estimated** and **Technical details**, both closed. The
+  first explains the method and what compute-only leaves out, and each
+  machine's share when there were several (parts of the cost above, not more
+  cost). For one machine it also lines up the tool's run against the machine's
+  lifetime on one scale; the machine can be held before and after the tool
+  runs. The second holds identifiers, the recorded metrics with their units, and
+  the cost lines' own wording.
 
 ## Time and freshness
 

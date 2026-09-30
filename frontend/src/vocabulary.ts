@@ -141,7 +141,7 @@ export function costExplanation(record: {
     return "This job finished, but the evidence needed to cost it was not collected, so its cost is unavailable rather than zero.";
   }
   if (record.quality === "not_started") return "This work has not run, so there is no cost to show.";
-  return record.reason || "Estimated from observed execution using public prices.";
+  return record.reason || "Estimated from the observed run using public prices.";
 }
 
 /** Evidence a dated report leaves out because no period can hold it. */
@@ -420,4 +420,111 @@ export function jobCostLabel(amount: string | null | undefined): string {
     return "Cost not available";
   }
   return `Cost ${formatCost(amount)}`;
+}
+
+/* The job drawer. */
+export const TIMELINE_HEADING = "Timeline";
+export const COMPUTE_HEADING = "Compute";
+export const RESOURCE_USE_HEADING = "Resource use";
+export const COST_ESTIMATE_HEADING = "How this cost was estimated";
+export const TECHNICAL_HEADING = "Technical details";
+export const RAN_FOR = "Ran for";
+export const WAITED_TO_START = "Waited to start";
+export const SUBMITTED = "Submitted";
+export const WAITING_TO_START = "Waiting to start";
+export const AVERAGE_CPU = "Average CPU use";
+export const PEAK_MEMORY = "Peak memory use";
+export const NO_COMPUTE_EVIDENCE = "No evidence of where this ran was collected.";
+export const USAGE_NOT_RECORDED = "Usage measurements were not recorded.";
+export const SERVER_USE_NOTE = "Your Galaxy server's own usage is not attributed to individual jobs.";
+export const MEASUREMENTS_HEADING = "About these measurements";
+export const MEASUREMENTS_EXPLANATION =
+  "Average CPU use is the CPU time the run used divided by how long the tool ran. Peak memory use is "
+  + "the most memory it held at once. Each is set beside what was requested for the job; a request is a "
+  + "reference, not a limit, so use can be above it.";
+export const ABOVE_REQUEST_NOTE =
+  "Use was above the request, so this bar is stretched to fit it. The marker shows the requested amount.";
+export const COST_METHOD =
+  "Estimated from when the machine that ran this job was in use and the published price for that machine.";
+export const COST_EXCLUSIONS = "Costs are compute only, in USD. Storage, network and other charges are not included.";
+export const COST_COMPONENTS_NOTE = "These amounts are parts of the job's cost above, not additional costs.";
+export const TIMING_ESTIMATE_NOTE =
+  "Timing comes from recorded events. The machine can be held before and after the tool runs.";
+
+export const TIMING_NOTE = {
+  finished_before_started: "The recorded finish is earlier than the recorded start, so no duration is shown.",
+  started_before_submitted: "The recorded start is earlier than the submission, so the wait before it is not shown.",
+  not_recorded: "When the tool started and finished was not recorded.",
+  no_finish: "The tool's finish was not recorded, so no duration is shown.",
+} as const;
+
+export const TIMELINE_LABEL = {
+  submitted: "Submitted", started: "Started", finished: "Finished", "first-started": "First started",
+  "last-finished": "Last finished", recorded: "Recorded so far",
+} as const;
+
+/** What the big number is, without claiming a total that is not known. */
+export function jobHeadlineLabel(quality: string, amount: string | null): string {
+  if (quality === "known_zero") return qualityLabel(quality);
+  if (quality === "in_progress" && amount !== null) return COST_SO_FAR;
+  if (quality === "partial" && amount !== null) return "Estimated compute cost, recorded so far";
+  return "Estimated compute cost";
+}
+
+/** What a finished estimate needs no sentence for; everything else is said beside the figure. */
+export function needsCostNote(quality: string): boolean {
+  return quality !== "complete" && quality !== "approximate";
+}
+
+const PURCHASE_MODEL: Record<string, string> = { on_demand: "On-demand", spot: "Spot", preemptible: "Preemptible" };
+
+/** The purchase model as recorded; one that is not known here is shown as it came. */
+export function purchaseModelLabel(model: string): string {
+  return PURCHASE_MODEL[model] ?? model;
+}
+
+const UNSUPPORTED: Record<string, string> = {
+  galaxy_server: "This job ran on your Galaxy server, whose usage is not attributed to single jobs.",
+  running: "Shown once the job has finished.",
+  no_execution: "No tool run was recorded for this job.",
+  several_executions:
+    "This job ran more than once, and its measurements are not matched to a single run.",
+  several_resources:
+    "This job used more than one machine, so its measurements are not compared with a single request.",
+  request_scope_unverified:
+    "The request may cover more than the tool itself, so no percentage is shown.",
+  source_unresolved: "Two memory measurements disagree, so none is shown.",
+};
+
+/** Why a measurement has no bar, in words; null when it has one. */
+export function comparisonNote(kind: "cpu" | "memory", status: string, reason: string | null): string | null {
+  if (status === "available") return null;
+  if (status === "not_recorded") return kind === "cpu" ? "CPU use not recorded." : "Memory use not recorded.";
+  const sentence = status === "invalid_value" ? "The recorded value is not valid, so it is not shown."
+    : status === "duration_unavailable" ? "How long the tool ran is not available, so no average is shown."
+    : status === "request_unavailable"
+      ? reason === "request_not_positive"
+        ? "The recorded request is not a usable size, so no comparison is shown."
+        : "No request was recorded, so no comparison is shown."
+      : (reason && UNSUPPORTED[reason]) || "This measurement cannot be compared with the request.";
+  return `Not available. ${sentence}`;
+}
+
+/** The clock time of an instant in the report's timezone. */
+export function formatClock(instant: string, timezone: string): string {
+  return new Date(instant).toLocaleTimeString(undefined, { timeStyle: "short", timeZone: timezone });
+}
+
+/** Seconds and the timezone's name, for where an exact moment matters. */
+export function formatExactDateTime(instant: string, timezone: string): string {
+  // `dateStyle` cannot be combined with `timeZoneName`, so the fields are spelled out.
+  return new Date(instant).toLocaleString(undefined, {
+    year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit",
+    timeZone: timezone, timeZoneName: "short",
+  });
+}
+
+/** The calendar day in the report's timezone, to tell when a timeline crosses midnight. */
+export function dayKey(instant: string, timezone: string): string {
+  return new Date(instant).toLocaleDateString("en-CA", { timeZone: timezone });
 }

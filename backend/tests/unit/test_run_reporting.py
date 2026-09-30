@@ -438,3 +438,8 @@ class TestExecutionSpan:
 
     def test_a_finished_job_whose_end_was_never_recorded_has_no_duration(self) -> None:
         assert span("ok", make_attempt(1, "2026-09-02T10:00:00", None))["duration_seconds"] is None
+
+    def test_a_finish_recorded_before_its_start_is_not_a_zero_length_run(self) -> None:
+        result = span("ok", make_attempt(1, "2026-09-02T10:10:00", "2026-09-02T10:00:00"))
+        assert result["duration_seconds"] is None
+        assert result["started_at"] is None

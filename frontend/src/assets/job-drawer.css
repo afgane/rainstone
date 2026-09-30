@@ -1,0 +1,126 @@
+/* The job drawer: what ran, where, and what was measured. It shares the run drawer's
+   palette, rows and container queries; every selector here is specific to a job. */
+
+.job-title-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: .15rem .9rem; margin: .4rem 0 .2rem; }
+.job-title-row h2 { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.job-state-text { display: inline-flex; align-items: center; gap: .35rem; color: #58585a; font-weight: 700; white-space: nowrap; }
+.job-state-text[data-kind="failed"] { color: #a31d1d; }
+.job-state-text[data-kind="running"], .job-state-text[data-kind="restarted"] { color: #165b91; }
+.job-state-text[data-kind="paused"] { color: #7a4300; }
+.drawer .dialog-amount { flex-wrap: wrap; column-gap: .8rem; }
+.job-facts { margin: .8rem 0 1rem; font-variant-numeric: tabular-nums; }
+.job-section h3 { margin-top: 1.4rem; }
+
+/* The execution timeline: a shallow line from submission to the end of the tool's run, drawn at
+   real relative times. The event list under it is the complete text alternative. */
+.timeline-graphic { position: relative; height: 22px; margin: .8rem 7px .4rem; }
+.timeline-before { position: absolute; top: 50%; left: 0; height: 0; border-top: 2px dashed #9cc0de; transform: translateY(-50%); }
+.timeline-tool { position: absolute; top: 50%; height: 8px; border-radius: 4px; background: #3477a9; transform: translateY(-50%); }
+.timeline-graphic[data-running="true"] .timeline-tool { background: repeating-linear-gradient(90deg, #3477a9 0 6px, #8db4d3 6px 10px); }
+.timeline-mark { position: absolute; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border: 3px solid #3477a9; border-radius: 50%; background: white; }
+.timeline-mark[data-event="started"] { background: #3477a9; }
+.timeline-mark[data-event="finished"] { border-radius: 3px; background: #3477a9; }
+.timeline-mark[data-event="recorded"] { border-style: dashed; }
+.timeline-events { margin: 0; padding: 0; list-style: none; }
+.timeline-events li {
+  display: grid; grid-template-columns: 12px max-content minmax(0, 1fr); column-gap: .55rem; align-items: baseline;
+  padding: .3rem 0; border-bottom: 1px solid #eef2f6; font-variant-numeric: tabular-nums;
+}
+.timeline-events li:last-child { border-bottom: 0; }
+.timeline-events time { text-align: right; overflow-wrap: anywhere; }
+.timeline-key { align-self: center; width: 10px; height: 10px; border: 2px solid #3477a9; border-radius: 50%; background: white; }
+.timeline-events li[data-event="started"] .timeline-key, .timeline-events li[data-event="first-started"] .timeline-key { background: #3477a9; }
+.timeline-events li[data-event="finished"] .timeline-key, .timeline-events li[data-event="last-finished"] .timeline-key { border-radius: 2px; background: #3477a9; }
+.timeline-events li[data-event="recorded"] .timeline-key { border-style: dashed; }
+.timeline-zone { font-size: .85rem; }
+
+/* Compute. */
+.compute-list { margin: 0; padding: 0; list-style: none; }
+.compute-list li { display: grid; gap: .1rem; padding: .45rem 0; border-bottom: 1px solid #eef2f6; }
+.compute-list li:last-child { border-bottom: 0; }
+.compute-environment { font-weight: 700; }
+.compute-used { color: #58585a; font-size: .9rem; }
+
+/* Average CPU and peak memory, each a flat bar against what was requested. The request is the
+   pale track; use above it stretches the track and marks the request. No colour judges the use. */
+.use-row { position: relative; margin: .9rem 0 0; padding: 0; }
+.use-caption { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .1rem .8rem; }
+.use-name { font-weight: 700; }
+.use-values, .use-percent { font-variant-numeric: tabular-nums; }
+.use-track { position: relative; height: 12px; margin: .4rem 0 .25rem; border-radius: 6px; background: #dbe7f1; }
+.use-fill { position: absolute; inset: 0 auto 0 0; min-width: 3px; border-radius: 6px; background: #3477a9; }
+.use-marker { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: #2c3143; }
+.use-marker-label { position: relative; width: max-content; margin-bottom: .1rem; color: #58585a; font-size: .82rem; }
+.use-marker-label[data-side="end"] { transform: translateX(-100%); }
+.use-percent { margin: 0; }
+.use-fact { margin: .25rem 0 0; }
+.use-tip {
+  position: absolute; z-index: 20; top: 100%; left: 0; max-width: 100%; padding: .45rem .65rem;
+  border: 1px solid #c8d4df; border-radius: .4rem; background: white; box-shadow: 0 6px 24px rgba(44,49,67,.18);
+  font-size: .85rem; pointer-events: none;
+}
+
+/* Attempts or executions: rows like the run drawer's jobs, one of which opens in place. */
+.execution-list { margin: .3rem 0 0; padding: 0; list-style: none; }
+.execution-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "title state duration" "start start start";
+  align-items: center; column-gap: .6rem; width: 100%; min-height: 44px; padding: .35rem .4rem;
+  border: 0; border-bottom: 1px solid #eef2f6; color: #2c3143; background: transparent; text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+.execution-row:hover { background: #f2f7fb; }
+.execution-row[aria-expanded="true"] { background: #f7fafc; box-shadow: inset 4px 0 0 #25537b; }
+.execution-row[aria-expanded="true"] .execution-title { font-weight: 700; }
+.execution-title { grid-area: title; display: flex; align-items: center; gap: .35rem; min-width: 0; overflow-wrap: anywhere; }
+.execution-chevron { flex: none; }
+.execution-row[aria-expanded="true"] .execution-chevron { transform: rotate(180deg); }
+.execution-state { grid-area: state; display: inline-flex; align-items: center; gap: .35rem; }
+.execution-duration { grid-area: duration; min-width: 6ch; text-align: right; }
+.execution-start { grid-area: start; color: #58585a; font-size: .9rem; }
+.execution-facts {
+  display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .25rem 1rem; margin: 0;
+  padding: .6rem .6rem .8rem; border-bottom: 1px solid #eef2f6; background: #f7fafc;
+}
+.execution-facts dt { font-weight: 700; }
+.execution-facts dd { margin: 0; overflow-wrap: anywhere; }
+
+/* How this cost was estimated. */
+.job-disclosure > p { max-width: 60ch; }
+.cost-resources li small { flex-basis: 100%; }
+.resource-name small { margin-left: .4rem; color: #58585a; }
+.resource-amount { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+.cost-notes { margin: .5rem 0; padding-left: 1.1rem; color: #58585a; }
+/* The lanes share one label column, so both tracks start and end at the same places and one time scale. */
+.lanes { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .7rem; margin: .8rem 0; }
+.lanes .dialog-meta { grid-column: 1 / -1; margin: 0; }
+.lane { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; gap: .15rem .7rem; }
+.lane-label { font-weight: 700; }
+.lane-track { position: relative; height: 10px; border-radius: 5px; background: #eef2f6; }
+.lane-bar { position: absolute; top: 0; bottom: 0; min-width: 3px; border-radius: 5px; background: #3477a9; }
+.lane[data-lane="compute"] .lane-bar { background: #9cc0de; }
+.lane-bar[data-ongoing="true"] { background: repeating-linear-gradient(90deg, #9cc0de 0 6px, #c9d9e8 6px 10px); }
+.lane-times { grid-column: 2; color: #58585a; font-size: .85rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+/* Technical details. */
+.technical-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .3rem .8rem; margin: .5rem 0; }
+.technical-facts dt { font-weight: 700; overflow-wrap: anywhere; }
+.technical-facts dd { margin: 0; overflow-wrap: anywhere; }
+.technical-heading { margin: .9rem 0 .2rem; font-size: .95rem; }
+
+/* A narrow drawer or larger text: labels above values, nothing clipped or overlapping. */
+@container drawer (max-width: 20em) {
+  .job-facts, .technical-facts, .execution-facts { grid-template-columns: minmax(0, 1fr); gap: .1rem; }
+  .job-facts dd, .technical-facts dd, .execution-facts dd { margin-bottom: .5rem; }
+  .timeline-events li { grid-template-columns: 12px minmax(0, 1fr); }
+  .timeline-events time { grid-column: 2; text-align: left; }
+  .lanes { grid-template-columns: minmax(0, 1fr); }
+  .lane-times { grid-column: 1; }
+}
+
+@media (forced-colors: active) {
+  .use-track, .lane-track { forced-color-adjust: none; border: 1px solid CanvasText; background: Canvas; }
+  .use-fill, .lane-bar, .timeline-tool { forced-color-adjust: none; background: Highlight; }
+  .use-marker { forced-color-adjust: none; background: CanvasText; }
+  .timeline-mark, .timeline-key { forced-color-adjust: none; border-color: CanvasText; }
+  .execution-row[aria-expanded="true"] { border: 3px solid Highlight; }
+}

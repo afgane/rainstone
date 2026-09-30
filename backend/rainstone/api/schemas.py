@@ -158,12 +158,68 @@ class JobListResponse(APIModel):
     meta: ReportMeta
 
 
+ComparisonStatus = Literal[
+    "available", "not_recorded", "invalid_value", "unsupported_scope",
+    "request_unavailable", "duration_unavailable",
+]
+
+
+class CpuUse(APIModel):
+    """Average CPU over the matched execution; there is no peak or history."""
+
+    status: ComparisonStatus
+    reason: str | None
+    cpu_seconds: str | None
+    duration_seconds: str | None
+    average_cores: str | None
+    requested_vcpu: str | None
+    request_fraction: str | None
+
+
+class MemoryUse(APIModel):
+    """Peak memory over the matched execution, in bytes."""
+
+    status: ComparisonStatus
+    reason: str | None
+    peak_bytes: str | None
+    source: str | None
+    requested_memory_mib: str | None
+    request_fraction: str | None
+
+
+class RecordedMetric(APIModel):
+    plugin: str
+    name: str
+    value: str
+    unit: str | None
+
+
+class JobResourceUse(APIModel):
+    measurement_scope: Literal["single_execution", "unestablished"]
+    scope_reason: str | None
+    cpu: CpuUse
+    memory: MemoryUse
+    metrics: list[RecordedMetric]
+
+
 class JobDetailResponse(JobItem):
+    # The period's share of the job; everything below `full_` is the whole job.
     interval_amount: str | None
     full_job_amount: str | None
+    full_quality: str
+    full_reason: str
+    full_capacities: list[str]
+    started_at: datetime | None
+    finished_at: datetime | None
+    duration_seconds: int | None
+    duration_running: bool
+    duration_cutoff: datetime | None
+    before_start_seconds: int | None
+    timing_issue: Literal["finished_before_started", "started_before_submitted"] | None
     basis: str
     attempts: list[dict[str, Any]]
     resources: list[dict[str, Any]]
+    resource_use: JobResourceUse
     revision_id: str | None
     cost: dict[str, Any]
 

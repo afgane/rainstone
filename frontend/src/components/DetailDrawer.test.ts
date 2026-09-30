@@ -2,6 +2,7 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { nextTick } from "vue";
 
+import { emptyUse, job } from "../test/jobDetail";
 import { resetJobs, runDetail, runJob } from "../test/runDetail";
 import DetailDrawer from "./DetailDrawer.vue";
 
@@ -119,17 +120,39 @@ describe("DetailDrawer", () => {
     expect(wrapper.emitted("close")).toBeUndefined();
   });
 
-  it("keeps a job's content as it was", () => {
+  it("opens a job on its cost, state and timing, and keeps the period's share apart", () => {
     const wrapper = mounted({
       kind: "tool-runs", periodLabel: "the selected dates",
-      detail: {
-        tool_name: "goseq", full_job_amount: "0.10", interval_amount: "0.04", state: "ok",
-        created_at: "2026-09-19T13:28:00Z", quality: "complete", reason: "", capacities: ["dedicated"],
-        resources: [], attempts: [], tool_id: "t", source_id: "9", revision_id: "r",
-      },
+      detail: job({ interval_amount: "0.04", full_job_amount: "0.10" }),
     });
-    expect(wrapper.text()).toContain("falls inside the selected dates");
-    expect(wrapper.text()).toContain("Where it ran");
+    expect(wrapper.find(".dialog-amount strong").text()).toBe("$0.10");
+    expect(wrapper.find(".job-state-text").text()).toBe("Completed");
+    expect(wrapper.text()).toContain("$0.04 of it falls inside the selected dates.");
+    expect(wrapper.find("h2").text()).toBe("bwa mem");
+    for (const heading of ["Timeline", "Compute", "Resource use"]) {
+      expect(wrapper.findAll("h3").map(each => each.text())).toContain(heading);
+    }
+    expect(wrapper.text()).not.toContain("Where it ran");
+  });
+
+  it("clears a measurement tooltip on the first Escape and closes on the second", async () => {
+    const detail = job({
+      resource_use: emptyUse({
+        cpu: {
+          ...emptyUse().cpu, status: "available", cpu_seconds: "1440", duration_seconds: "600",
+          average_cores: "2.4", request_fraction: "0.3",
+        },
+      }),
+    });
+    const wrapper = mounted({ kind: "tool-runs", detail });
+    await wrapper.find(".use-track").trigger("mouseenter");
+    expect(wrapper.find(".use-tip").exists()).toBe(true);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
+    await nextTick();
+    expect(wrapper.find(".use-tip").exists()).toBe(false);
+    expect(wrapper.emitted("close")).toBeUndefined();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(wrapper.emitted("close")).toHaveLength(1);
   });
 });
 

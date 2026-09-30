@@ -231,6 +231,96 @@ export interface InvocationDetail extends Invocation {
   meta: Meta;
 }
 
+/** One chargeable resource lifetime a job used. Amounts are the whole job's, never the period's. */
+export interface JobResource {
+  lifetime_id: string; resource_key: string; resource_uid: string; provider: string;
+  machine_type: string | null;
+  /** The machine's own size from Google's published shapes; null when its type is not one of them. */
+  machine_capacity: { vcpu: string; memory_mib: string; source: "published_machine_shape" } | null;
+  region: string | null; zone: string | null;
+  purchase_model: string | null; capacity_relationship: string;
+  resource_started_at: string | null;
+  /** Null while the resource is still in use, or when its end was never observed. */
+  resource_finished_at: string | null;
+  timing_method: string | null;
+  /** The request the resource was made for: decimal strings, never a machine's capacity. */
+  requested_vcpu: string | null; requested_memory_mib: string | null;
+  amount: string | null; quality: string; reason: string;
+  shared_attempt_ids: string[]; shared_attempt_count: number;
+}
+
+/** One observation of an execution; `observation` rows repeat one counted under another role. */
+export interface JobExecution {
+  id: string; source_attempt_id: string; runner: string; outcome: string;
+  provider_outcome: string | null; exit_code: number | null;
+  task_index: number | null; attempt_ordinal: number | null;
+  tool_started_at: string | null; tool_finished_at: string | null;
+  /** Null when the execution has no reliable interval; elapsed so far while it runs. */
+  duration_seconds: number | null; duration_running: boolean;
+  role: "first" | "repeat" | "observation";
+  resource_keys: string[];
+  /** Set only when this execution alone used every resource it is credited with. */
+  amount: string | null;
+  amount_shared_with_attempts: string[];
+}
+
+/**
+ * Why a comparison with the request was or was not made. `unsupported_scope`
+ * carries a reason: the counters cannot be tied to one execution on one resource,
+ * or the request's scope is not the tool's.
+ */
+export type ComparisonStatus =
+  | "available" | "not_recorded" | "invalid_value" | "unsupported_scope"
+  | "request_unavailable" | "duration_unavailable";
+
+/** Average CPU over the matched execution. Peak CPU and CPU history are not collected. */
+export interface JobCpuUse {
+  status: ComparisonStatus; reason: string | null;
+  cpu_seconds: string | null; duration_seconds: string | null; average_cores: string | null;
+  requested_vcpu: string | null;
+  /** Average cores over requested vCPUs; above 1 is use above the request. */
+  request_fraction: string | null;
+}
+
+/** Peak memory over the matched execution. */
+export interface JobMemoryUse {
+  status: ComparisonStatus; reason: string | null;
+  peak_bytes: string | null;
+  /** The cgroup metric the peak came from. */
+  source: string | null;
+  requested_memory_mib: string | null;
+  request_fraction: string | null;
+}
+
+export interface RecordedMetric { plugin: string; name: string; value: string; unit: string | null }
+
+export interface JobResourceUse {
+  /** `unestablished` when the job's counters cannot be tied to one execution on one resource. */
+  measurement_scope: "single_execution" | "unestablished";
+  scope_reason: string | null;
+  cpu: JobCpuUse; memory: JobMemoryUse;
+  metrics: RecordedMetric[];
+}
+
+/** A job opened in the drawer. The `full_` fields and the lists describe the whole job. */
+export interface JobDetail extends Job {
+  revision_id: string | null; basis: Basis;
+  /** The part of the job inside the selected period. */
+  interval_amount: string | null;
+  full_job_amount: string | null;
+  full_quality: string; full_reason: string; full_capacities: string[];
+  /** The union of reliable tool executions, matching the workflow run's job rows. */
+  started_at: string | null; finished_at: string | null;
+  duration_seconds: number | null; duration_running: boolean;
+  /** Where a running job's figures stop: the snapshot's time. */
+  duration_cutoff: string | null;
+  /** Submission to the first tool start: waiting, provisioning and setup together. */
+  before_start_seconds: number | null;
+  timing_issue: "finished_before_started" | "started_before_submitted" | null;
+  attempts: JobExecution[]; resources: JobResource[];
+  resource_use: JobResourceUse;
+}
+
 /** The whole filtered set, never the loaded page. */
 export interface RunTotals {
   amount: string | null;

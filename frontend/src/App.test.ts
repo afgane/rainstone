@@ -2,6 +2,7 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App.vue";
+import { job } from "./test/jobDetail";
 import { resetJobs, runDetail, runJob } from "./test/runDetail";
 
 const META = {
@@ -188,11 +189,7 @@ function drawerRun(id: string, name: string) {
 const WIG = "tool:tools/wig_to_bigWig|1.0|dedicated";
 
 function jobDetail(id: string) {
-  return {
-    id, tool_name: "wig_to_bigWig", tool_id: "t", source_id: "9", revision_id: "r", state: "ok",
-    created_at: "2026-09-02T10:00:00Z", quality: "complete", reason: "", capacities: ["dedicated"],
-    full_job_amount: "0.4", interval_amount: "0.4", resources: [], attempts: [],
-  };
+  return job({ id, tool_name: "wig_to_bigWig", full_job_amount: "0.4", interval_amount: "0.4" });
 }
 
 function stubDrawer(details: Record<string, () => Response | Promise<Response>>) {

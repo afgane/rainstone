@@ -272,6 +272,81 @@ reader sees the rates the estimates used rather than Google's page as it reads
 today; it is null for a catalog bundled with the release. Estimates always use
 Google's published on-demand prices, never an account's own discounted rates.
 
+## Job details
+
+`GET /api/jobs/{id}` describes one whole job. The selected period decides
+whether the viewer may open it and how much of it falls inside the period
+(`interval_amount`); everything else is built from the job's whole record, so
+a whole-job headline never sits beside period-only evidence. `full_job_amount`,
+`full_quality`, `full_reason` and `full_capacities` are the whole job's;
+`amount`, `quality` and `reason` remain the period's. Clearing report filters
+for a detail never widens the tenant or owner scope.
+
+**Timing.** `started_at`, `finished_at` and `duration_seconds` follow the
+union-of-executions rule the workflow run's job rows use: concurrent work
+counts once, waits between attempts do not count, and a job that never
+started, or whose end was never recorded, has no duration. An execution that
+finished before it started is unreliable, so it leaves the whole job's
+duration null (`timing_issue` is `finished_before_started`); a start before the
+submission leaves `before_start_seconds` null (`started_before_submitted`).
+A running job's duration is elapsed time to the snapshot, flagged by
+`duration_running`, with that time in `duration_cutoff`. `before_start_seconds`
+runs from submission (`created_at`) to the first tool start and covers
+waiting, provisioning and setup together; it is never called queue time. Each
+execution in `attempts` carries its own `duration_seconds` and
+`duration_running` under the same rules.
+
+**Resources and executions.** `resources` and `attempts` are the whole job's,
+scoped to this job: a resource's `shared_attempt_ids` name this job's
+executions only. An execution's `amount` is set only when it alone used every
+resource it is credited with, and is the sum of those resources; a null amount
+does not mean it shared a charge, which `amount_shared_with_attempts` states.
+
+**Machine size.** A resource's `machine_capacity` gives the machine's own
+`vcpu` and `memory_mib`, read from the reviewed registry of priced GCP shapes
+(`catalog/gcp-machine-shapes.json`, `source` `published_machine_shape`). The
+collector records a machine's type, never its capacity. It is null for any
+type the registry does not list, and never stands in for `requested_vcpu` or
+`requested_memory_mib`, which are what the job asked for.
+
+**Measured use.** `resource_use` reports the allowlisted metrics
+(`metrics`, each with a unit) and two comparisons with the request. Galaxy's
+cgroup metrics are scalars keyed by job: `cpu.stat.usage_usec` is cumulative
+CPU time, and `memory.peak` (cgroup v2) or `memory.max_usage_in_bytes`
+(cgroup v1) is a peak in bytes. There is no peak CPU, no sample time and no
+attempt identity, so none is reported.
+
+```text
+average_cores    = cpu_usec / 1,000,000 / execution_seconds
+cpu fraction     = average_cores / requested_vcpu
+memory fraction  = peak_bytes / (requested_memory_mib * 1,048,576)
+```
+
+`measurement_scope` is `single_execution` only for a finished job with one
+logical execution on one resource that is not the Galaxy server;
+otherwise it is `unestablished` and `scope_reason` names why
+(`galaxy_server`, `running`, `no_execution`, `several_executions` or
+`several_resources`). A comparison's `status` is one of:
+
+- `available`: the fraction is set. It is not clamped; use above the request
+  exceeds 1.
+- `not_recorded`: the metric was never collected. Nothing is shown as zero.
+- `invalid_value`: a negative counter.
+- `unsupported_scope`: the value cannot be tied to the request. `reason` is
+  the scope reason above, `request_scope_unverified` (only a Batch task's
+  request is known to describe the tool itself; a Kubernetes pod's admitted
+  request can include init containers) or `source_unresolved` (both memory
+  peaks were recorded and differ; they are never summed or chosen).
+  A Galaxy server's counters describe the host, so their values are withheld.
+- `request_unavailable`: no positive request (`request_missing` or
+  `request_not_positive`). The measured value is still returned.
+- `duration_unavailable`: CPU only; no positive, reliable execution duration.
+
+Quantities are exact decimal strings and ratios keep twelve places; rounding
+is left to the client. The metrics are read when the job is opened, not from
+the pinned revision, because a metric arriving does not advance the
+generation marker.
+
 ## Galaxy server since its current launch
 
 `/api/infrastructure` and the summary carry `current_launch`, under the same

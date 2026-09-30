@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { ArrowLeft, RefreshCw, X } from "@lucide/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import type { InvocationDetail } from "../api";
+import type { InvocationDetail, JobDetail } from "../api";
 import { byAttribute } from "../dom";
 import {
-  capacityLabel, costExplanation, durationText, formatCost, formatDateTime, JOBS_HEADING, jobStateLabel,
-  needsCostData, NO_RUN_JOBS, pluralize, qualityLabel, runStatusLabel, unavailableSteps, WORKFLOW_JOBS,
+  durationText, formatCost, formatDateTime, JOBS_HEADING, jobStateKind, jobStateLabel, needsCostData,
+  NO_RUN_JOBS, pluralize, runStatusLabel, unavailableSteps, WORKFLOW_JOBS,
 } from "../vocabulary";
+import JobDetails from "./drawer/JobDetails.vue";
+import JobStateIcon from "./drawer/JobStateIcon.vue";
 import RunCostBreakdown from "./drawer/RunCostBreakdown.vue";
 import RuntimeJobList from "./drawer/RuntimeJobList.vue";
 
@@ -104,10 +106,7 @@ const runTotal = computed(() => text("run_total"));
 const run = computed(() => (isRun.value ? props.detail as unknown as InvocationDetail : null));
 const jobs = computed(() => run.value?.jobs ?? []);
 const children = computed(() => list("children"));
-const resources = computed(() => list("resources"));
-// Galaxy's own record of an execution a provider also observed is evidence
-// about that attempt, not another attempt.
-const attempts = computed(() => list("attempts").filter(attempt => attempt.role !== "observation"));
+const job = computed(() => (isRun.value ? null : props.detail as unknown as JobDetail));
 </script>
 
 <template>
@@ -248,89 +247,20 @@ const attempts = computed(() => list("attempts").filter(attempt => attempt.role 
         </template>
       </template>
 
-      <template v-else>
-        <h2
-          id="detail-title"
-          ref="title"
-          tabindex="-1"
-        >
-          {{ detail.tool_name }}
-        </h2>
-        <p class="dialog-amount">
-          <strong>{{ formatCost(text("full_job_amount")) }}</strong>
-          <span>Cost of this job</span>
-        </p>
-        <p class="dialog-meta">
-          {{ jobStateLabel(String(detail.state)) }} ·
-          submitted {{ formatDateTime(String(detail.created_at), timezone) }} ·
-          {{ qualityLabel(String(detail.quality)) }}
-        </p>
-        <p
-          v-if="text('interval_amount') !== text('full_job_amount')"
-          class="dialog-meta"
-        >
-          {{ formatCost(text("interval_amount")) }} of it falls inside {{ periodLabel }}.
-        </p>
-        <p class="explanation">
-          {{ costExplanation({
-            quality: String(detail.quality),
-            amount: text("full_job_amount"),
-            reason: String(detail.reason || ""),
-            capacities: detail.capacities as string[],
-          }) }}
-        </p>
-
-        <h3>Where it ran</h3>
-        <p
-          v-if="!resources.length"
-          class="dialog-meta"
-        >
-          No evidence of where this ran was collected.
-        </p>
-        <ul
-          v-else
-          class="step-list"
-        >
-          <li
-            v-for="resource in resources"
-            :key="String(resource.lifetime_id)"
+      <template v-else-if="job">
+        <div class="job-title-row">
+          <h2
+            id="detail-title"
+            ref="title"
+            tabindex="-1"
           >
-            <span>{{ resource.machine_type || "Your Galaxy server" }}</span>
-            <span>{{ capacityLabel([String(resource.capacity_relationship)]) }}</span>
-            <span>{{ formatCost(resource.amount as string) }}</span>
-            <small v-if="Number(resource.shared_attempt_count) > 1">
-              Charged once for {{ resource.shared_attempt_count }} attempts that reused it
-            </small>
-          </li>
-        </ul>
-
-        <h3>Attempts</h3>
-        <ul class="step-list">
-          <li
-            v-for="attempt in attempts"
-            :key="String(attempt.id)"
-          >
-            <span>
-              {{ jobStateLabel(String(attempt.outcome)) }}{{ attempt.role === "repeat" ? " · repeat attempt" : "" }}
-            </span>
-            <span v-if="attempt.tool_started_at">
-              {{ formatDateTime(String(attempt.tool_started_at), timezone) }}
-            </span>
-            <span v-if="attempt.amount">{{ formatCost(attempt.amount as string) }}</span>
-            <small v-else-if="attempts.length > 1">Shares the resource charge above</small>
-          </li>
-        </ul>
-
-        <details class="inline-details">
-          <summary>Technical details</summary>
-          <p class="mono">
-            {{ detail.tool_id }}
-          </p>
-          <p class="mono">
-            Job {{ detail.source_id }} · snapshot {{ detail.revision_id }}
-          </p>
-          <p>{{ detail.reason }}</p>
-        </details>
+            {{ job.tool_name }}
+          </h2>
+          <span class="job-state-text" :data-kind="jobStateKind(job.state)">
+            <JobStateIcon :state="job.state" />{{ jobStateLabel(job.state) }}
+          </span>
+        </div>
+        <JobDetails :detail="job" :timezone="timezone" :period-label="periodLabel" />
       </template>
     </template>
   </div>

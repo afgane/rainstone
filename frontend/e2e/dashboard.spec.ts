@@ -58,7 +58,7 @@ test("ordinary language explains zero, unknown and incomplete costs", async ({ p
   await table.locator("tbody").getByRole("button", { name: "goseq" }).first().click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("The server continues to incur costs");
-  await expect(dialog.getByRole("heading", { name: "Where it ran" })).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "Compute", exact: true })).toBeVisible();
   await dialog.getByRole("button", { name: "Close details" }).click();
   await expect(dialog).toBeHidden();
 });
@@ -461,7 +461,7 @@ test("a job opened from a run's steps can lead back to the run", async ({ page }
   await expect(drawer.getByRole("heading", { name: "Jobs", exact: true })).toBeVisible();
   await expect(drawer.locator(".drawer-back")).toHaveCount(0);
   await drawer.locator(".job-groups .job-row").first().click();
-  await expect(drawer.getByText("Cost of this job")).toBeVisible();
+  await expect(drawer.getByRole("heading", { name: "Timeline", exact: true })).toBeVisible();
   await drawer.getByRole("button", { name: "Back to workflow run" }).click();
   await expect(drawer.getByRole("heading").first()).toHaveText(runTitle);
   await expect(drawer.locator(".drawer-back")).toHaveCount(0);
@@ -487,12 +487,46 @@ test("a job's back button sits under its heading", async ({ page }) => {
   await page.locator(".run-card").first().click();
   const drawer = page.getByRole("dialog");
   await drawer.locator(".job-groups .job-row").first().click();
-  await expect(drawer.getByText("Cost of this job")).toBeVisible();
+  await expect(drawer.getByRole("heading", { name: "Timeline", exact: true })).toBeVisible();
   const eyebrow = await drawer.locator(".drawer-head .eyebrow").boundingBox();
   const back = await drawer.locator(".drawer-back").boundingBox();
   const title = await drawer.getByRole("heading").first().boundingBox();
   expect(back!.y).toBeGreaterThan(eyebrow!.y);
   expect(back!.y).toBeLessThan(title!.y);
+});
+
+test("a job's details read in order, keep their disclosures closed and fit a narrow screen", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 });
+  await openRuns(page);
+  await page.locator(".run-card").first().click();
+  const drawer = page.getByRole("dialog");
+  await drawer.locator(".job-groups .job-row").first().click();
+  const sections = ["Timeline", "Compute", "Resource use"];
+  for (const name of sections) await expect(drawer.getByRole("heading", { name, exact: true })).toBeVisible();
+  const positions = await Promise.all(
+    sections.map(async name => (await drawer.getByRole("heading", { name, exact: true }).boundingBox())!.y),
+  );
+  expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+
+  const estimate = drawer.locator("details", { hasText: "How this cost was estimated" });
+  const technical = drawer.locator("details", { hasText: "Technical details" });
+  await expect(estimate).not.toHaveAttribute("open", "");
+  await expect(technical).not.toHaveAttribute("open", "");
+  await estimate.locator("summary").click();
+  await expect(estimate).toContainText("compute only, in USD");
+
+  // Nothing overflows sideways, and nothing inside the drawer scrolls on its own.
+  const overflow = await drawer.evaluate(element => ({
+    sideways: element.scrollWidth > element.clientWidth,
+    nested: [...element.querySelectorAll<HTMLElement>("*")].some(child => {
+      const style = getComputedStyle(child);
+      return /auto|scroll/.test(style.overflowY + style.overflowX) && child.scrollHeight > child.clientHeight + 1;
+    }),
+  }));
+  expect(overflow).toEqual({ sideways: false, nested: false });
+
+  const results = await new AxeBuilder({ page }).include("[role=dialog]").analyze();
+  expect(results.violations).toEqual([]);
 });
 
 test("opening More filters does not move the period buttons", async ({ page }) => {
@@ -740,7 +774,7 @@ test("returning from a job restores the open part and the row that was pressed",
   const row = drawer.locator("#part-detail .job-row").first();
   const jobId = await row.getAttribute("data-job-id");
   await row.click();
-  await expect(drawer.getByText("Cost of this job")).toBeVisible();
+  await expect(drawer.getByRole("heading", { name: "Timeline", exact: true })).toBeVisible();
   await expect(page).not.toHaveURL(/detail_part=/);
   await drawer.getByRole("button", { name: "Back to workflow run" }).click();
   await expect(drawer.locator("#part-detail")).toBeVisible();
