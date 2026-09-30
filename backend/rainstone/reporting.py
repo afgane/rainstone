@@ -1088,7 +1088,7 @@ def _run_records(
             ),
             "chart_amount": None, "shared_job_count": 0,
             "_id": inv.id, "_amount": amount, "_run_total": run_total, "_amounts": amounts,
-            "_rows": rows,
+            "_rows": rows, "_full_rows": full_rows, "_job_ids": job_ids,
             "_search": f"{inv.source_id} {inv.workflow_id or ''} {inv.workflow_name}".casefold(),
             "_focus_hit": None,
         })
@@ -1284,26 +1284,183 @@ def invocation_detail(
     item = next((run for run in run_set.runs if run["id"] == str(invocation_id)), None)
     if not item:
         return None
+    composition = _run_composition(session, identity, invocation_id, item, run_set)
     item = _public_run(item)
-    memberships = session.scalars(
-        select(InvocationJob).where(InvocationJob.invocation_id == invocation_id)
-        .order_by(InvocationJob.step_key)
-    ).all()
-    listed = list_jobs(
-        session, identity,
-        query.model_copy(update={"invocation_id": str(invocation_id), "limit": 200}),
-        paginate=False,
-    )
-    by_id = {job["id"]: job for job in [*listed["items"], *listed["undated_items"]]}
-    item["steps"] = [{
-        "step_key": membership.step_key, "relationship": membership.relationship,
-        "job": by_id.get(str(membership.job_id)),
-    } for membership in memberships]
+    item.update(composition)
     item["children"] = [
         _public_run(run) for run in run_set.runs if run["parent_id"] == str(invocation_id)
     ]
     item["meta"] = _run_meta(session, identity, query, run_set)
     return item
+
+
+def _step_order(step_key: str) -> tuple[int, tuple[int, ...]]:
+    """Galaxy's numeric step keys compare as numbers, so step 10 follows step 2.
+
+    A key that is not numeric says nothing about order and sorts after those
+    that do; such jobs are then ordered by when they were submitted.
+    """
+    parts = step_key.split(":")
+    if all(part.isdigit() for part in parts):
+        return 0, tuple(int(part) for part in parts)
+    return 1, ()
+
+
+def _execution_span(
+    record: dict, resourced: set[uuid.UUID], as_of: datetime
+) -> dict:
+    """When a job's tool actually ran, and for how long.
+
+    The duration is the union of its executions' observed intervals: neither
+    queue time, nor the time a resource was held, nor the overlap of parallel
+    attempts counts twice. A job that never started has none, and neither does
+    a finished job with an execution whose end was never recorded.
+    """
+    none = {"started_at": None, "finished_at": None, "duration_seconds": None, "duration_running": False}
+    if record["state"] in UNSTARTED_STATES:
+        return none
+    first, repeats, _ = _executions(record["attempts"], resourced)
+    running = record["state"] in EXECUTING_STATES
+    intervals: list[tuple[datetime, datetime]] = []
+    open_ended = False
+    for attempt in [*first, *repeats]:
+        start = attempt.tool_started_at
+        if start is None:
+            continue
+        finish = attempt.tool_finished_at
+        if finish is None:
+            if not running:
+                return none
+            finish, open_ended = as_of, True
+        intervals.append((start, max(start, finish)))
+    if not intervals:
+        return none
+    intervals.sort()
+    total = 0.0
+    current_start, current_end = intervals[0]
+    for start, end in intervals[1:]:
+        if start <= current_end:
+            current_end = max(current_end, end)
+        else:
+            total += (current_end - current_start).total_seconds()
+            current_start, current_end = start, end
+    total += (current_end - current_start).total_seconds()
+    return {
+        "started_at": intervals[0][0],
+        "finished_at": None if open_ended else max(end for _, end in intervals),
+        "duration_seconds": int(total), "duration_running": open_ended,
+    }
+
+
+def _environment(capacities: list[str]) -> str:
+    """The one verified execution environment of a job, or that it has several."""
+    if not capacities:
+        return "unknown"
+    return capacities[0] if len(capacities) == 1 else "multiple"
+
+
+def _run_composition(
+    session: Session, identity: Identity, invocation_id: uuid.UUID, run: dict, run_set: _RunSet
+) -> dict:
+    """Every job of the whole run, and the cost entities that produced its cost.
+
+    Both describe the run as a whole: nested workflows included, once, and
+    whatever period is selected. The jobs are the same records the run's
+    headline total sums, so a breakdown built from them reconciles with it.
+    Membership and money are separate: a job may belong to several steps, and
+    a charge belongs to one entity however many jobs point at it.
+    """
+    rows = run["_full_rows"]
+    tree = {invocation_id}
+    authorized = _authorized_invocations(session, identity)
+    names = {inv.id: inv.workflow_name for inv in authorized}
+    grew = True
+    while grew:
+        grew = False
+        for inv in authorized:
+            if inv.parent_id in tree and inv.id not in tree:
+                tree.add(inv.id)
+                grew = True
+    steps: dict[uuid.UUID, dict[tuple, dict]] = defaultdict(dict)
+    unavailable_steps: set[tuple] = set()
+    for membership in session.scalars(
+        select(InvocationJob).where(InvocationJob.invocation_id.in_(tree))
+    ):
+        if membership.job_id not in run["_job_ids"]:
+            unavailable_steps.add((membership.invocation_id, membership.step_key))
+            continue
+        steps[membership.job_id][(membership.invocation_id, membership.step_key)] = {
+            "invocation_id": str(membership.invocation_id),
+            "workflow_name": names.get(membership.invocation_id, ""),
+            "step_key": membership.step_key, "relationship": membership.relationship,
+            "nested": membership.invocation_id != invocation_id,
+        }
+    # Every record shares one map of resource users, so it is read once.
+    resourced = {
+        attempt.id for users in rows[0]["lifetime_attempts"].values() for attempt in users
+    } if rows else set()
+
+    def order_key(row: dict) -> tuple:
+        memberships = steps.get(row["job"].id, {}).values()
+        earliest = min((_step_order(m["step_key"]) for m in memberships), default=(2, ()))
+        return earliest, row["created_at"], len(row["source_id"]), row["source_id"], row["id"]
+
+    jobs: list[dict] = []
+    entities: list[dict] = []
+    for order, row in enumerate(sorted(rows, key=order_key), start=1):
+        amount = row["full_amount"]
+        environment = _environment(row["capacities"])
+        if amount is None:
+            attribution = "unknown"
+        elif amount > 0:
+            attribution = "individual"
+        elif amount == 0:
+            attribution = "known_zero"
+        else:
+            attribution = "unsupported"
+        entity_id = f"job:{row['id']}" if amount is not None and amount != 0 else None
+        if entity_id:
+            entities.append({
+                "id": entity_id, "kind": "batch_job", "amount": _money(amount),
+                "currency": "USD", "scope": "run", "environment": environment,
+                "complete": row["quality"] not in INCOMPLETE_QUALITIES,
+                "job_ids": [row["id"]],
+            })
+        membership_list = sorted(
+            steps.get(row["job"].id, {}).values(),
+            key=lambda m: (m["nested"], _step_order(m["step_key"]), m["step_key"]),
+        )
+        jobs.append({
+            "id": row["id"], "source_id": row["source_id"], "tool_id": row["tool_id"],
+            "tool_name": row["tool_name"], "tool_version": row["tool_version"],
+            "state": row["state"], "quality": row["quality"],
+            "amount": _money(amount), "attribution": attribution,
+            "environment": environment, "capacities": row["capacities"],
+            "cost_entity_id": entity_id, "created_at": row["created_at"],
+            **_execution_span(row, resourced, run_set.as_of),
+            "attempt_count": row["attempt_count"],
+            "reused": bool(row["job"].copied_from_source_id),
+            "order": order, "steps": membership_list,
+        })
+    positive = sum((Decimal(e["amount"]) for e in entities if Decimal(e["amount"]) > 0), ZERO)
+    subtotal = run["_run_total"]
+    reason = None
+    if any(not Decimal(e["amount"]).is_finite() or Decimal(e["amount"]) < 0 for e in entities):
+        reason = "Some amounts are adjustments that a breakdown cannot show."
+    elif subtotal is not None and positive != subtotal:
+        reason = "The parts do not add up to the run total."
+    return {
+        "jobs": jobs, "cost_entities": entities,
+        "cost_breakdown": {
+            "status": "unavailable" if reason else "available", "reason": reason,
+            "currency": "USD", "known_subtotal": _money(subtotal),
+            "complete": run["run_total_complete"],
+            "job_count": len(jobs), "cost_entity_count": len(entities),
+            "known_zero_job_count": sum(job["attribution"] == "known_zero" for job in jobs),
+            "unknown_job_count": sum(job["attribution"] == "unknown" for job in jobs),
+        },
+        "unavailable_step_count": len(unavailable_steps),
+    }
 
 
 # Runs drawn individually per workflow and pieces drawn individually per time

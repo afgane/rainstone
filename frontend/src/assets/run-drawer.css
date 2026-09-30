@@ -1,0 +1,151 @@
+/* The workflow run drawer: where the cost went, and what ran. */
+
+/* Sizes follow the drawer's own width, not the window's. */
+.drawer { container-type: inline-size; container-name: drawer; }
+/* Scrollable, but with no scrollbar to take width when it appears, as in the sidebar. */
+.drawer { scrollbar-width: none; }
+.drawer::-webkit-scrollbar { display: none; }
+@media (max-width: 380px) { .drawer { padding: 1rem; } }
+.drawer h3 { margin: 1.4rem 0 .4rem; font-size: 1.1rem; }
+
+/* The fingerprint: a hundred flat, equal squares, each about one percent of the cost. One blank
+   square holding a diamond sits between tools as the border, so every square stays on the same grid. */
+.fingerprint { position: relative; margin: .6rem 0 .3rem; }
+.fingerprint-cells { display: grid; gap: 2px; }
+.fp-cell {
+  --fill: #9cc0de; --strong: #3477a9;
+  aspect-ratio: 1; border-radius: 3px; background: var(--fill); cursor: pointer;
+  transition: background-color .12s ease;
+}
+/* A small diamond in the space between tools, so the gap reads as a mark and not a missing square. */
+.fp-gap { display: grid; place-items: center; aspect-ratio: 1; }
+.fp-gap::before { content: ""; width: 50%; aspect-ratio: 1; border-radius: 2px; background: #c9d9e8; transform: rotate(45deg); }
+/* Colour belongs to where the work ran; several places take a pattern, never a colour of their own. */
+.fp-cell[data-environment="elastic_shared"] { --fill: #c6b6d8; --strong: #7a5c99; }
+.fp-cell[data-environment="unknown"] { --fill: #c6c6c8; --strong: #6b6b6d; }
+.fp-cell[data-environment="multiple"] {
+  --fill: repeating-linear-gradient(135deg, #b7c6d3 0 3px, #e3ebf2 3px 6px);
+  --strong: repeating-linear-gradient(135deg, #58585a 0 3px, #b7c6d3 3px 6px);
+}
+.fp-cell[data-hot="true"], .fp-cell[data-selected="true"] { background: var(--strong); }
+.fingerprint-caption { margin: .4rem 0 0; color: #58585a; font-size: .85rem; }
+.fp-tip {
+  position: absolute; z-index: 30; display: grid; gap: .1rem; width: max-content; max-width: min(260px, 100%);
+  padding: .5rem .7rem; border: 1px solid #c8d4df; border-radius: .45rem; background: white;
+  box-shadow: 0 6px 24px rgba(44,49,67,.18); font-size: .85rem; pointer-events: none;
+}
+.fp-tip span { color: #58585a; }
+
+/* The parts, as a complete text alternative to the squares. */
+.part-list { display: grid; gap: .25rem; margin: .6rem 0; padding: 0; list-style: none; }
+.part-button {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; column-gap: .55rem; row-gap: .1rem;
+  align-items: baseline; width: 100%; min-height: 44px; padding: .45rem .65rem; border: 1px solid #d6e0e8;
+  border-radius: .45rem; color: #2c3143; background: white; text-align: left;
+}
+.part-button:hover { background: #f2f7fb; }
+.part-button[aria-pressed="true"] { border-color: #25537b; background: #edf4fa; box-shadow: inset 4px 0 0 #25537b; }
+.part-name { min-width: 0; overflow-wrap: anywhere; font-weight: 700; }
+.part-name small { display: block; color: #58585a; font-weight: 400; }
+.part-amount, .part-share { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.part-place { grid-column: 1 / -1; color: #58585a; font-size: .85rem; }
+
+.tiny-note { margin: .7rem 0 .2rem; }
+.tiny-list { margin-top: 0; }
+/* Where the details will open, so choosing a square never moves the chart. */
+.part-placeholder {
+  display: flex; align-items: center; gap: .6rem; margin: .8rem 0 1rem; padding: .9rem 1rem;
+  border: 1px dashed #b7c6d3; border-radius: .5rem; color: #58585a; background: #f7fafc;
+}
+.part-placeholder svg { flex: none; }
+
+/* One area for whatever part is open. */
+.part-detail { position: relative; margin: .6rem 0 1rem; padding: .8rem 1rem; border: 1px solid #b7c6d3; border-radius: .5rem; background: #f7fafc; }
+.detail-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .4rem 1rem; }
+.detail-head .link-button { display: inline-flex; align-items: center; gap: .3rem; min-height: 32px; }
+.detail-clear {
+  position: absolute; top: .55rem; right: .55rem; display: grid; place-items: center; width: 30px; height: 30px;
+  padding: 0; border: 0; border-radius: 50%; color: #2c3143; background: #e2edf6;
+}
+.detail-clear:hover { background: #d3e3f0; }
+.part-detail h4 { margin: .3rem 0; padding-right: 2.2rem; font-size: 1.05rem; overflow-wrap: anywhere; }
+.part-detail h4:focus { outline: none; }
+.detail-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .2rem 1rem; margin: .4rem 0 .6rem; }
+.detail-facts dt { font-weight: 700; }
+.detail-facts dd { margin: 0; }
+.member-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.member-button {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; column-gap: .6rem; width: 100%; min-height: 44px;
+  padding: .4rem .3rem; border: 0; border-bottom: 1px solid #eef2f6; color: #2c3143; background: transparent; text-align: left;
+}
+.member-button:hover { background: #edf4fa; }
+.member-name { min-width: 0; overflow-wrap: anywhere; font-weight: 700; }
+.member-amount, .member-share { font-variant-numeric: tabular-nums; text-align: right; }
+.member-jobs { grid-column: 1 / -1; color: #58585a; font-size: .85rem; }
+
+/* The jobs, grouped by where they ran, one line each. */
+.job-groups { display: grid; gap: 1.1rem; }
+.group-head { display: flex; align-items: baseline; justify-content: space-between; gap: .6rem; }
+.job-group h4 { margin: .2rem 0; font-size: 1rem; }
+/* Ends where the rows' own cost column ends. */
+.group-cost { padding-right: .4rem; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.group-summary { margin: .1rem 0 .4rem; color: #58585a; font-size: .9rem; }
+.job-list {
+  display: grid; grid-template-columns: minmax(0, 1fr) 24px minmax(6ch, max-content);
+  column-gap: .45rem; margin: 0; padding: 0; list-style: none;
+}
+.job-list[data-with-cost="true"] { grid-template-columns: minmax(0, 1fr) 24px minmax(6ch, max-content) minmax(6ch, max-content); }
+.job-item { display: contents; }
+.job-row {
+  position: relative; grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center;
+  min-height: 40px; padding: .2rem .4rem; border: 0; border-bottom: 1px solid #eef2f6; color: #2c3143;
+  background: transparent; text-align: left; font-variant-numeric: tabular-nums;
+}
+.job-row:hover { background: #f2f7fb; }
+/* A lone job has nothing below it to be separated from. */
+.job-item:only-child .job-row { border-bottom: 0; }
+.job-name { display: flex; align-items: baseline; gap: .4rem; min-width: 0; }
+.job-title { flex: 0 1 auto; min-width: 3ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-id, .job-flag { flex: none; color: #58585a; font-size: .8rem; }
+.job-flag { padding: 0 .35rem; border: 1px solid #b7c6d3; border-radius: 999px; }
+.job-state { display: grid; place-items: center; }
+.job-duration, .job-cost { text-align: right; white-space: nowrap; }
+.state-icon { display: block; color: #58585a; }
+.state-icon[data-kind="running"] { color: #165b91; animation: spin 1.6s linear infinite; }
+.state-icon[data-kind="failed"] { color: #a31d1d; }
+.state-icon[data-kind="paused"] { color: #7a4300; }
+.state-icon[data-kind="restarted"] { color: #165b91; }
+.state-icon[data-kind="completed"] { opacity: .8; }
+.job-tip {
+  position: absolute; z-index: 20; top: 100%; left: 0; display: grid; gap: .1rem; max-width: 100%;
+  padding: .45rem .65rem; border: 1px solid #c8d4df; border-radius: .4rem; background: white;
+  box-shadow: 0 6px 24px rgba(44,49,67,.18); font-size: .85rem; white-space: normal; pointer-events: none;
+}
+.job-tip span { color: #58585a; }
+@media (pointer: coarse) { .job-row { min-height: 44px; } }
+/* A narrow drawer gives its detail area less padding before it gives the names any. */
+@container drawer (max-width: 24em) { .part-detail { padding: .7rem .55rem; } }
+
+/* Larger text or a very narrow drawer: name above, numbers below, never clipped. */
+@container drawer (max-width: 16em) {
+  .job-list, .job-list[data-with-cost="true"] { grid-template-columns: 24px minmax(0, 1fr) auto; }
+  .job-state { grid-column: 1; grid-row: 1; }
+  .job-name { grid-column: 2 / -1; grid-row: 1; }
+  .job-duration { grid-column: 2; grid-row: 2; text-align: left; }
+  .job-cost { grid-column: 3; grid-row: 2; }
+  .job-row { padding-block: .4rem; }
+}
+
+@media (prefers-reduced-motion: reduce) { .state-icon[data-kind="running"] { animation: none; } }
+
+@media (forced-colors: active) {
+  .fp-cell { forced-color-adjust: none; border: 1px solid CanvasText; background: Canvas; }
+  .fp-cell[data-hot="true"], .fp-cell[data-selected="true"] { background: Highlight; }
+  .part-button[aria-pressed="true"] { border: 3px solid Highlight; }
+}
+
+/* Over the drawer the wheel scrolls the drawer and never the page behind it, whether or not the
+   drawer has anything to scroll. The page's own scrollbar keeps its room but is not drawn while
+   the drawer is open, so it cannot be mistaken for the drawer's. */
+.drawer { overscroll-behavior: contain; }
+html:has(.drawer[data-open="true"]) { scrollbar-color: transparent transparent; }

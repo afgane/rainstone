@@ -34,7 +34,7 @@ test("a workflow run shows its whole cost and its share of the period", async ({
   await run.click();
   const drawer = page.getByRole("dialog");
   await expect(drawer.getByText("Run total", { exact: false })).toBeVisible();
-  await expect(drawer.getByRole("heading", { name: "Steps" })).toBeVisible();
+  await expect(drawer.getByRole("heading", { name: "Jobs", exact: true })).toBeVisible();
   await expect(drawer.getByRole("heading", { name: /RNA-seq mixed execution demo/ })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(drawer).toBeHidden();
@@ -458,14 +458,14 @@ test("a job opened from a run's steps can lead back to the run", async ({ page }
   await page.locator(".run-card").first().click();
   const drawer = page.getByRole("dialog");
   const runTitle = await drawer.getByRole("heading").first().innerText();
-  await expect(drawer.getByRole("heading", { name: "Steps" })).toBeVisible();
+  await expect(drawer.getByRole("heading", { name: "Jobs", exact: true })).toBeVisible();
   await expect(drawer.locator(".drawer-back")).toHaveCount(0);
-  await drawer.locator(".step-list .link-button").first().click();
+  await drawer.locator(".job-groups .job-row").first().click();
   await expect(drawer.getByText("Cost of this job")).toBeVisible();
   await drawer.getByRole("button", { name: "Back to workflow run" }).click();
   await expect(drawer.getByRole("heading").first()).toHaveText(runTitle);
   await expect(drawer.locator(".drawer-back")).toHaveCount(0);
-  await expect(drawer.getByRole("heading", { name: "Steps" })).toBeVisible();
+  await expect(drawer.getByRole("heading", { name: "Jobs", exact: true })).toBeVisible();
 });
 
 test("the time axis names every day of the period, month included", async ({ page }) => {
@@ -486,7 +486,7 @@ test("a job's back button sits under its heading", async ({ page }) => {
   await openRuns(page);
   await page.locator(".run-card").first().click();
   const drawer = page.getByRole("dialog");
-  await drawer.locator(".step-list .link-button").first().click();
+  await drawer.locator(".job-groups .job-row").first().click();
   await expect(drawer.getByText("Cost of this job")).toBeVisible();
   const eyebrow = await drawer.locator(".drawer-head .eyebrow").boundingBox();
   const back = await drawer.locator(".drawer-back").boundingBox();
@@ -680,3 +680,139 @@ test("the workload card's blocks stay in line when a label wraps", async ({ page
     nodes => nodes.map(node => node.getBoundingClientRect().top));
   expect(Math.abs(tops[0] - tops[1])).toBeLessThanOrEqual(1);
 });
+
+
+/* The run drawer's cost breakdown and job list, on a run with real cost. */
+async function openCostlyRun(page: Page) {
+  await page.goto(`${BASE}?view=runs&${FIXTURE_PERIOD}&search=RNA-seq`);
+  await page.locator(".run-card", { hasText: "RNA-seq mixed execution demo" }).click();
+  const drawer = page.getByRole("dialog");
+  await expect(drawer.getByRole("heading", { name: "Cost breakdown by tool" })).toBeVisible();
+  return drawer;
+}
+
+test("a run's cost breakdown is a hundred squares in a wide grid, and a text alternative", async ({ page }) => {
+  const drawer = await openCostlyRun(page);
+  await expect(drawer.locator(".fp-cell")).toHaveCount(100);
+  // Every square is the same size and has four rounded corners.
+  const shapes = await drawer.locator(".fp-cell").evaluateAll(nodes => nodes.map(node => {
+    const box = node.getBoundingClientRect();
+    const style = getComputedStyle(node);
+    return [Math.round(box.width), Math.round(box.height), style.borderRadius, style.boxShadow];
+  }));
+  expect(new Set(shapes.map(shape => shape.join("|"))).size).toBe(1);
+  // They sit on one grid: the same columns in every row.
+  const lefts = await drawer.locator(".fp-cell").evaluateAll(nodes => nodes.map(node => Math.round(node.getBoundingClientRect().left)));
+  expect(new Set(lefts).size).toBeLessThanOrEqual(20);
+  const grid = await drawer.locator(".fingerprint-cells").boundingBox();
+  const frame = await drawer.boundingBox();
+  expect(grid!.width).toBeGreaterThan(frame!.width - 64);
+  // The drawer keeps its width; the squares fit inside it.
+  expect(frame!.width).toBeLessThanOrEqual(441);
+  // The parts are for the keyboard and screen readers, not listed under the chart.
+  expect(await drawer.locator("button[data-part]").count()).toBeGreaterThan(0);
+  await expect(drawer.locator("button[data-part]").first()).not.toBeInViewport({ ratio: 0.5 });
+  await expect(drawer.locator("#part-placeholder")).toBeVisible();
+  // Squares are not tab stops: the parts are.
+  expect(await drawer.locator(".fp-cell[tabindex]").count()).toBe(0);
+  await expect(drawer.locator(".job-groups .job-row").first()).toBeVisible();
+});
+
+test("a part opens from the keyboard, keeps focus, and the jobs stay whole below", async ({ page }) => {
+  const drawer = await openCostlyRun(page);
+  const jobs = await drawer.locator(".job-groups .job-row").count();
+  const first = drawer.locator("button[data-part]").first();
+  await first.focus();
+  await page.keyboard.press("Enter");
+  await expect(first).toHaveAttribute("aria-pressed", "true");
+  await expect(first).toBeFocused();
+  await expect(drawer.locator("#part-detail")).toBeVisible();
+  await expect(page).toHaveURL(/detail_part=/);
+  expect(await drawer.locator(".job-groups .job-row").count()).toBe(jobs);
+  await page.keyboard.press("Enter");
+  await expect(drawer.locator("#part-detail")).toHaveCount(0);
+  await expect(page).not.toHaveURL(/detail_part=/);
+});
+
+test("returning from a job restores the open part and the row that was pressed", async ({ page }) => {
+  const drawer = await openCostlyRun(page);
+  await drawer.locator(".fp-cell").first().click();
+  const row = drawer.locator("#part-detail .job-row").first();
+  const jobId = await row.getAttribute("data-job-id");
+  await row.click();
+  await expect(drawer.getByText("Cost of this job")).toBeVisible();
+  await expect(page).not.toHaveURL(/detail_part=/);
+  await drawer.getByRole("button", { name: "Back to workflow run" }).click();
+  await expect(drawer.locator("#part-detail")).toBeVisible();
+  await expect(page).toHaveURL(/detail_part=/);
+  await expect(drawer.locator(`#part-detail [data-job-id="${jobId}"]`)).toBeFocused();
+  // A reload of that address reproduces the same view.
+  await page.reload();
+  await expect(drawer.locator("#part-detail")).toBeVisible();
+});
+
+test("the first Escape clears a tooltip and the second closes the drawer", async ({ page }) => {
+  const drawer = await openCostlyRun(page);
+  await drawer.locator(".fp-cell").first().hover();
+  await expect(drawer.locator(".fp-tip")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(drawer.locator(".fp-tip")).toHaveCount(0);
+  await expect(drawer).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(drawer).toBeHidden();
+});
+
+for (const [width, height] of [[1280, 900], [390, 844], [320, 640]] as const) {
+  test(`the run drawer has no sideways overflow and one-line job rows at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    const drawer = await openCostlyRun(page);
+    await drawer.locator(".fp-cell").first().click();
+    expect(await drawer.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    const rows = drawer.locator(".job-groups .job-row");
+    const count = Math.min(await rows.count(), 12);
+    for (let index = 0; index < count; index += 1) {
+      const box = await rows.nth(index).boundingBox();
+      expect(box!.height).toBeLessThanOrEqual(56);
+      expect(await rows.nth(index).evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    }
+    expect(await drawer.locator(".fp-cell").count()).toBe(100);
+  });
+}
+
+test("the run drawer has no accessibility violations with a part open", async ({ page }) => {
+  const drawer = await openCostlyRun(page);
+  await drawer.locator(".fp-cell").first().click();
+  await expect(drawer.locator("#part-detail")).toBeVisible();
+  const results = await new AxeBuilder({ page }).analyze();
+  expect(results.violations.map(violation => `${violation.id}: ${violation.help}`)).toEqual([]);
+});
+
+test("the server's jobs are stated once and carry no cost column", async ({ page }) => {
+  const drawer = await openCostlyRun(page);
+  const server = drawer.locator(".job-group[data-environment='existing']");
+  if (await server.count() === 0) test.skip(true, "This run has no jobs on the server.");
+  await expect(server.locator(".group-summary")).toContainText("no compute charge");
+  await expect(server.locator(".job-cost")).toHaveCount(0);
+  expect(await server.innerText()).not.toContain("$0.00");
+});
+
+// One height where the drawer has more than fits, and one where it fits and has nothing to scroll.
+for (const height of [500, 1000]) {
+  test(`scrolling over the drawer never scrolls the page, at ${height}px high`, async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height });
+    await page.goto(`${BASE}?view=runs&${FIXTURE_PERIOD}&search=RNA-seq`);
+    await page.locator(".run-card", { hasText: "RNA-seq mixed execution demo" }).click();
+    const drawer = page.getByRole("dialog");
+    await expect(drawer.getByRole("heading", { name: "Cost breakdown by tool" })).toBeVisible();
+    const before = await page.evaluate(() => window.scrollY);
+    const box = await drawer.boundingBox();
+    await page.mouse.move(box!.x + 100, box!.y + 200);
+    for (const delta of [800, 800, -800, -800]) await page.mouse.wheel(0, delta);
+    await page.waitForTimeout(200);
+    expect(await page.evaluate(() => window.scrollY)).toBe(before);
+    // Its own scrollbar takes no room, and the page's is not drawn while it is open.
+    expect(await drawer.evaluate(node => getComputedStyle(node).scrollbarWidth)).toBe("none");
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).scrollbarColor))
+      .toContain("rgba(0, 0, 0, 0)");
+  });
+}

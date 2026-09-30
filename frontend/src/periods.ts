@@ -150,7 +150,7 @@ export function describePeriod(period: Period, timezone: string): string {
     period.fromDate === period.toDate
       ? readable(period.fromDate)
       : `${readable(period.fromDate)} – ${readable(period.toDate)}`;
-  return `${range}${period.open ? " (so far)" : ""} · ${timezone}`;
+  return `${range} · ${timezone}`;
 }
 
 /** The API boundary is exclusive; users never type "to, exclusive". */

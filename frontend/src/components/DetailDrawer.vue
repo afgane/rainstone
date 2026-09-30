@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { ArrowLeft, RefreshCw, X } from "@lucide/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import type { InvocationDetail } from "../api";
+import { byAttribute } from "../dom";
 import {
-  capacityLabel, costExplanation, durationText, formatCost, formatDateTime, jobStateLabel,
-  needsCostData, pluralize, qualityLabel, runStatusLabel, WORKFLOW_JOBS,
+  capacityLabel, costExplanation, durationText, formatCost, formatDateTime, JOBS_HEADING, jobStateLabel,
+  needsCostData, NO_RUN_JOBS, pluralize, qualityLabel, runStatusLabel, unavailableSteps, WORKFLOW_JOBS,
 } from "../vocabulary";
+import RunCostBreakdown from "./drawer/RunCostBreakdown.vue";
+import RuntimeJobList from "./drawer/RuntimeJobList.vue";
 
 const props = defineProps<{
   kind: "runs" | "tool-runs" | null;
@@ -14,27 +18,52 @@ const props = defineProps<{
   timezone: string;
   /** Names where the back button leads; empty when the drawer was opened from outside it. */
   backLabel: string;
+  /** The part of a run's cost that is open, and the member of a pooled part inside it. */
+  part?: string;
+  member?: string;
+  /** Where a run was left, so returning to it puts the reader back. */
+  restore?: { scrollTop: number; focusId: string } | null;
+  /** Why the details could not be loaded; the drawer then offers to try again. */
+  error?: string;
 }>();
 const emit = defineEmits<{
   // Escape and the close button; focus goes back to whatever opened the drawer.
   close: [];
   // A press outside dismisses the drawer, and focus stays where the press put it.
   dismiss: [];
-  open: [kind: "runs" | "tool-runs", id: string];
+  open: [kind: "runs" | "tool-runs", id: string, scrollTop: number];
   back: [];
+  select: [part: string, member: string];
+  restored: [];
+  retry: [];
 }>();
 
 const drawer = ref<HTMLElement | null>(null);
 const title = ref<HTMLElement | null>(null);
-const shown = computed(() => Boolean(props.detail) || props.loading);
+const shown = computed(() => Boolean(props.detail) || props.loading || Boolean(props.error));
 
 // Focus moves to the title once its content has arrived, including when the
 // drawer swaps from one run to another.
 watch(() => props.detail, async detail => {
   if (!detail) return;
   await nextTick();
+  const back = props.restore;
+  if (back && drawer.value) {
+    // Returning to a run puts the reader back on the row that opened the other one.
+    drawer.value.scrollTop = back.scrollTop;
+    const row = drawer.value.querySelector<HTMLElement>(
+      `${byAttribute("data-job-id", back.focusId)}, ${byAttribute("data-run-id", back.focusId)}`,
+    );
+    (row ?? title.value)?.focus({ preventScroll: true });
+    emit("restored");
+    return;
+  }
   title.value?.focus({ preventScroll: true });
 });
+
+function openFrom(kind: "runs" | "tool-runs", id: string) {
+  emit("open", kind, id, drawer.value?.scrollTop ?? 0);
+}
 
 /**
  * A press anywhere outside the drawer dismisses it: the masthead, the sidebar
@@ -72,7 +101,8 @@ const isRun = computed(() => props.kind === "runs");
 const running = computed(() => props.detail?.run_status === "running");
 // A run's headline is the whole run.
 const runTotal = computed(() => text("run_total"));
-const steps = computed(() => list("steps"));
+const run = computed(() => (isRun.value ? props.detail as unknown as InvocationDetail : null));
+const jobs = computed(() => run.value?.jobs ?? []);
 const children = computed(() => list("children"));
 const resources = computed(() => list("resources"));
 // Galaxy's own record of an execution a provider also observed is evidence
@@ -117,6 +147,20 @@ const attempts = computed(() => list("attempts").filter(attempt => attempt.role 
     >
       <RefreshCw class="spin" /> Loading details…
     </div>
+    <div
+      v-else-if="error && !detail"
+      class="error"
+      role="alert"
+    >
+      <p><strong>These details could not be loaded.</strong> {{ error }}</p>
+      <button
+        type="button"
+        class="link-button"
+        @click="emit('retry')"
+      >
+        Try again
+      </button>
+    </div>
     <template v-else-if="detail">
       <template v-if="isRun">
         <h2
@@ -153,35 +197,32 @@ const attempts = computed(() => list("attempts").filter(attempt => attempt.role 
           added no new compute.
         </p>
 
-        <h3>Steps</h3>
         <div
-          v-if="!steps.length"
+          v-if="!jobs.length"
           class="empty"
         >
-          No jobs are recorded for this run yet.
+          {{ NO_RUN_JOBS }}
         </div>
-        <ul
-          v-else
-          class="step-list"
-        >
-          <li
-            v-for="step in steps"
-            :key="String(step.step_key)"
-          >
-            <template v-if="step.job">
-              <button
-                class="link-button"
-                @click="emit('open', 'tool-runs', String((step.job as Record<string, unknown>).id))"
-              >
-                {{ (step.job as Record<string, unknown>).tool_name }}
-              </button>
-              <span>{{ jobStateLabel(String((step.job as Record<string, unknown>).state)) }}</span>
-              <span>{{ formatCost((step.job as Record<string, unknown>).amount as string) }}</span>
-              <small>{{ capacityLabel((step.job as Record<string, unknown>).capacities as string[]) }}</small>
-            </template>
-            <small v-else>Step {{ step.step_key }} has no authorized matching job.</small>
-          </li>
-        </ul>
+        <template v-else-if="run">
+          <RunCostBreakdown
+            :detail="run" :selected="part ?? ''" :member="member ?? ''" :running="running"
+            @select="(key, inside) => emit('select', key, inside)"
+            @open="id => openFrom('tool-runs', id)"
+          />
+          <section aria-labelledby="run-jobs-heading">
+            <h3 id="run-jobs-heading">{{ JOBS_HEADING }}</h3>
+            <RuntimeJobList
+              :jobs="jobs"
+              @open="id => openFrom('tool-runs', id)"
+            />
+            <p
+              v-if="run.unavailable_step_count"
+              class="dialog-meta"
+            >
+              {{ unavailableSteps(run.unavailable_step_count) }}
+            </p>
+          </section>
+        </template>
 
         <template v-if="children.length">
           <h3>Child workflows</h3>
@@ -192,7 +233,8 @@ const attempts = computed(() => list("attempts").filter(attempt => attempt.role 
             >
               <button
                 class="link-button"
-                @click="emit('open', 'runs', String(child.id))"
+                :data-run-id="String(child.id)"
+                @click="openFrom('runs', String(child.id))"
               >
                 {{ child.workflow_name }}
               </button>

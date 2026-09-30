@@ -16,7 +16,7 @@ function figures(summary: Partial<Summary> = {}, workload: Partial<WorkloadTotal
   return mount(OverviewFigures, {
     props: {
       summary: { ...SUMMARY, ...summary } as Summary, workload: { ...WORKLOAD, ...workload },
-      periodText: "Sep 1, 2026 – Sep 29, 2026 (so far) · UTC",
+      periodText: "Sep 1, 2026 – Sep 29, 2026 · UTC",
     },
   });
 }

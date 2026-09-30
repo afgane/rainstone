@@ -12,7 +12,7 @@ const TOTALS: RunTotals = {
 function figures(totals: Partial<RunTotals> = {}, props: Record<string, unknown> = {}) {
   return mount(RunFigures, {
     props: {
-      totals: { ...TOTALS, ...totals }, periodText: "Sep 1, 2026 – Sep 29, 2026 (so far) · UTC",
+      totals: { ...TOTALS, ...totals }, periodText: "Sep 1, 2026 – Sep 29, 2026 · UTC",
       workflowName: "", narrowed: false, ...props,
     },
   });

@@ -169,6 +169,68 @@ export interface Invocation {
   shared_job_count: number;
 }
 
+/** How a job's cost reached the run: its own charge, a known zero, or not at all. */
+export type JobAttribution = "individual" | "known_zero" | "unknown" | "unsupported";
+
+export interface RunJobStep {
+  invocation_id: string; workflow_name: string; step_key: string; relationship: string;
+  /** Reached through a child workflow rather than the run itself. */
+  nested: boolean;
+}
+
+/** One distinct job of the whole run, however many steps it belongs to. */
+export interface RunJob {
+  id: string; source_id: string; tool_id: string; tool_name: string; tool_version: string | null;
+  state: string; quality: string;
+  /** The job's whole cost. Null is unknown, never zero. */
+  amount: string | null;
+  attribution: JobAttribution;
+  /** A verified capacity relationship, "multiple" for retries across several, or "unknown". */
+  environment: string;
+  capacities: string[];
+  cost_entity_id: string | null;
+  created_at: string; started_at: string | null; finished_at: string | null;
+  /** Observed tool execution time; null when it never started or cannot be relied on. */
+  duration_seconds: number | null;
+  /** The job is still running, so its duration is elapsed so far. */
+  duration_running: boolean;
+  attempt_count: number;
+  /** Its outputs were reused from an earlier job, so it added no new compute. */
+  reused: boolean;
+  /** Position in the run's execution order, from 1. */
+  order: number;
+  steps: RunJobStep[];
+}
+
+/** A charge that produced cost in the run, however many jobs point at it. */
+export interface CostEntity {
+  id: string; kind: "batch_job" | "vm_session"; amount: string; currency: "USD"; scope: "run";
+  environment: string; complete: boolean; job_ids: string[];
+  /** A virtual machine session's own name, when it has one. */
+  label?: string | null;
+}
+
+export interface CostBreakdownFacts {
+  status: "available" | "unavailable";
+  reason: string | null;
+  currency: "USD";
+  known_subtotal: string | null;
+  complete: boolean;
+  job_count: number; cost_entity_count: number;
+  known_zero_job_count: number; unknown_job_count: number;
+}
+
+/** A run opened in the drawer: the run, every job of the whole run, and where its cost came from. */
+export interface InvocationDetail extends Invocation {
+  jobs: RunJob[];
+  cost_entities: CostEntity[];
+  cost_breakdown: CostBreakdownFacts;
+  /** Memberships to jobs the viewer cannot see; counted, never described. */
+  unavailable_step_count: number;
+  children: Invocation[];
+  meta: Meta;
+}
+
 /** The whole filtered set, never the loaded page. */
 export interface RunTotals {
   amount: string | null;

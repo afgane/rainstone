@@ -25,11 +25,11 @@ describe("calendar periods", () => {
     expect(period.toDate).toBe("2026-08-31");
   });
 
-  it("runs this month up to today and says so", () => {
+  it("runs this month up to today", () => {
     const period = resolvePeriod("this-month", "UTC", undefined, NOW);
     expect(period.fromDate).toBe("2026-09-01");
     expect(period.toDate).toBe("2026-09-23");
-    expect(describePeriod(period, "UTC")).toContain("(so far)");
+    expect(describePeriod(period, "UTC")).toBe("Sep 1, 2026 – Sep 23, 2026 · UTC");
   });
 
   it("converts an inclusive last day into an exclusive API boundary", () => {

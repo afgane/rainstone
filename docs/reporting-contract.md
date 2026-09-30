@@ -124,6 +124,55 @@ while the run is running, and `duration_seconds`, wall clock from the first
 job's submission to that finish or, while running, to the revision time. It is
 not billed time.
 
+**Run detail.** `GET /api/invocations/{id}` describes the run as a whole,
+whatever period is selected: its `jobs`, `cost_entities` and `cost_breakdown`
+are built from the same job records the run's `run_total` sums, nested
+workflows included and every job once, so they reconcile with the headline. The
+selected period, paging and chart grouping never shape them. Job-level filters
+do, exactly as they shape `run_total`. Authorization is the run listing's: a
+membership that points at a job the viewer cannot see is counted in
+`unavailable_step_count` and otherwise appears nowhere.
+
+Each entry of `jobs` is one distinct job, however many steps it belongs to:
+
+- `amount` is the job's whole cost and null when unknown. `attribution` says
+  how it reached the run: `individual` (a positive charge of its own),
+  `known_zero`, `unknown` or `unsupported` (negative). A future
+  `entity_owned` value is reserved for work whose cost belongs to a shared
+  resource.
+- `environment` is the verified capacity relationship of its cost lines
+  (`dedicated`, `existing`, `elastic_shared`), `multiple` when retries used
+  several, and `unknown` when none is established.
+- `duration_seconds` is observed tool execution time: the union of its
+  execution attempts' intervals, so parallel attempts do not count twice and
+  the wait between retries is not counted. It is neither queue time nor the
+  time a resource was held. It is null for a job that never started and for a
+  finished job with an attempt whose end was never recorded. While a job runs
+  it is elapsed time up to the revision, `duration_running` is true and
+  `finished_at` is null.
+- `order` numbers the jobs from 1 in workflow order: numeric step keys compare
+  as numbers, so step 10 follows step 2, and jobs whose keys are not numeric
+  follow in submission order. Ties break on the job's source ID.
+- `steps` lists every membership, direct or through a child workflow, and
+  `cost_entity_id` names the charge the job produced, if any.
+
+`cost_entities` are charges, not jobs: today one `batch_job` per job with a
+non-zero known amount, each pointing at its job in `job_ids`. A charge shared
+by several jobs would be one `vm_session` entity that lists them all; its jobs
+carry no share of it, and a lifetime shared by more than one job is already
+unavailable until an allocation policy exists. `cost_breakdown` is `available`
+when the positive entities add up exactly to `known_subtotal` (the run total)
+and `unavailable`, with a reason, when an amount is negative or non-finite or
+the parts do not reconcile. It also counts jobs, entities, known-zero jobs and
+unknown jobs; unknown cost is never zero and has no share.
+
+The client draws these as a hundred squares. Parts are made by pooling repeated
+jobs of one tool, tool version and environment, then naming parts until they
+hold 95% of the known cost, at most eight, none under 1%; a remainder under 2%
+is named instead when every piece qualifies, and otherwise pooled as `Other`
+with all its members. Squares are apportioned by the largest remainder from
+exact amounts, so they total 100 and never feed back into money.
+
 **Breakdown.** Groups are ordered by attributed amount, then name and key. Each
 lists at most 200 runs with a known period amount, and the rest fold into
 `remainder` with the exact boundary of the first folded run. `whole_run_range`

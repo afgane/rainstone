@@ -49,6 +49,12 @@ const detail = ref<Record<string, unknown> | null>(null);
 const detailKind = ref<"runs" | "tool-runs" | null>(null);
 const detailId = ref("");
 const detailLoading = ref(false);
+const detailError = ref("");
+// The part of a run's cost that is open in the drawer, and a member of a pooled part inside it.
+const detailPart = ref("");
+const detailMember = ref("");
+// Where a run was left when a job was opened from it, applied once the run is back.
+const detailRestore = ref<{ scrollTop: number; focusId: string } | null>(null);
 const advancedOpen = ref(false);
 const drawerOpen = ref(false);
 const hoverRunId = ref("");
@@ -65,7 +71,13 @@ let firstLoad = true;
 let generation = 0;
 let detailToken = 0;
 // Runs and jobs opened from inside the drawer, so its back button can retrace them.
-const detailTrail = ref<Array<{ kind: "runs" | "tool-runs"; id: string }>>([]);
+interface TrailStop {
+  kind: "runs" | "tool-runs"; id: string; part: string; member: string; scrollTop: number; focusId: string;
+}
+const detailTrail = ref<TrailStop[]>([]);
+// The scroll position and row of whatever the drawer is about to open from itself.
+let leaving = { scrollTop: 0, focusId: "" };
+const DETAIL_PARAMS = ["detail_kind", "detail_id", "detail_part", "detail_member"] as const;
 
 const period = computed(() => periodOf(state));
 const periodLabel = computed(() => (state.period === "custom"
@@ -107,8 +119,10 @@ function updateUrl(push = false) {
   const query = urlQuery(state);
   const current = new URLSearchParams(location.search);
   if (current.get("detail_kind") && current.get("detail_id")) {
-    query.set("detail_kind", current.get("detail_kind")!);
-    query.set("detail_id", current.get("detail_id")!);
+    for (const name of DETAIL_PARAMS) {
+      const value = current.get(name);
+      if (value) query.set(name, value);
+    }
   }
   history[push ? "pushState" : "replaceState"]({}, "", `${location.pathname}?${query}`);
 }
@@ -380,9 +394,18 @@ async function downloadRuns() {
   await download();
 }
 
+/** The drawer's place in the address: which run or job, and which part of a run's cost is open. */
+function detailParams(params: URLSearchParams, kind: string, id: string, part: string, member: string) {
+  params.set("detail_kind", kind); params.set("detail_id", id);
+  for (const [name, value] of [["detail_part", part], ["detail_member", member]]) {
+    if (value) params.set(name, value); else params.delete(name);
+  }
+}
 async function showDetail(
   kind: "runs" | "tool-runs", id: string, updateHistory = true, opener: HTMLElement | null = null,
   trail: "reset" | "push" | "keep" = "reset",
+  selection: { part: string; member: string } = { part: "", member: "" },
+  restore: { scrollTop: number; focusId: string } | null = null,
 ) {
   // Pressing the open run's own trigger closes the drawer again.
   if (detailKind.value === kind && detailId.value === id && detail.value) {
@@ -392,16 +415,22 @@ async function showDetail(
   const swapping = detailKind.value !== null;
   if (trail === "reset") detailTrail.value = [];
   else if (trail === "push" && detailKind.value) {
-    detailTrail.value = [...detailTrail.value, { kind: detailKind.value, id: detailId.value }];
+    detailTrail.value = [...detailTrail.value, {
+      kind: detailKind.value, id: detailId.value, part: detailPart.value, member: detailMember.value,
+      ...leaving,
+    }];
   }
   // Focus goes back to whatever the person last used to open a run.
   if (!swapping || opener) detailOpener = opener ?? (document.activeElement as HTMLElement | null);
   const mine = ++detailToken;
   detailKind.value = kind;
   detailId.value = id;
+  detailPart.value = selection.part; detailMember.value = selection.member;
+  detailRestore.value = restore;
+  detailError.value = "";
   if (updateHistory) {
     const params = new URLSearchParams(location.search);
-    params.set("detail_kind", kind); params.set("detail_id", id);
+    detailParams(params, kind, id, selection.part, selection.member);
     // A swap replaces the entry, so Back leaves the drawer rather than stepping through runs.
     history[swapping ? "replaceState" : "pushState"]({}, "", `${location.pathname}?${params}`);
   }
@@ -411,25 +440,47 @@ async function showDetail(
     const result = await get<Record<string, unknown>>(`/${path}/${id}?${queryString(state)}`);
     if (mine === detailToken) detail.value = result;
   } catch (reason) {
-    if (mine === detailToken) error.value = reason instanceof Error ? reason.message : "Unable to load detail";
+    if (mine === detailToken) detailError.value = reason instanceof Error ? reason.message : "Unable to load detail";
   } finally {
     if (mine === detailToken) detailLoading.value = false;
   }
+}
+/** A run or job opened from inside the drawer, remembering where the reader was. */
+function openFromDrawer(kind: "runs" | "tool-runs", id: string, scrollTop: number) {
+  leaving = { scrollTop, focusId: id };
+  void showDetail(kind, id, true, null, "push");
+}
+function retryDetail() {
+  if (!detailKind.value) return;
+  void showDetail(detailKind.value, detailId.value, false, null, "keep", {
+    part: detailPart.value, member: detailMember.value,
+  });
+}
+/** Choosing a part of a run's cost is part of the address, but not a step in the history. */
+function selectPart(part: string, member: string) {
+  detailPart.value = part; detailMember.value = member;
+  if (!detailKind.value) return;
+  const params = new URLSearchParams(location.search);
+  detailParams(params, detailKind.value, detailId.value, part, member);
+  history.replaceState({}, "", `${location.pathname}?${params}`);
 }
 function detailBack() {
   const previous = detailTrail.value[detailTrail.value.length - 1];
   if (!previous) return;
   detailTrail.value = detailTrail.value.slice(0, -1);
-  void showDetail(previous.kind, previous.id, true, null, "keep");
+  void showDetail(previous.kind, previous.id, true, null, "keep",
+    { part: previous.part, member: previous.member },
+    { scrollTop: previous.scrollTop, focusId: previous.focusId });
 }
 function closeDetail(returnFocus = true, updateHistory = true) {
   detailToken += 1;
   detailTrail.value = [];
   const wasOpen = detailKind.value !== null;
   detail.value = null; detailKind.value = null; detailId.value = ""; detailLoading.value = false;
+  detailError.value = ""; detailPart.value = ""; detailMember.value = ""; detailRestore.value = null;
   if (updateHistory && wasOpen) {
     const params = new URLSearchParams(location.search);
-    params.delete("detail_kind"); params.delete("detail_id");
+    for (const name of DETAIL_PARAMS) params.delete(name);
     history.pushState({}, "", `${location.pathname}?${params}`);
   }
   // A press outside moves focus where the person pointed, so only Escape and
@@ -446,8 +497,11 @@ function onPopState() {
   const params = new URLSearchParams(location.search);
   const kind = params.get("detail_kind"); const id = params.get("detail_id");
   Object.assign(state, stateFromUrl(location.search)); void refresh(false);
-  if ((kind === "runs" || kind === "tool-runs") && id) void showDetail(kind, id, false);
-  else closeDetail(false, false);
+  if ((kind === "runs" || kind === "tool-runs") && id) {
+    void showDetail(kind, id, false, null, "reset", {
+      part: params.get("detail_part") ?? "", member: params.get("detail_member") ?? "",
+    });
+  } else closeDetail(false, false);
 }
 function onKey(event: KeyboardEvent) {
   // The detail drawer closes itself on Escape; this closes the filters panel on narrow screens.
@@ -460,7 +514,11 @@ onMounted(() => {
   void refresh();
   const params = new URLSearchParams(location.search);
   const kind = params.get("detail_kind"); const id = params.get("detail_id");
-  if ((kind === "runs" || kind === "tool-runs") && id) void showDetail(kind, id, false);
+  if ((kind === "runs" || kind === "tool-runs") && id) {
+    void showDetail(kind, id, false, null, "reset", {
+      part: params.get("detail_part") ?? "", member: params.get("detail_member") ?? "",
+    });
+  }
 });
 onBeforeUnmount(() => {
   controller?.abort();
@@ -650,7 +708,8 @@ onBeforeUnmount(() => {
   <DetailDrawer
     :kind="detailKind" :detail="detail" :loading="detailLoading" :period-label="periodLabel"
     :timezone="state.timezone" :back-label="detailTrail.length ? (detailTrail[detailTrail.length - 1].kind === 'runs' ? 'Back to workflow run' : 'Back to job') : ''"
+    :part="detailPart" :member="detailMember" :restore="detailRestore" :error="detailError"
     @close="closeDetail(true)" @dismiss="closeDetail(false)" @back="detailBack"
-    @open="(kind, id) => showDetail(kind, id, true, null, 'push')"
+    @open="openFromDrawer" @select="selectPart" @restored="detailRestore = null" @retry="retryDetail"
   />
 </template>

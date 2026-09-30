@@ -2,6 +2,7 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App.vue";
+import { resetJobs, runDetail, runJob } from "./test/runDetail";
 
 const META = {
   basis: "additional", currency: "USD", revision_id: "rev-1", as_of: "2026-09-29T12:00:00Z",
@@ -59,12 +60,18 @@ function answer(path: string, workflow: string) {
 
 interface Pending { workflow: string; resolve: () => void }
 
-function stubFetch(hold: Set<string> = new Set()) {
+// The base rule reads a type's parameter name as an unused variable.
+// eslint-disable-next-line no-unused-vars
+type Custom = (path: string) => Response | Promise<Response> | undefined;
+
+function stubFetch(hold: Set<string> = new Set(), custom?: Custom) {
   const pending: Pending[] = [];
   vi.stubGlobal("fetch", vi.fn((url: string) => {
     const query = new URLSearchParams(url.split("?")[1] ?? "");
     const workflow = query.get("workflow_key") ?? "";
     const path = url.split("?")[0];
+    const special = custom?.(path);
+    if (special) return Promise.resolve(special);
     let body: unknown = {};
     if (path.endsWith("/summary")) body = { ...META, amount: "0", job_count: 0, unpriced_job_count: 0, demo: false, imported_snapshot: null, can_view_infrastructure: false, undated: null };
     else if (path.endsWith("/freshness")) body = { overall_status: "healthy", sources: [], observation_gaps: [] };
@@ -77,9 +84,13 @@ function stubFetch(hold: Set<string> = new Set()) {
   return pending;
 }
 
+// Every mounted app listens for the browser's history events, so none may outlive its test.
+const apps: Array<ReturnType<typeof mount>> = [];
+
 async function mountRuns() {
   history.replaceState({}, "", "/?view=runs&period=custom&from=2026-09-01&to=2026-09-29");
   const wrapper = mount(App, { attachTo: document.body });
+  apps.push(wrapper);
   await flushPromises();
   return wrapper;
 }
@@ -90,7 +101,11 @@ const strip = (wrapper: ReturnType<typeof mount>) => wrapper.find(".zoom-label")
 const rowName = (wrapper: ReturnType<typeof mount>) => wrapper.find(".run-card strong").text();
 
 beforeEach(() => vi.useRealTimers());
-afterEach(() => { document.body.innerHTML = ""; vi.unstubAllGlobals(); });
+afterEach(() => {
+  apps.splice(0).forEach(wrapper => wrapper.unmount());
+  document.body.innerHTML = "";
+  vi.unstubAllGlobals();
+});
 
 describe("the Workflow runs page", () => {
   it("draws the figures, the chart and the list from one load", async () => {
@@ -128,6 +143,7 @@ describe("the Workflow runs page", () => {
     // The first load is held too, so release it before choosing anything.
     history.replaceState({}, "", "/?view=runs&period=custom&from=2026-09-01&to=2026-09-29");
     const wrapper = mount(App, { attachTo: document.body });
+    apps.push(wrapper);
     await flushPromises();
     pending.splice(0).forEach(item => item.resolve());
     await flushPromises();
@@ -152,5 +168,146 @@ describe("the Workflow runs page", () => {
     stubFetch();
     const wrapper = await mountRuns();
     expect(wrapper.text()).toContain("Showing 1 of 1");
+  });
+});
+
+
+/* The run drawer: what is open in it is part of the address. */
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+
+/** One run per id, so every answer for it names the same jobs. */
+const runs = new Map<string, ReturnType<typeof runDetail>>();
+function drawerRun(id: string, name: string) {
+  const known = runs.get(id);
+  if (known) return known;
+  const repeated = [runJob("wig_to_bigWig", "0.4"), runJob("wig_to_bigWig", "0.4"), runJob("wig_to_bigWig", "0.4")];
+  const made = { ...runDetail([runJob("rna star", "98.8"), ...repeated]), id, workflow_name: name };
+  runs.set(id, made);
+  return made;
+}
+const WIG = "tool:tools/wig_to_bigWig|1.0|dedicated";
+
+function jobDetail(id: string) {
+  return {
+    id, tool_name: "wig_to_bigWig", tool_id: "t", source_id: "9", revision_id: "r", state: "ok",
+    created_at: "2026-09-02T10:00:00Z", quality: "complete", reason: "", capacities: ["dedicated"],
+    full_job_amount: "0.4", interval_amount: "0.4", resources: [], attempts: [],
+  };
+}
+
+function stubDrawer(details: Record<string, () => Response | Promise<Response>>) {
+  stubFetch(new Set(), path => {
+    const detail = /\/invocations\/([^/]+)$/.exec(path)?.[1];
+    if (detail && detail !== "breakdown" && detail !== "timeline" && details[detail]) return details[detail]();
+    const job = /\/jobs\/([^/]+)$/.exec(path)?.[1];
+    return job ? json(jobDetail(job)) : undefined;
+  });
+}
+
+async function openRun(search: string) {
+  history.replaceState({}, "", `/?view=runs&period=custom&from=2026-09-01&to=2026-09-29${search}`);
+  const wrapper = mount(App, { attachTo: document.body });
+  apps.push(wrapper);
+  await flushPromises();
+  return wrapper;
+}
+
+describe("the run drawer's address", () => {
+  beforeEach(() => { runs.clear(); resetJobs(); });
+
+  it("opens the part named in the address, with its jobs", async () => {
+    stubDrawer({ a1: () => json(drawerRun("a1", "Alpha workflow")) });
+    const wrapper = await openRun(`&detail_kind=runs&detail_id=a1&detail_part=${encodeURIComponent(WIG)}`);
+    const pressed = wrapper.findAll("button[data-part][aria-pressed='true']");
+    expect(pressed).toHaveLength(1);
+    expect(wrapper.findAll("#part-detail .job-row")).toHaveLength(3);
+  });
+
+  it("writes a chosen part into the address without adding a history entry", async () => {
+    stubDrawer({ a1: () => json(drawerRun("a1", "Alpha workflow")) });
+    const wrapper = await openRun("&detail_kind=runs&detail_id=a1");
+    const before = history.length;
+    await wrapper.find(`button[data-part="${WIG}"]`).trigger("click");
+    expect(new URLSearchParams(location.search).get("detail_part")).toBe(WIG);
+    expect(history.length).toBe(before);
+    await wrapper.find(`button[data-part="${WIG}"]`).trigger("click");
+    expect(new URLSearchParams(location.search).has("detail_part")).toBe(false);
+  });
+
+  it("clears a part the address names but the run no longer has, and says so", async () => {
+    stubDrawer({ a1: () => json(drawerRun("a1", "Alpha workflow")) });
+    const wrapper = await openRun("&detail_kind=runs&detail_id=a1&detail_part=tool:gone");
+    expect(wrapper.find("#part-detail").exists()).toBe(false);
+    expect(new URLSearchParams(location.search).has("detail_part")).toBe(false);
+    expect(wrapper.find(".cost-breakdown [role='status']").text()).toBe("The part you had selected is no longer available.");
+  });
+
+  it("returns from a job to the same part, the same place and the row that opened it", async () => {
+    stubDrawer({ a1: () => json(drawerRun("a1", "Alpha workflow")) });
+    const wrapper = await openRun(`&detail_kind=runs&detail_id=a1&detail_part=${encodeURIComponent(WIG)}`);
+    const row = wrapper.findAll("#part-detail .job-row")[1];
+    const jobId = row.attributes("data-job-id")!;
+    await row.trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".drawer-back").text()).toContain("Back to workflow run");
+    expect(wrapper.find("#detail-title").text()).toBe("wig_to_bigWig");
+    expect(new URLSearchParams(location.search).get("detail_id")).toBe(jobId);
+    expect(new URLSearchParams(location.search).has("detail_part")).toBe(false);
+
+    await wrapper.find(".drawer-back").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("#detail-title").text()).toBe("Alpha workflow");
+    expect(wrapper.findAll("button[data-part][aria-pressed='true']")).toHaveLength(1);
+    expect(new URLSearchParams(location.search).get("detail_part")).toBe(WIG);
+    const focused = document.activeElement as HTMLElement;
+    expect(focused.getAttribute("data-job-id")).toBe(jobId);
+    expect(focused.closest("#part-detail")).not.toBeNull();
+  });
+
+  it("does not carry a selection from one run to another", async () => {
+    stubDrawer({
+      a1: () => json(drawerRun("a1", "Alpha workflow")),
+      b1: () => json(drawerRun("b1", "Beta workflow")),
+    });
+    const wrapper = await openRun(`&detail_kind=runs&detail_id=a1&detail_part=${encodeURIComponent(WIG)}`);
+    expect(wrapper.find("#part-detail").exists()).toBe(true);
+    await wrapper.find(".run-card").trigger("click");
+    await flushPromises();
+    // The list's first row is Alpha's own trigger, so a second press closes it; open Beta directly.
+    history.replaceState({}, "", "/?view=runs&period=custom&from=2026-09-01&to=2026-09-29");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    await flushPromises();
+    history.replaceState({}, "", "/?view=runs&period=custom&from=2026-09-01&to=2026-09-29&detail_kind=runs&detail_id=b1");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    await flushPromises();
+    expect(wrapper.find("#detail-title").text()).toBe("Beta workflow");
+    expect(wrapper.find("#part-detail").exists()).toBe(false);
+  });
+
+  it("drops an older run's answer that arrives after a newer one", async () => {
+    let releaseFirst: () => void = () => {};
+    const first = new Promise<Response>(resolve => { releaseFirst = () => resolve(json(drawerRun("a1", "Alpha workflow"))); });
+    stubDrawer({ a1: () => first, b1: () => json(drawerRun("b1", "Beta workflow")) });
+    const wrapper = await openRun("&detail_kind=runs&detail_id=a1");
+    history.replaceState({}, "", "/?view=runs&period=custom&from=2026-09-01&to=2026-09-29&detail_kind=runs&detail_id=b1");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    await flushPromises();
+    expect(wrapper.find("#detail-title").text()).toBe("Beta workflow");
+    releaseFirst();
+    await flushPromises();
+    expect(wrapper.find("#detail-title").text()).toBe("Beta workflow");
+  });
+
+  it("offers to try again when a run's details fail to load, and recovers", async () => {
+    let calls = 0;
+    stubDrawer({
+      a1: () => (calls++ === 0 ? json({ detail: "Bad Gateway" }, 502) : json(drawerRun("a1", "Alpha workflow"))),
+    });
+    const wrapper = await openRun("&detail_kind=runs&detail_id=a1");
+    expect(wrapper.find(".drawer [role='alert']").text()).toContain("These details could not be loaded");
+    await wrapper.find(".drawer [role='alert'] button").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("#detail-title").text()).toBe("Alpha workflow");
+    expect(wrapper.find(".drawer [role='alert']").exists()).toBe(false);
   });
 });

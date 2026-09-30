@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  environmentLabel, formatCompactCost, formatJobDuration, formatShare, groupCoverage, groupHeading,
+  jobCostLabel, jobDurationLabel, jobStateKind, jobStateLabel, shareBasis,
   acrossWorkflows, capacityLabel, coverageSentence, costExplanation, durationText, focusChipLabel,
   formatAxisCost, formatCost, formatDate, formatDuration, formatRate, outcomeMix, outOfRuns,
   costChartTitle, jobOutcomes, pieceCounts, qualityLabel, rangeCaption, showingOf, showMore,
@@ -141,5 +143,74 @@ describe("the Overview vocabulary", () => {
   it("writes the unplaced note without stray spaces", () => {
     expect(unplacedSentence(2, "1.5")).toBe("Cannot be placed in time: 2 jobs, $1.50.");
     expect(unplacedSentence(1, null)).toBe("Cannot be placed in time: 1 job.");
+  });
+});
+
+describe("the run drawer's job rows", () => {
+  it("keeps seconds in a job's duration and steps up to hours and days", () => {
+    expect(formatJobDuration(0.4)).toBe("<1s");
+    expect(formatJobDuration(14)).toBe("14s");
+    expect(formatJobDuration(128)).toBe("2m 08s");
+    expect(formatJobDuration(38 * 60 + 12)).toBe("38m 12s");
+    expect(formatJobDuration(3900)).toBe("1h 05m");
+    expect(formatJobDuration(2 * 86400 + 3 * 3600 + 59)).toBe("2d 03h");
+    expect(formatJobDuration(null)).toBe("—");
+  });
+
+  it("says a missing duration and a running one in words", () => {
+    expect(jobDurationLabel(null)).toBe("Duration not available");
+    expect(jobDurationLabel(90, true)).toBe("1m 30s elapsed so far");
+    expect(jobDurationLabel(90)).toBe("1m 30s");
+  });
+
+  it("shortens only a positive sub-cent amount, and leaves an unknown one a dash", () => {
+    expect(formatCompactCost("0.004")).toBe("<$0.01");
+    expect(formatCost("0.004")).toBe("less than $0.01");
+    expect(formatCompactCost("0.81")).toBe("$0.81");
+    expect(formatCompactCost("0")).toBe("$0.00");
+    expect(formatCompactCost(null)).toBe("—");
+    expect(jobCostLabel(null)).toBe("Cost not available");
+    expect(jobCostLabel("0.004")).toBe("Cost less than $0.01");
+  });
+
+  it("gives every state a distinct kind, and an unmapped one its own", () => {
+    const kinds = ["ok", "error", "running", "queued", "cancelled", "paused", "new", "deleted", "resubmitted"]
+      .map(jobStateKind);
+    expect(new Set(kinds).size).toBe(kinds.length);
+    expect(jobStateKind("something-new")).toBe("unknown");
+    expect(jobStateLabel("something-new")).toBe("something-new");
+  });
+
+  it("keeps Deleted and Restarted as they are said, not as Cancelled or Running", () => {
+    expect(jobStateLabel("deleted")).toBe("Deleted");
+    expect(jobStateLabel("resubmitted")).toBe("Restarted");
+    expect(jobStateKind("deleted")).not.toBe(jobStateKind("cancelled"));
+    expect(jobStateKind("resubmitted")).not.toBe(jobStateKind("running"));
+  });
+
+  it("names the places a job ran, several included", () => {
+    expect(environmentLabel("dedicated")).toBe("Dedicated cloud compute");
+    expect(environmentLabel("existing")).toBe("Your Galaxy server");
+    expect(environmentLabel("multiple")).toBe("Multiple environments");
+    expect(environmentLabel("unknown")).toBe("Not established");
+  });
+
+  it("writes a share so that a tiny one is never a bare zero", () => {
+    expect(formatShare(0.001)).toBe("Less than 1%");
+    expect(formatShare(0.042)).toBe("4.2%");
+    expect(formatShare(0.5625)).toBe("56%");
+  });
+
+  it("says what a share is of, without implying a final total that is not known", () => {
+    expect(shareBasis(true, false)).toBe("of cost so far");
+    expect(shareBasis(false, false)).toBe("of recorded cost");
+    expect(shareBasis(false, true)).toBe("of this run's cost");
+  });
+
+  it("labels a group with what it holds and what is missing", () => {
+    expect(groupHeading("dedicated", 1)).toBe("Dedicated cloud compute · 1 job");
+    expect(groupCoverage(true, 0)).toBe("");
+    expect(groupCoverage(true, 2)).toBe("Recorded so far · 2 jobs still need cost data");
+    expect(groupCoverage(false, 1)).toBe("1 job still needs cost data");
   });
 });

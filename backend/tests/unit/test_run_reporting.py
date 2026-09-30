@@ -3,6 +3,7 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -12,10 +13,13 @@ from rainstone.reporting import (
     BREAKDOWN_RUN_LIMIT,
     _attribute_shared_jobs,
     _bucket_function,
+    _environment,
+    _execution_span,
     _fold,
     _group_by_workflow,
     _RunSet,
     _select_runs,
+    _step_order,
     _whole_run_range,
 )
 
@@ -359,3 +363,78 @@ class TestGroups:
         _attribute_shared_jobs(runs)
         [group] = _group_by_workflow(runs)
         assert [uuid.UUID(item["id"]).int for item in group["runs"]] == [2, 1, 3]
+
+
+AS_OF = datetime(2026, 9, 29, 12, tzinfo=UTC)
+
+
+def make_attempt(number: int, start: str | None, finish: str | None, *, task: int = 0, ordinal: int = 1):
+    def instant(value: str | None) -> datetime | None:
+        return datetime.fromisoformat(value).replace(tzinfo=UTC) if value else None
+
+    return SimpleNamespace(
+        id=uuid.UUID(int=number), source_attempt_id=f"provider-{number}", task_index=task,
+        attempt_ordinal=ordinal, tool_started_at=instant(start), tool_finished_at=instant(finish),
+    )
+
+
+def span(state: str, *attempts) -> dict:
+    return _execution_span({"state": state, "attempts": list(attempts)}, set(), AS_OF)
+
+
+class TestStepOrder:
+    def test_numeric_keys_compare_as_numbers(self) -> None:
+        keys = ["10:40", "2:5", "2:11", "9:1"]
+        assert sorted(keys, key=_step_order) == ["2:5", "2:11", "9:1", "10:40"]
+
+    def test_a_key_that_is_not_numeric_sorts_after_those_that_are(self) -> None:
+        assert sorted(["align", "3:1"], key=_step_order) == ["3:1", "align"]
+
+
+class TestEnvironment:
+    def test_one_capacity_is_the_environment(self) -> None:
+        assert _environment(["dedicated"]) == "dedicated"
+
+    def test_no_capacity_is_not_established(self) -> None:
+        assert _environment([]) == "unknown"
+
+    def test_several_capacities_are_named_as_several(self) -> None:
+        assert _environment(["dedicated", "existing"]) == "multiple"
+
+
+class TestExecutionSpan:
+    def test_a_finished_job_runs_from_its_start_to_its_finish(self) -> None:
+        result = span("ok", make_attempt(1, "2026-09-02T10:00:00", "2026-09-02T10:38:12"))
+        assert result["duration_seconds"] == 38 * 60 + 12
+        assert result["duration_running"] is False
+        assert result["finished_at"] is not None
+
+    def test_overlapping_attempts_are_not_added_twice(self) -> None:
+        result = span(
+            "ok",
+            make_attempt(1, "2026-09-02T10:00:00", "2026-09-02T10:10:00", task=0),
+            make_attempt(2, "2026-09-02T10:05:00", "2026-09-02T10:15:00", task=1),
+        )
+        assert result["duration_seconds"] == 15 * 60
+
+    def test_the_wait_between_attempts_is_not_run_time(self) -> None:
+        result = span(
+            "ok",
+            make_attempt(1, "2026-09-02T10:00:00", "2026-09-02T10:01:00", ordinal=1),
+            make_attempt(2, "2026-09-02T11:00:00", "2026-09-02T11:02:00", ordinal=2),
+        )
+        assert result["duration_seconds"] == 3 * 60
+
+    def test_a_running_job_is_timed_up_to_the_snapshot(self) -> None:
+        result = span("running", make_attempt(1, "2026-09-29T11:00:00", None))
+        assert result["duration_seconds"] == 3600
+        assert result["duration_running"] is True
+        assert result["finished_at"] is None
+
+    def test_a_job_that_never_started_has_no_duration(self) -> None:
+        assert span("queued", make_attempt(1, None, None))["duration_seconds"] is None
+        assert span("new")["duration_seconds"] is None
+        assert span("paused", make_attempt(1, "2026-09-02T10:00:00", None))["duration_seconds"] is None
+
+    def test_a_finished_job_whose_end_was_never_recorded_has_no_duration(self) -> None:
+        assert span("ok", make_attempt(1, "2026-09-02T10:00:00", None))["duration_seconds"] is None

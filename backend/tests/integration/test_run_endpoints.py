@@ -213,7 +213,7 @@ class TestRunFacts:
         ).json()
         assert detail["finished_at"] == run["finished_at"]
         assert detail["duration_seconds"] == run["duration_seconds"]
-        assert detail["steps"]
+        assert detail["jobs"]
 
     def test_a_run_beyond_the_first_page_still_opens(self, client) -> None:
         oldest = call(client, "invocations", limit=1, direction="asc")["items"][0]
@@ -781,3 +781,144 @@ class TestContract:
     def test_the_literal_routes_are_not_read_as_a_run_id(self, client) -> None:
         response = client.get("/api/invocations/breakdown", params=PERIOD, headers=run_headers())
         assert response.status_code == 200 and "groups" in response.json()
+
+
+def run_detail(client, run_id: str, user: str = "admin", admin: bool = True, **params) -> dict:
+    return call(client, f"invocations/{run_id}", user=user, admin=admin, **params)
+
+
+class TestRunDetailComposition:
+    """The drawer's jobs and cost parts describe the whole run, not the period."""
+
+    def test_every_job_of_the_whole_run_appears_once_with_nested_workflows(self, client) -> None:
+        roots = demo_roots()
+        for run in every_run(client):
+            detail = run_detail(client, run["id"])
+            ids = [job["id"] for job in detail["jobs"]]
+            assert len(ids) == len(set(ids)) == detail["run_job_count"], run["id"]
+            assert set(ids) == roots[run["id"]], run["id"]
+
+    def test_the_parts_do_not_change_with_the_selected_period(self, client) -> None:
+        run = next(run for run in every_run(client) if run["run_status"] == "completed")
+        within = run_detail(client, run["id"])
+        unbounded = run_detail(client, run["id"], period=False)
+        assert within["jobs"] == unbounded["jobs"]
+        assert within["cost_entities"] == unbounded["cost_entities"]
+        assert within["cost_breakdown"] == unbounded["cost_breakdown"]
+
+    def test_the_cost_entities_add_up_to_the_whole_run_total(self, client) -> None:
+        checked = 0
+        for run in every_run(client):
+            detail = run_detail(client, run["id"])
+            breakdown = detail["cost_breakdown"]
+            assert breakdown["status"] == "available", run["id"]
+            assert breakdown["known_subtotal"] == detail["run_total"]
+            total = known(Decimal(entity["amount"]) for entity in detail["cost_entities"])
+            if detail["run_total"] is not None:
+                assert (total or Decimal(0)) == Decimal(detail["run_total"]), run["id"]
+                checked += 1
+        assert checked
+
+    def test_a_job_amount_is_its_whole_cost_and_an_unknown_one_stays_unknown(self, client) -> None:
+        whole = job_amounts(client, period=False)
+        for run in every_run(client):
+            for job in run_detail(client, run["id"])["jobs"]:
+                expected = whole.get(job["id"])
+                if job["amount"] is None:
+                    assert job["attribution"] == "unknown"
+                else:
+                    assert Decimal(job["amount"]) == expected, job["id"]
+                    assert job["attribution"] in {"individual", "known_zero"}
+
+    def test_each_paid_job_owns_one_entity_and_free_or_unknown_jobs_own_none(self, client) -> None:
+        for run in every_run(client):
+            detail = run_detail(client, run["id"])
+            entities = {entity["id"]: entity for entity in detail["cost_entities"]}
+            for job in detail["jobs"]:
+                if job["attribution"] == "individual":
+                    assert entities[job["cost_entity_id"]]["job_ids"] == [job["id"]]
+                else:
+                    assert job["cost_entity_id"] is None
+            owned = [job["cost_entity_id"] for job in detail["jobs"] if job["cost_entity_id"]]
+            assert sorted(owned) == sorted(entities)
+
+    def test_jobs_come_in_a_stable_numbered_order(self, client) -> None:
+        for run in every_run(client)[:20]:
+            jobs = run_detail(client, run["id"])["jobs"]
+            assert [job["order"] for job in jobs] == list(range(1, len(jobs) + 1))
+            assert jobs == run_detail(client, run["id"])["jobs"]
+
+    def test_a_job_lists_the_steps_it_belongs_to(self, client) -> None:
+        run = every_run(client)[0]
+        for job in run_detail(client, run["id"])["jobs"]:
+            assert job["steps"]
+            assert all(step["step_key"] for step in job["steps"])
+
+    def test_a_finished_job_is_timed_by_its_own_attempts(self, client) -> None:
+        with Session(engine) as session:
+            tenant = session.scalar(select(Tenant).where(Tenant.slug == RUNS_TENANT))
+            attempts = {
+                str(job_id): (start, finish)
+                for job_id, start, finish in session.execute(
+                    select(ExecutionAttempt.job_id, ExecutionAttempt.tool_started_at, ExecutionAttempt.tool_finished_at)
+                    .join(Job, ExecutionAttempt.job_id == Job.id)
+                    .where(Job.tenant_id == tenant.id)
+                )
+            }
+        seen = 0
+        for run in every_run(client):
+            for job in run_detail(client, run["id"])["jobs"]:
+                if job["duration_seconds"] is None:
+                    continue
+                assert job["duration_seconds"] >= 0
+                assert job["duration_running"] == (job["finished_at"] is None)
+                if job["attempt_count"] == 1 and not job["duration_running"]:
+                    start, finish = attempts[job["id"]]
+                    assert job["duration_seconds"] == int((finish - start).total_seconds())
+                    seen += 1
+        assert seen
+
+    def test_a_job_that_has_not_started_has_no_duration(self, client) -> None:
+        for run in every_run(client):
+            for job in run_detail(client, run["id"])["jobs"]:
+                if job["state"] in {"new", "paused"}:
+                    assert job["duration_seconds"] is None
+
+    def test_a_viewer_gets_only_their_own_jobs(self, client) -> None:
+        for run in every_run_as(client, "bob"):
+            detail = run_detail(client, run["id"], user="bob", admin=False)
+            assert {job["id"] for job in detail["jobs"]} <= demo_roots()[run["id"]]
+            assert detail["cost_breakdown"]["job_count"] == len(detail["jobs"])
+
+    def test_a_membership_to_a_job_the_viewer_cannot_see_is_only_counted(self, client) -> None:
+        with Session(engine) as session:
+            tenant = session.scalar(select(Tenant).where(Tenant.slug == RUNS_TENANT))
+            alice = session.scalar(
+                select(Job).join(Owner, Job.owner_id == Owner.id)
+                .where(Job.tenant_id == tenant.id, Owner.source_id == "alice").limit(1)
+            )
+            run = session.scalar(
+                select(Invocation).join(Owner, Invocation.owner_id == Owner.id)
+                .where(Invocation.tenant_id == tenant.id, Owner.source_id == "bob",
+                       Invocation.parent_id.is_(None)).limit(1)
+            )
+            session.add(InvocationJob(
+                invocation_id=run.id, job_id=alice.id, step_key="foreign", relationship="direct"
+            ))
+            session.commit()
+            run_id, foreign_id = str(run.id), str(alice.id)
+            tenant_id = tenant.id
+        with Session(engine) as session:
+            calculate_tenant(session, tenant_id, reason="foreign membership")
+            session.commit()
+        try:
+            detail = run_detail(client, run_id, user="bob", admin=False)
+            assert detail["unavailable_step_count"] == 1
+            assert foreign_id not in {job["id"] for job in detail["jobs"]}
+            assert foreign_id not in str(detail["jobs"])
+        finally:
+            with Session(engine) as session:
+                session.delete(session.scalar(
+                    select(InvocationJob).where(InvocationJob.step_key == "foreign")
+                ))
+                session.commit()

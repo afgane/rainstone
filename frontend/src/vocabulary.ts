@@ -80,6 +80,7 @@ const JOB_STATE: Record<string, string> = {
   paused: "Paused",
   deleted: "Deleted",
   resubmitted: "Restarted",
+  cancelled: "Cancelled",
 };
 
 export function jobStateLabel(state: string): string {
@@ -91,7 +92,13 @@ const CAPACITY: Record<string, string> = {
   dedicated: "Dedicated cloud compute",
   elastic_shared: "Shared cloud capacity",
   unknown: "Not established",
+  multiple: "Multiple environments",
 };
+
+/** Where one job, or one part of a run's cost, ran; retries across several places say so. */
+export function environmentLabel(environment: string): string {
+  return CAPACITY[environment] || environment;
+}
 
 /** Where the work ran, stated only when the resource relationship is verified. */
 export function capacityLabel(capacities: string[] | undefined): string {
@@ -300,4 +307,117 @@ export function jobOutcomes(failed: number, running: number): string {
 export function unplacedSentence(jobs: number, amount: string | null): string {
   const cost = amount === null ? "" : `, ${formatCost(amount)}`;
   return `Cannot be placed in time: ${pluralize(jobs, "job")}${cost}.`;
+}
+
+
+/* The workflow run drawer's cost breakdown and job list. */
+export const BREAKDOWN_HEADING = "Cost breakdown by tool";
+export const BREAKDOWN_UNAVAILABLE = "Cost breakdown unavailable";
+export const JOBS_HEADING = "Jobs";
+export const NO_RUN_JOBS = "No jobs are recorded for this run yet.";
+export const SERVER_GROUP_NOTE =
+  "These jobs used your Galaxy server and added no compute charge. The server's own cost is reported separately.";
+export const MULTIPLE_ENVIRONMENTS_NOTE = "Some of these jobs ran in more than one place.";
+export const CLEAR_SELECTION = "Clear selection";
+
+export function fingerprintCaption(cellCount: number): string {
+  return `Each of the ${cellCount} squares is about 1% of the cost shown.`;
+}
+
+/** What a share is a share of, so it never implies a final total that is not known. */
+export function shareBasis(running: boolean, complete: boolean): string {
+  if (running) return "of cost so far";
+  return complete ? "of this run's cost" : "of recorded cost";
+}
+
+/** A part's share of the known cost: whole percents above ten, one decimal below, and "less than 1%". */
+export function formatShare(share: number): string {
+  const percent = share * 100;
+  if (percent < 1) return "Less than 1%";
+  const rounded = percent < 10 ? Math.round(percent * 10) / 10 : Math.round(percent);
+  return `${rounded}%`;
+}
+
+export function jobsInPart(count: number): string {
+  return pluralize(count, "job");
+}
+
+/** Brief text for a group of equal-tool jobs: "wig to bigwig ×3". */
+export function repeatedToolName(name: string, count: number): string {
+  return count > 1 ? `${name} ×${count}` : name;
+}
+
+export function shownOf(shown: number, total: number, noun: string): string {
+  return `Showing ${shown} of ${pluralize(total, noun)}`;
+}
+
+export function groupHeading(environment: string, count: number): string {
+  return `${environmentLabel(environment)} · ${pluralize(count, "job")}`;
+}
+
+/** What a group's cost figure leaves out, said under it. */
+export function groupCoverage(hasCost: boolean, incomplete: number): string {
+  if (!incomplete) return "";
+  return hasCost
+    ? `Recorded so far · ${needsCostData(incomplete, "job")}`
+    : needsCostData(incomplete, "job");
+}
+
+export function unavailableSteps(count: number): string {
+  return `${pluralize(count, "step")} of this run ${count === 1 ? "has" : "have"} no job you can see.`;
+}
+
+export function selectionGone(): string {
+  return "The part you had selected is no longer available.";
+}
+
+/** The visual class of a job's state, kept apart from the words so an unmapped state is never hidden. */
+export type JobStateKind =
+  | "completed" | "running" | "failed" | "queued" | "cancelled" | "paused" | "not-started"
+  | "deleted" | "restarted" | "unknown";
+
+const JOB_STATE_KIND: Record<string, JobStateKind> = {
+  ok: "completed", error: "failed", failed: "failed", running: "running", queued: "queued",
+  new: "not-started", paused: "paused", deleted: "deleted", resubmitted: "restarted",
+  cancelled: "cancelled",
+};
+
+export function jobStateKind(state: string): JobStateKind {
+  return JOB_STATE_KIND[state] ?? "unknown";
+}
+
+/**
+ * How long a job ran, keeping seconds: "14s", "2m 08s", "38m 12s", "1h 05m",
+ * "2d 03h". Under a second is "<1s".
+ */
+export function formatJobDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) return "—";
+  const whole = Math.max(0, Math.floor(seconds));
+  if (whole < 1) return "<1s";
+  if (whole < 60) return `${whole}s`;
+  const pad = (value: number) => String(value).padStart(2, "0");
+  if (whole < 3600) return `${Math.floor(whole / 60)}m ${pad(whole % 60)}s`;
+  if (whole < 86400) return `${Math.floor(whole / 3600)}h ${pad(Math.floor((whole % 3600) / 60))}m`;
+  return `${Math.floor(whole / 86400)}d ${pad(Math.floor((whole % 86400) / 3600))}h`;
+}
+
+/** The same duration in words for a screen reader. */
+export function jobDurationLabel(seconds: number | null | undefined, running = false): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) return "Duration not available";
+  return `${formatJobDuration(seconds)}${running ? " elapsed so far" : ""}`;
+}
+
+/** Money for the constrained job row; the full wording stays in labels and tooltips. */
+export function formatCompactCost(amount: string | null | undefined): string {
+  if (amount === null || amount === undefined || amount === "") return "—";
+  const value = Number(amount);
+  if (!Number.isFinite(value)) return "—";
+  return value > 0 && value < 0.01 ? "<$0.01" : formatCost(amount);
+}
+
+export function jobCostLabel(amount: string | null | undefined): string {
+  if (amount === null || amount === undefined || amount === "" || !Number.isFinite(Number(amount))) {
+    return "Cost not available";
+  }
+  return `Cost ${formatCost(amount)}`;
 }

@@ -31,7 +31,7 @@ restoration all work.
 Period buttons are calendar periods in the reporting timezone, not rolling
 windows: yesterday is the preceding calendar day, last week the previous Monday
 to Sunday, last month the previous calendar month. "This week" and "this month"
-run from their start to now and say "(so far)". The resolved dates are always
+run from their start to now. The resolved dates are always
 printed under the buttons, so a label is never ambiguous.
 
 Users pick an inclusive last day; the API boundary is exclusive and the
@@ -75,13 +75,13 @@ a separate, collapsed section. A run whose jobs all lack timing therefore stays
 out of a dated period.
 
 Opening a run leads with the run total and its completion and coverage status,
-then the tool steps, child workflows counted once, reused outputs and any steps
-still missing cost data. A job's detail leads with its own cost, an
-explanation in ordinary language, the resource it used (with a retry's shared
-charge stated once), and its attempts. Galaxy's record of an execution a
-provider also observed is not listed as a second attempt. The jobs table
-calls a job's creation time **Submitted**, because Galaxy creates a job before
-it starts running.
+then where its cost went, the jobs, child workflows counted once, reused
+outputs and any steps still missing cost data. A job's detail leads with its
+own cost, an explanation in ordinary language, the resource it used (with a
+retry's shared charge stated once), and its attempts. Galaxy's record of an
+execution a provider also observed is not listed as a second attempt. The jobs
+table calls a job's creation time **Submitted**, because Galaxy creates a job
+before it starts running.
 
 ## Time and freshness
 
@@ -144,11 +144,42 @@ it differs. Sort by newest, oldest, cost or duration. "Show more" appends the
 next runs.
 
 **Run details.** Selecting a block or a row opens a drawer at the right: status,
-start, duration and workflow jobs, then steps and child workflows. It does not
-cover the page: any press outside it closes it, a press on another run swaps
-it, and Escape or the close button returns focus to where it was opened.
-A job opened from a step uses the same drawer. Workflow version and Galaxy
-history are not shown.
+start, duration and workflow jobs, then the cost breakdown, the jobs and child
+workflows. It does not cover the page: any press outside it closes it, a press
+on another run swaps it, and Escape or the close button returns focus to where
+it was opened. A job opened from the drawer uses the same drawer, and Back
+returns to the run as it was left. Workflow version and Galaxy history are not
+shown.
+
+**Cost breakdown by tool.** One hundred squares, twenty across, show where the
+run's whole cost went; each square is about 1% of the cost shown. Repeated jobs
+of one tool are one part ("wig_to_bigWig ×3"), the parts that matter are named,
+and the rest are pooled as *Other*, which always lists everything it holds. The
+squares are flat, equal and rounded, and a small diamond takes the place of one
+square between two tools, so the grid stays aligned and the gap looks
+intentional. The squares are the whole picture: nothing is listed under them.
+Until one is chosen, a hint holds the place where its details will open, so the
+chart never moves. Choosing a square opens that tool's cost and jobs there and
+nowhere else. A part too small to have a square of its own is listed under the
+chart so it can still be chosen. For the keyboard and screen readers each part
+is also a button, hidden from view; focusing one lights its squares. A hover
+shows a tooltip that follows the pointer above it, and Escape dismisses the
+tooltip before it closes the drawer. Colour marks where the work ran, never
+which tool. Shares are of the cost known, and say "so far" or "recorded" when
+the run is running or missing cost data. Work with no known cost never gets a
+share, and a run whose jobs added nothing shows no squares. The open part is in
+the address (`detail_part`, and `detail_member` for a member of *Other*),
+replaces rather than adds a history entry, and is cleared with a notice if the
+run no longer has it. The drawer scrolls without showing a scrollbar, so its
+content does not shift when one would appear.
+
+**Jobs.** Every job of the whole run, once, grouped by where it ran: Dedicated
+cloud compute, Your Galaxy server, other verified places, several places, then
+Not established. A group's heading carries its cost on the same line, and says
+beneath it what that cost leaves out. Each row is one button with the tool, a
+state icon, the duration (seconds kept) and, where the group states one, the
+cost. The server's jobs are said once to have added no compute charge and carry
+no cost column. Repeated tools stay separate rows.
 
 ## Overview
 

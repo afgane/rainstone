@@ -255,8 +255,72 @@ class InvocationListResponse(APIModel):
     meta: ReportMeta
 
 
+class RunJobStep(APIModel):
+    invocation_id: str
+    workflow_name: str
+    step_key: str
+    relationship: str
+    nested: bool
+
+
+class RunJob(APIModel):
+    """One distinct job of the whole run, however many steps it belongs to."""
+
+    id: str
+    source_id: str
+    tool_id: str
+    tool_name: str
+    tool_version: str | None
+    state: str
+    quality: str
+    # Whole-run amount; null is unknown, never zero.
+    amount: str | None
+    attribution: Literal["individual", "known_zero", "unknown", "unsupported"]
+    environment: str
+    capacities: list[str]
+    cost_entity_id: str | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    # Observed tool execution time; null when it never started or is unreliable.
+    duration_seconds: int | None
+    duration_running: bool
+    attempt_count: int
+    reused: bool
+    order: int
+    steps: list[RunJobStep]
+
+
+class CostEntity(APIModel):
+    """A charge that produced cost in the run, however many jobs point at it."""
+
+    id: str
+    kind: Literal["batch_job", "vm_session"]
+    amount: str
+    currency: Literal["USD"]
+    scope: Literal["run"]
+    environment: str
+    complete: bool
+    job_ids: list[str]
+
+
+class CostBreakdownFacts(APIModel):
+    status: Literal["available", "unavailable"]
+    reason: str | None
+    currency: Literal["USD"]
+    known_subtotal: str | None
+    complete: bool
+    job_count: int
+    cost_entity_count: int
+    known_zero_job_count: int
+    unknown_job_count: int
+
+
 class InvocationDetailResponse(InvocationItem):
-    steps: list[dict[str, Any]]
+    jobs: list[RunJob]
+    cost_entities: list[CostEntity]
+    cost_breakdown: CostBreakdownFacts
+    unavailable_step_count: int
     children: list[InvocationItem]
     meta: ReportMeta
 
