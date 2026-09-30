@@ -1,4 +1,4 @@
-"""Select T2D/N2 on-demand CPU and RAM SKUs and normalize them to hourly rates.
+"""Select on-demand CPU, RAM and GPU SKUs and normalize them to hourly rates.
 
 https://docs.cloud.google.com/billing/docs/reference/rest/v1/services.skus/list
 
@@ -8,6 +8,9 @@ an *anchored* description prefix, so a lookalike such as "N2 Custom Instance
 Core running in Americas" or "N2D AMD Instance Core running in Americas" does
 not accidentally match the "N2 Instance Core" prefix. A short excluded-terms
 list is a second, independent guard against the same lookalikes.
+
+Only US regions are priced, for every family: AnVIL, the deployment this
+catalog serves, runs only there.
 """
 
 import re
@@ -19,9 +22,10 @@ from typing import Literal
 
 from gcp_pricing.shapes import MachineShape
 
-MAPPING_VERSION = "gcp-t2d-n2-v1"
+MAPPING_VERSION = "gcp-compute-v2"
+PRICED_REGION_PREFIX = "us-"
 
-Component = Literal["cpu", "ram"]
+Component = Literal["cpu", "ram", "gpu"]
 
 # Each family's on-demand predefined CPU and RAM SKU descriptions are shared
 # by every variant (standard/highmem/highcpu): GCP charges per provisioned
@@ -30,10 +34,19 @@ Component = Literal["cpu", "ram"]
 CPU_PATTERNS: dict[str, re.Pattern[str]] = {
     "t2d": re.compile(r"^T2D AMD Instance Core running in"),
     "n2": re.compile(r"^N2 Instance Core running in"),
+    "g2": re.compile(r"^G2 Instance Core running in"),
 }
 RAM_PATTERNS: dict[str, re.Pattern[str]] = {
     "t2d": re.compile(r"^T2D AMD Instance Ram running in"),
     "n2": re.compile(r"^N2 Instance Ram running in"),
+    "g2": re.compile(r"^G2 Instance Ram running in"),
+}
+# G2 machine types come with a fixed number of NVIDIA L4 GPUs that GCP bills
+# per GPU-hour under their own SKU, apart from the machine's vCPUs and memory.
+# A family listed here is only priced where its GPU rate resolves too, since a
+# rate without it would understate the machine's cost.
+GPU_PATTERNS: dict[str, re.Pattern[str]] = {
+    "g2": re.compile(r"^Nvidia L4 GPU running in", re.IGNORECASE),
 }
 EXCLUDED_DESCRIPTION_TERMS = (
     "Custom",
@@ -44,8 +57,9 @@ EXCLUDED_DESCRIPTION_TERMS = (
     "Commitment",
     "Reserved",
     "Extreme",
+    "Virtual Workstation",
 )
-EXPECTED_USAGE_UNIT: dict[Component, str] = {"cpu": "h", "ram": "GiBy.h"}
+EXPECTED_USAGE_UNIT: dict[Component, str] = {"cpu": "h", "ram": "GiBy.h", "gpu": "h"}
 
 
 class MappingError(ValueError):
@@ -63,10 +77,17 @@ class PricePoint:
 
 @dataclass(frozen=True)
 class ComponentRates:
-    """One family's CPU and RAM price points, applicable in one region."""
+    """One family's price points, applicable in one region.
+
+    `gpu` is set exactly for the families in `GPU_PATTERNS`.
+    """
 
     cpu: PricePoint
     ram: PricePoint
+    gpu: PricePoint | None = None
+
+    def points(self) -> tuple[PricePoint, ...]:
+        return tuple(point for point in (self.cpu, self.ram, self.gpu) if point is not None)
 
 
 def classify_sku(sku: dict) -> tuple[str, Component] | None:
@@ -84,6 +105,9 @@ def classify_sku(sku: dict) -> tuple[str, Component] | None:
     for family, pattern in RAM_PATTERNS.items():
         if pattern.match(description):
             return family, "ram"
+    for family, pattern in GPU_PATTERNS.items():
+        if pattern.match(description):
+            return family, "gpu"
     return None
 
 
@@ -154,11 +178,12 @@ def price_point(sku: dict, component: Component, *, now: datetime) -> PricePoint
 def build_region_rates(
     skus: list[dict], *, now: datetime
 ) -> tuple[dict[tuple[str, str], ComponentRates], list[str]]:
-    """CPU+RAM rate pairs keyed by (family, region), plus a list of problems.
+    """Component rates keyed by (family, region), plus a list of problems.
 
     A problem names a family/region combination this run could not price: an
-    ambiguous SKU set, a malformed price, or a component missing its pair.
-    Nothing here ever substitutes another region's rate for a missing one.
+    ambiguous SKU set, a malformed price, or a missing component. Nothing here
+    ever substitutes another region's rate for a missing one. Regions outside
+    `PRICED_REGION_PREFIX` are skipped without being reported.
     """
     candidates: dict[tuple[str, Component, str], list[dict]] = defaultdict(list)
     for sku in skus:
@@ -167,6 +192,8 @@ def build_region_rates(
             continue
         family, component = classified
         for region in sku.get("serviceRegions") or []:
+            if not region.startswith(PRICED_REGION_PREFIX):
+                continue
             candidates[(family, component, region)].append(sku)
 
     problems: list[str] = []
@@ -189,13 +216,21 @@ def build_region_rates(
 
     region_rates: dict[tuple[str, str], ComponentRates] = {}
     for (family, region), parts in by_family_region.items():
-        if "cpu" in parts and "ram" in parts:
-            region_rates[(family, region)] = ComponentRates(cpu=parts["cpu"], ram=parts["ram"])
-        else:
-            missing = "ram" if "cpu" in parts else "cpu"
-            problems.append(f"{family} in {region} is missing its {missing} rate")
+        required: tuple[Component, ...] = ("cpu", "ram", "gpu") if family in GPU_PATTERNS else ("cpu", "ram")
+        missing = [component for component in required if component not in parts]
+        if missing:
+            problems.append(f"{family} in {region} is missing its {' and '.join(missing)} rate")
+            continue
+        region_rates[(family, region)] = ComponentRates(
+            cpu=parts["cpu"], ram=parts["ram"], gpu=parts.get("gpu")
+        )
     return region_rates, problems
 
 
 def shape_hourly_rate(shape: MachineShape, rates: ComponentRates) -> Decimal:
-    return Decimal(shape.vcpu) * rates.cpu.rate_per_unit + shape.memory_gib * rates.ram.rate_per_unit
+    rate = Decimal(shape.vcpu) * rates.cpu.rate_per_unit + shape.memory_gib * rates.ram.rate_per_unit
+    if shape.gpu is None:
+        return rate
+    if rates.gpu is None:
+        raise MappingError(f"{shape.machine_type} has GPUs but its family has no GPU rate")
+    return rate + shape.gpu.count * rates.gpu.rate_per_unit

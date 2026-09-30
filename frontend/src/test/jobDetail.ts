@@ -15,7 +15,7 @@ export function resource(overrides: Partial<JobResource> = {}): JobResource {
   return {
     lifetime_id: "l1", resource_key: "vm-1", resource_uid: "vm-1", provider: "gcp",
     machine_type: "n2-standard-8",
-    machine_capacity: { vcpu: "8", memory_mib: "32768", source: "published_machine_shape" }, region: "us-central1", zone: null, purchase_model: "on_demand",
+    machine_capacity: { vcpu: "8", memory_mib: "32768", gpu: null, source: "published_machine_shape" }, region: "us-central1", zone: null, purchase_model: "on_demand",
     capacity_relationship: "dedicated", resource_started_at: "2026-09-29T01:05:00Z",
     resource_finished_at: "2026-09-29T01:20:00Z", timing_method: "compute_insert_complete_to_delete_request",
     requested_vcpu: "8.000000000000", requested_memory_mib: "32768.000000", amount: "0.77",

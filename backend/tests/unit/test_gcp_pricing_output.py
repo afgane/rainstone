@@ -20,7 +20,7 @@ from gcp_pricing.output import (
     load_previous_rates,
     write_local,
 )
-from gcp_pricing.shapes import MachineShape
+from gcp_pricing.shapes import MachineShape, ShapeGpu
 from rainstone.catalog import CatalogError, canonical_content, validate
 
 NOW = datetime(2026, 10, 1, 6, 17, 0, tzinfo=UTC)
@@ -93,7 +93,7 @@ def test_rate_provenance_carries_everything_the_spec_requires() -> None:
 def test_a_rerun_gets_a_different_catalog_id() -> None:
     later = datetime(2026, 11, 1, 6, 17, 0, tzinfo=UTC)
     assert catalog_id_for(NOW) != catalog_id_for(later)
-    assert catalog_id_for(NOW) == "gcp-t2d-n2-20261001T061700Z"
+    assert catalog_id_for(NOW) == "gcp-compute-20261001T061700Z"
 
 
 def test_document_declares_a_snapshot_not_historical_reconstruction() -> None:
@@ -108,7 +108,7 @@ def test_document_declares_a_snapshot_not_historical_reconstruction() -> None:
     assert document["historical_effective_time_available"] is True
     assert document["kind"] == "official_catalog_api"
     assert document["schema_version"] == 2
-    assert document["coverage"]["machine_families"] == ["t2d", "n2"]
+    assert document["coverage"]["machine_families"] == ["t2d", "n2", "g2"]
     assert document["coverage"]["complete"] is False
 
 
@@ -161,20 +161,28 @@ def test_tampering_with_a_rate_breaks_the_signature() -> None:
         )
 
 
-def test_required_regions_must_be_priced_for_both_families() -> None:
-    with pytest.raises(PublishError, match="t2d/us-east4"):
-        check_required_regions({("t2d", "us-central1"): None, ("n2", "us-central1"): None, ("n2", "us-east4"): None})
+ALL_REQUIRED = {
+    ("t2d", "us-central1"): None,
+    ("t2d", "us-east4"): None,
+    ("n2", "us-central1"): None,
+    ("n2", "us-east4"): None,
+    ("g2", "us-central1"): None,
+    ("g2", "us-east1"): None,
+    ("g2", "us-east4"): None,
+}
 
 
-def test_required_regions_pass_when_both_families_cover_both_regions() -> None:
-    check_required_regions(
-        {
-            ("t2d", "us-central1"): None,
-            ("t2d", "us-east4"): None,
-            ("n2", "us-central1"): None,
-            ("n2", "us-east4"): None,
-        }
-    )
+@pytest.mark.parametrize("gap", sorted(ALL_REQUIRED))
+def test_every_family_must_price_each_of_its_required_regions(gap) -> None:
+    family, region = gap
+    covered = {key: value for key, value in ALL_REQUIRED.items() if key != gap}
+    with pytest.raises(PublishError, match=f"{family}/{region}"):
+        check_required_regions(covered)
+
+
+def test_required_regions_pass_when_every_family_covers_its_regions() -> None:
+    check_required_regions(ALL_REQUIRED)
+
 
 
 def test_losing_a_previously_priced_region_blocks_publication() -> None:
@@ -188,6 +196,15 @@ def test_an_acknowledged_regression_is_allowed_through() -> None:
     previous = [{"machine_type": "n2-standard-2", "region": "us-east4"}]
     new = [{"machine_type": "n2-standard-2", "region": "us-central1"}]
     check_no_regression(previous, new, acknowledged=(("n2", "us-east4"),))
+
+
+def test_dropping_a_region_outside_the_us_is_not_a_regression() -> None:
+    previous = [
+        {"machine_type": "n2-standard-2", "region": "us-central1"},
+        {"machine_type": "n2-standard-2", "region": "europe-west1"},
+    ]
+    new = [{"machine_type": "n2-standard-2", "region": "us-central1"}]
+    check_no_regression(previous, new)
 
 
 def test_new_unambiguous_regions_are_not_a_regression() -> None:
@@ -268,3 +285,54 @@ def test_a_rate_whose_component_gives_no_time_carries_none() -> None:
         mapping_version="v1",
     )
     assert rates[0]["effective_from"] is None
+
+
+def gpu(rate: str, effective: str | None = "2026-01-01T00:00:00Z") -> PricePoint:
+    return PricePoint("gpu-sku", "Nvidia L4 GPU running in Americas", Decimal(rate), "h", effective)
+
+
+def g2_shape() -> MachineShape:
+    return MachineShape(
+        "g2-standard-4", "g2", "standard", 4, Decimal("16"), "https://example.invalid", ShapeGpu(1, "NVIDIA L4")
+    )
+
+
+def test_a_g2_rate_includes_its_gpu_and_records_where_that_came_from() -> None:
+    rates = build_rates(
+        (g2_shape(),),
+        {("g2", "us-central1"): ComponentRates(cpu("0.024988"), ram("0.002928"), gpu("0.56004"))},
+        observed_at=NOW,
+        mapping_version="v2",
+    )
+    # 4 vCPU * 0.024988 + 16 GiB * 0.002928 + 1 GPU * 0.56004
+    assert rates[0]["hourly_rate"] == "0.706840"
+    provenance = rates[0]["provenance"]
+    assert provenance["gpu_sku_id"] == "gpu-sku"
+    assert provenance["gpu_rate_per_gpu_hour"] == "0.56004"
+    assert provenance["gpu_usage_unit"] == "h"
+    assert provenance["gpu_count"] == 1
+    assert provenance["gpu_model"] == "NVIDIA L4"
+
+
+def test_a_machine_without_gpus_carries_no_gpu_provenance() -> None:
+    rates = build_rates(
+        (shape(),),
+        {("n2", "us-central1"): ComponentRates(cpu("0.031611"), ram("0.004237"))},
+        observed_at=NOW,
+        mapping_version="v2",
+    )
+    assert not any(key.startswith("gpu_") for key in rates[0]["provenance"])
+
+
+def test_a_g2_rate_is_not_in_effect_before_its_gpu_price_is() -> None:
+    rates = build_rates(
+        (g2_shape(),),
+        {
+            ("g2", "us-central1"): ComponentRates(
+                cpu("0.024988"), ram("0.002928"), gpu("0.56004", effective="2026-06-01T00:00:00Z")
+            )
+        },
+        observed_at=NOW,
+        mapping_version="v2",
+    )
+    assert rates[0]["effective_from"] == "2026-06-01T00:00:00Z"

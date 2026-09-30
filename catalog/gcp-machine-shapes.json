@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "description": "Supported GCP predefined machine shapes this publisher prices. Pricing coverage, not a promise a shape can be launched in every zone. Reverify against the official machine specifications when adding shapes.",
+  "description": "Supported GCP predefined machine shapes this publisher prices, with the GPUs a shape always comes with. Pricing coverage, not a promise a shape can be launched in every zone. Reverify against the official machine specifications (each entry's source_ref) when adding shapes.",
   "source": "https://docs.cloud.google.com/compute/docs/general-purpose-machines",
   "shapes": [
     {
@@ -298,6 +298,86 @@
       "vcpu": 96,
       "memory_gib": "96",
       "source_ref": "https://docs.cloud.google.com/compute/docs/general-purpose-machines"
+    },
+    {
+      "machine_type": "g2-standard-4",
+      "family": "g2",
+      "variant": "standard",
+      "vcpu": 4,
+      "memory_gib": "16",
+      "gpu_count": 1,
+      "gpu_model": "NVIDIA L4",
+      "source_ref": "https://docs.cloud.google.com/compute/docs/accelerator-optimized-machines"
+    },
+    {
+      "machine_type": "g2-standard-8",
+      "family": "g2",
+      "variant": "standard",
+      "vcpu": 8,
+      "memory_gib": "32",
+      "gpu_count": 1,
+      "gpu_model": "NVIDIA L4",
+      "source_ref": "https://docs.cloud.google.com/compute/docs/accelerator-optimized-machines"
+    },
+    {
+      "machine_type": "g2-standard-12",
+      "family": "g2",
+      "variant": "standard",
+      "vcpu": 12,
+      "memory_gib": "48",
+      "gpu_count": 1,
+      "gpu_model": "NVIDIA L4",
+      "source_ref": "https://docs.cloud.google.com/compute/docs/accelerator-optimized-machines"
+    },
+    {
+      "machine_type": "g2-standard-16",
+      "family": "g2",
+      "variant": "standard",
+      "vcpu": 16,
+      "memory_gib": "64",
+      "gpu_count": 1,
+      "gpu_model": "NVIDIA L4",
+      "source_ref": "https://docs.cloud.google.com/compute/docs/accelerator-optimized-machines"
+    },
+    {
+      "machine_type": "g2-standard-24",
+      "family": "g2",
+      "variant": "standard",
+      "vcpu": 24,
+      "memory_gib": "96",
+      "gpu_count": 2,
+      "gpu_model": "NVIDIA L4",
+      "source_ref": "https://docs.cloud.google.com/compute/docs/accelerator-optimized-machines"
+    },
+    {
+      "machine_type": "g2-standard-32",
+      "family": "g2",
+      "variant": "standard",
+      "vcpu": 32,
+      "memory_gib": "128",
+      "gpu_count": 1,
+      "gpu_model": "NVIDIA L4",
+      "source_ref": "https://docs.cloud.google.com/compute/docs/accelerator-optimized-machines"
+    },
+    {
+      "machine_type": "g2-standard-48",
+      "family": "g2",
+      "variant": "standard",
+      "vcpu": 48,
+      "memory_gib": "192",
+      "gpu_count": 4,
+      "gpu_model": "NVIDIA L4",
+      "source_ref": "https://docs.cloud.google.com/compute/docs/accelerator-optimized-machines"
+    },
+    {
+      "machine_type": "g2-standard-96",
+      "family": "g2",
+      "variant": "standard",
+      "vcpu": 96,
+      "memory_gib": "384",
+      "gpu_count": 8,
+      "gpu_model": "NVIDIA L4",
+      "source_ref": "https://docs.cloud.google.com/compute/docs/accelerator-optimized-machines"
     }
   ]
 }

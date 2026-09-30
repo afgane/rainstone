@@ -446,6 +446,7 @@ export const ABOVE_REQUEST_NOTE =
   "Use was above the request, so this bar is stretched to fit it. The marker shows the requested amount.";
 export const COST_METHOD =
   "Estimated from when the machine that ran this job was in use and the published price for that machine.";
+export const GPU_PRICE_NOTE = "The machine's price includes its GPUs.";
 export const COST_EXCLUSIONS = "Costs are compute only, in USD. Storage, network and other charges are not included.";
 export const COST_COMPONENTS_NOTE = "These amounts are parts of the job's cost above, not additional costs.";
 export const TIMING_ESTIMATE_NOTE =

@@ -6,7 +6,16 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-from gcp_pricing.mapping import MappingError, build_region_rates, classify_sku, price_point
+from gcp_pricing.mapping import (
+    ComponentRates,
+    MappingError,
+    PricePoint,
+    build_region_rates,
+    classify_sku,
+    price_point,
+    shape_hourly_rate,
+)
+from gcp_pricing.shapes import MachineShape, ShapeGpu
 
 NOW = datetime(2026, 9, 22, tzinfo=UTC)
 
@@ -53,6 +62,27 @@ def test_n2_core_and_ram_are_classified() -> None:
 def test_t2d_core_and_ram_are_classified() -> None:
     assert classify_sku(sku("A", "T2D AMD Instance Core running in Americas")) == ("t2d", "cpu")
     assert classify_sku(sku("B", "T2D AMD Instance Ram running in Americas")) == ("t2d", "ram")
+
+
+def test_g2_core_ram_and_its_l4_gpu_are_classified() -> None:
+    assert classify_sku(sku("A", "G2 Instance Core running in Americas")) == ("g2", "cpu")
+    assert classify_sku(sku("B", "G2 Instance Ram running in Americas")) == ("g2", "ram")
+    assert classify_sku(sku("C", "Nvidia L4 GPU running in Americas")) == ("g2", "gpu")
+    assert classify_sku(sku("D", "NVIDIA L4 GPU running in Virginia")) == ("g2", "gpu")
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "Nvidia L4 GPU Virtual Workstation running in Americas",
+        "Spot Preemptible Nvidia L4 GPU running in Americas",
+        "Nvidia Tesla T4 GPU running in Americas",
+        "Commitment v1: Nvidia L4 GPU running in Americas",
+        "G2 Custom Instance Core running in Americas",
+    ],
+)
+def test_gpu_lookalikes_are_never_classified_as_g2(description: str) -> None:
+    assert classify_sku(sku("X", description)) is None
 
 
 @pytest.mark.parametrize(
@@ -216,3 +246,73 @@ def test_no_cross_region_fallback_when_a_region_has_no_candidate_sku() -> None:
     ]
     region_rates, _problems = build_region_rates(skus, now=NOW)
     assert "us-east4" not in {region for _family, region in region_rates}
+
+
+def _g2_skus(regions: list[str], *, with_gpu: bool = True) -> list[dict]:
+    skus = [
+        sku("cpu-g2", "G2 Instance Core running in Americas", regions=regions, nanos=24_988_000),
+        sku("ram-g2", "G2 Instance Ram running in Americas", regions=regions, nanos=2_928_000, usage_unit="GiBy.h"),
+    ]
+    if with_gpu:
+        skus.append(sku("gpu-l4", "Nvidia L4 GPU running in Americas", regions=regions, nanos=560_040_000))
+    return skus
+
+
+def test_g2_rates_carry_its_gpu() -> None:
+    region_rates, problems = build_region_rates(_g2_skus(["us-central1"]), now=NOW)
+    assert problems == []
+    rates = region_rates[("g2", "us-central1")]
+    assert rates.gpu is not None
+    assert rates.gpu.sku_id == "gpu-l4"
+    assert rates.gpu.rate_per_unit == Decimal("0.56004")
+
+
+def test_g2_without_a_gpu_rate_is_not_priced_at_all() -> None:
+    """A G2 rate from vCPU and memory alone would understate what it cost."""
+    region_rates, problems = build_region_rates(_g2_skus(["us-central1"], with_gpu=False), now=NOW)
+    assert ("g2", "us-central1") not in region_rates
+    assert any("g2 in us-central1 is missing its gpu rate" in problem for problem in problems)
+
+
+def test_a_gpu_with_the_wrong_usage_unit_is_rejected() -> None:
+    candidate = sku("gpu-l4", "Nvidia L4 GPU running in Americas", usage_unit="GiBy.h")
+    with pytest.raises(MappingError, match="usage unit"):
+        price_point(candidate, "gpu", now=NOW)
+
+
+def test_regions_outside_the_us_are_not_priced_or_reported() -> None:
+    skus = [
+        sku("cpu-n2", "N2 Instance Core running in Americas", regions=["us-east1", "southamerica-east1"]),
+        sku(
+            "ram-n2",
+            "N2 Instance Ram running in Americas",
+            regions=["us-east1", "northamerica-northeast1"],
+            nanos=4_237_000,
+            usage_unit="GiBy.h",
+        ),
+    ]
+    region_rates, problems = build_region_rates(skus, now=NOW)
+    assert set(region_rates) == {("n2", "us-east1")}
+    assert problems == []
+
+
+def _point(rate: str, unit: str) -> PricePoint:
+    return PricePoint("sku", "description", Decimal(rate), unit, None)
+
+
+def test_a_gpu_machine_adds_each_of_its_gpus_to_the_rate() -> None:
+    shape = MachineShape(
+        "g2-standard-24", "g2", "standard", 24, Decimal("96"), "https://example.invalid", ShapeGpu(2, "NVIDIA L4")
+    )
+    rates = ComponentRates(_point("0.024988", "h"), _point("0.002928", "GiBy.h"), _point("0.56004", "h"))
+    # 24 * 0.024988 + 96 * 0.002928 + 2 * 0.56004
+    assert shape_hourly_rate(shape, rates) == Decimal("2.00088")
+
+
+def test_a_gpu_machine_without_a_gpu_rate_fails_rather_than_underprices() -> None:
+    shape = MachineShape(
+        "g2-standard-4", "g2", "standard", 4, Decimal("16"), "https://example.invalid", ShapeGpu(1, "NVIDIA L4")
+    )
+    rates = ComponentRates(_point("0.024988", "h"), _point("0.002928", "GiBy.h"))
+    with pytest.raises(MappingError, match="no GPU rate"):
+        shape_hourly_rate(shape, rates)

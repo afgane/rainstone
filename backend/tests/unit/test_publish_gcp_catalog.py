@@ -74,7 +74,9 @@ def test_a_full_run_produces_a_catalog_rainstone_can_verify_and_import(tmp_path,
     )
     assert validated.signature_verified is True
     assert len(validated.rates) > 0
-    assert {"us-central1", "us-east4"} <= {rate["region"] for rate in validated.rates}
+    regions = {rate["region"] for rate in validated.rates}
+    assert {"us-central1", "us-east1", "us-east4"} <= regions
+    assert all(region.startswith("us-") for region in regions)
     machine_types = {rate["machine_type"] for rate in validated.rates}
     assert "n2-highcpu-128" not in machine_types
 
@@ -117,13 +119,33 @@ def test_a_representative_t2d_and_n2_rate_round_trips_exactly(key_pair) -> None:
     assert by_key[("n2-highcpu-2", "us-central1")]["hourly_rate"] == "0.071696"
 
 
+def test_a_g2_rate_includes_its_l4_gpus_and_skips_the_workstation_sku(key_pair) -> None:
+    key, _public = key_pair
+    document = cli.run(
+        api_key="fake-key",
+        key_id="release-2026",
+        private_key=key,
+        shapes_path=SHAPES_PATH,
+        output_dir=None,
+        previous_catalog=None,
+        now=NOW,
+    )
+    by_key = {(rate["machine_type"], rate["region"]): rate for rate in document["rates"]}
+    # From the fixture component rates, which are illustrative rather than
+    # Google's: 4 * 0.024988 + 16 * 0.002928 + 1 * 0.56004.
+    assert by_key[("g2-standard-4", "us-east1")]["hourly_rate"] == "0.706840"
+    # 48 * 0.024988 + 192 * 0.002928 + 4 * 0.56004
+    assert by_key[("g2-standard-48", "us-east1")]["hourly_rate"] == "4.001760"
+    assert by_key[("g2-standard-4", "us-east1")]["provenance"]["gpu_sku_id"] == "L4G1-0000-0003"
+
+
 def test_a_coverage_regression_blocks_the_run(tmp_path, key_pair) -> None:
     key, _public = key_pair
     previous = tmp_path / "previous-latest.json"
     previous.write_text(
-        json.dumps({"rates": [{"machine_type": "n2-standard-2", "region": "asia-south1"}]})
+        json.dumps({"rates": [{"machine_type": "n2-standard-2", "region": "us-west2"}]})
     )
-    with pytest.raises(PublishError, match="asia-south1"):
+    with pytest.raises(PublishError, match="us-west2"):
         cli.run(
             api_key="fake-key",
             key_id="release-2026",

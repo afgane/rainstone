@@ -4,12 +4,18 @@ import type { JobDetail } from "../../api";
 import { buildLanes } from "../../jobDetail";
 import {
   COST_COMPONENTS_NOTE, COST_ESTIMATE_HEADING, COST_EXCLUSIONS, COST_METHOD, dayKey, environmentLabel,
-  formatClock, formatCost, formatDateTime, purchaseModelLabel, SERVER_GROUP_NOTE, TIMING_ESTIMATE_NOTE,
+  formatClock, formatCost, formatDateTime, GPU_PRICE_NOTE, purchaseModelLabel, SERVER_GROUP_NOTE,
+  TIMING_ESTIMATE_NOTE,
 } from "../../vocabulary";
 
 const props = defineProps<{ detail: JobDetail; timezone: string }>();
 const lanes = computed(() => buildLanes(props.detail));
 const serverOnly = computed(() => props.detail.full_quality === "known_zero");
+const method = computed(() => {
+  if (serverOnly.value) return SERVER_GROUP_NOTE;
+  const usedGpus = props.detail.resources.some(resource => resource.machine_capacity?.gpu);
+  return usedGpus ? `${COST_METHOD} ${GPU_PRICE_NOTE}` : COST_METHOD;
+});
 
 // The end says its date only when it is not the start's day.
 function timeSpan(start: string | null, end: string | null, ongoing = false): string {
@@ -25,7 +31,7 @@ function timeSpan(start: string | null, end: string | null, ongoing = false): st
 <template>
   <details class="inline-details job-disclosure">
     <summary>{{ COST_ESTIMATE_HEADING }}</summary>
-    <p>{{ serverOnly ? SERVER_GROUP_NOTE : COST_METHOD }}</p>
+    <p>{{ method }}</p>
     <p>{{ COST_EXCLUSIONS }}</p>
 
     <template v-if="detail.resources.length && !serverOnly">

@@ -4,7 +4,7 @@
  * ordered. Eligibility for a comparison is decided by the backend; nothing here
  * divides a measurement by a request.
  */
-import type { JobDetail, JobExecution, JobResourceUse } from "./api";
+import type { JobDetail, JobExecution, JobResourceUse, MachineCapacity } from "./api";
 import {
   AVERAGE_CPU, comparisonNote, PEAK_MEMORY, pluralize, jobStateLabel, TIMING_NOTE,
 } from "./vocabulary";
@@ -95,10 +95,12 @@ function memoryAgainstRequest(peakBytes: number, requestedMib: number): string {
   return `${formatQuantity(inUnit(peakBytes, unit))} of ${formatQuantity(inUnit(requestedMib * BYTES_PER_MIB, unit))} ${unit} requested`;
 }
 
-/** The machine's own size, apart from anything a job asked of it: "8 vCPUs · 64 GiB memory". */
-export function formatMachineCapacity(capacity: { vcpu: string; memory_mib: string }): string {
+/** The machine's own size, apart from anything a job asked of it: "8 vCPUs · 64 GiB memory · 1 NVIDIA L4 GPU". */
+export function formatMachineCapacity(capacity: Pick<MachineCapacity, "vcpu" | "memory_mib" | "gpu">): string {
   const vcpu = Number(capacity.vcpu);
-  return `${formatQuantity(vcpu)} ${vcpuWord(vcpu)} · ${formatMemoryRequest(Number(capacity.memory_mib))} memory`;
+  const size = `${formatQuantity(vcpu)} ${vcpuWord(vcpu)} · ${formatMemoryRequest(Number(capacity.memory_mib))} memory`;
+  if (!capacity.gpu) return size;
+  return `${size} · ${pluralize(Number(capacity.gpu.count), `${capacity.gpu.model} GPU`)}`;
 }
 
 /* The resource use rows. */

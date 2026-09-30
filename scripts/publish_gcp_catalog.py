@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Fetch, normalize, validate, sign and write the GCP T2D/N2 price catalog.
+"""Fetch, normalize, validate, sign and write the GCP compute price catalog.
 
-Scope: on-demand, USD compute prices for T2D standard and N2
-standard/highmem/highcpu only, across their priced regions. See
-`docs/gcp-pricing-publisher.md` for the maintainer runbook.
+Scope: on-demand, USD compute prices for T2D standard, N2
+standard/highmem/highcpu and G2 standard (with their NVIDIA L4 GPUs) only,
+across their priced US regions. See `docs/gcp-pricing-publisher.md` for the
+maintainer runbook.
 
 Runnable locally without publishing anything: `--output-dir` just writes a
 directory tree (`gcp/versions/<catalog_id>.json` and `gcp/latest.json`).
@@ -21,7 +22,7 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from gcp_pricing.catalog_api import CatalogFetchError, discover_compute_engine_service, list_skus
-from gcp_pricing.mapping import MAPPING_VERSION, build_region_rates
+from gcp_pricing.mapping import MAPPING_VERSION, MappingError, build_region_rates
 from gcp_pricing.output import (
     PublishError,
     build_catalog_document,
@@ -153,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
             timeout=args.timeout,
             retries=args.retries,
         )
-    except (CatalogFetchError, ShapeRegistryError, PublishError, CliError) as error:
+    except (CatalogFetchError, ShapeRegistryError, MappingError, PublishError, CliError) as error:
         print(f"gcp_pricing: {error}", file=sys.stderr)
         return 1
     print(

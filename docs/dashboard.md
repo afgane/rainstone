@@ -104,9 +104,10 @@ In order, the drawer then shows:
   text alternative. Several runs, or times that contradict each other, are
   listed without a span.
 - **Compute**: where it ran (the verified environment), the machine and how it
-  was bought, the machine's own size (vCPUs and memory, for the machine types
-  we have published specifications for, kept apart from what the job asked
-  for), and whether its runs shared it.
+  was bought, the machine's own size (vCPUs, memory and any GPUs it comes
+  with, for the machine types we have published specifications for, kept
+  apart from what the job asked for), and whether its runs shared it. For a
+  machine with GPUs, the cost estimate says its price includes them.
 - **Resource use**: two flat bars, each a measurement against what was
   requested, with the numbers beside them. *Average CPU use* is the CPU time
   the run used over how long the tool ran; *Peak memory use* is the most memory

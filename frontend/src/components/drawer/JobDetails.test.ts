@@ -162,12 +162,30 @@ describe("JobDetails compute", () => {
   it("states the machine's own size apart from what the job requested", () => {
     const wrapper = view(job({
       resources: [resource({
-        machine_type: "n2-highmem-8", machine_capacity: { vcpu: "8", memory_mib: "65536", source: "published_machine_shape" },
+        machine_type: "n2-highmem-8",
+        machine_capacity: { vcpu: "8", memory_mib: "65536", gpu: null, source: "published_machine_shape" },
         requested_vcpu: "1", requested_memory_mib: "4096",
       })],
     }));
     expect(wrapper.find(".compute-list").text()).toContain("n2-highmem-8 · On-demand");
     expect(wrapper.find(".compute-list").text()).toContain("Machine capacity: 8 vCPUs · 64 GiB memory");
+  });
+
+  it("names a machine's GPUs and says its price includes them", () => {
+    const wrapper = view(job({
+      resources: [resource({
+        machine_type: "g2-standard-4",
+        machine_capacity: {
+          vcpu: "4", memory_mib: "16384", gpu: { count: "1", model: "NVIDIA L4" }, source: "published_machine_shape",
+        },
+      })],
+    }));
+    expect(wrapper.find(".compute-list").text()).toContain("Machine capacity: 4 vCPUs · 16 GiB memory · 1 NVIDIA L4 GPU");
+    expect(wrapper.find("details.job-disclosure").text()).toContain("The machine's price includes its GPUs.");
+  });
+
+  it("does not mention GPUs for a machine without them", () => {
+    expect(view().find("details.job-disclosure").text()).not.toContain("GPU");
   });
 
   it("gives a machine no size when its type is not a published shape", () => {

@@ -235,8 +235,15 @@ describe("executionHistory", () => {
 
 describe("formatMachineCapacity", () => {
   it("names vCPUs and memory in binary units", () => {
-    expect(formatMachineCapacity({ vcpu: "8", memory_mib: "65536" })).toBe("8 vCPUs · 64 GiB memory");
-    expect(formatMachineCapacity({ vcpu: "1", memory_mib: "4096" })).toBe("1 vCPU · 4 GiB memory");
-    expect(formatMachineCapacity({ vcpu: "2", memory_mib: "1536" })).toBe("2 vCPUs · 1.5 GiB memory");
+    expect(formatMachineCapacity({ vcpu: "8", memory_mib: "65536", gpu: null })).toBe("8 vCPUs · 64 GiB memory");
+    expect(formatMachineCapacity({ vcpu: "1", memory_mib: "4096", gpu: null })).toBe("1 vCPU · 4 GiB memory");
+    expect(formatMachineCapacity({ vcpu: "2", memory_mib: "1536", gpu: null })).toBe("2 vCPUs · 1.5 GiB memory");
+  });
+
+  it("names the GPUs a machine comes with", () => {
+    const one = { vcpu: "4", memory_mib: "16384", gpu: { count: "1", model: "NVIDIA L4" } };
+    const two = { vcpu: "24", memory_mib: "98304", gpu: { count: "2", model: "NVIDIA L4" } };
+    expect(formatMachineCapacity(one)).toBe("4 vCPUs · 16 GiB memory · 1 NVIDIA L4 GPU");
+    expect(formatMachineCapacity(two)).toBe("24 vCPUs · 96 GiB memory · 2 NVIDIA L4 GPUs");
   });
 });

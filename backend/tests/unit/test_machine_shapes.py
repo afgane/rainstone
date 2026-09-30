@@ -8,7 +8,14 @@ from rainstone.machine_shapes import machine_capacity
 
 def test_a_priced_shape_reports_its_published_size() -> None:
     capacity = machine_capacity("gcp", "n2-highmem-8")
-    assert capacity == {"vcpu": "8", "memory_mib": "65536", "source": "published_machine_shape"}
+    assert capacity == {"vcpu": "8", "memory_mib": "65536", "gpu": None, "source": "published_machine_shape"}
+
+
+def test_a_gpu_machine_reports_the_gpus_it_comes_with() -> None:
+    capacity = machine_capacity("gcp", "g2-standard-24")
+    assert capacity["vcpu"] == "24"
+    assert capacity["memory_mib"] == "98304"
+    assert capacity["gpu"] == {"count": "2", "model": "NVIDIA L4"}
 
 
 def test_memory_follows_the_shape_variant() -> None:

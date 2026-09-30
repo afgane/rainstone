@@ -304,7 +304,10 @@ does not mean it shared a charge, which `amount_shared_with_attempts` states.
 
 **Machine size.** A resource's `machine_capacity` gives the machine's own
 `vcpu` and `memory_mib`, read from the reviewed registry of priced GCP shapes
-(`catalog/gcp-machine-shapes.json`, `source` `published_machine_shape`). The
+(`catalog/gcp-machine-shapes.json`, `source` `published_machine_shape`). Its
+`gpu` is the `count` and `model` of the GPUs the machine type always comes
+with, such as `{"count": "1", "model": "NVIDIA L4"}` for `g2-standard-4`, and
+null for a machine without them. The machine's price already includes them. The
 collector records a machine's type, never its capacity. It is null for any
 type the registry does not list, and never stands in for `requested_vcpu` or
 `requested_memory_mib`, which are what the job asked for.

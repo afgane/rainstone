@@ -16,21 +16,30 @@ from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from rainstone.catalog import canonical_content
 
-from gcp_pricing.mapping import ComponentRates
+from gcp_pricing.mapping import PRICED_REGION_PREFIX, ComponentRates
 from gcp_pricing.mapping import shape_hourly_rate as _shape_hourly_rate
 from gcp_pricing.shapes import MachineShape
 
-REQUIRED_REGIONS = ("us-central1", "us-east4")
-REQUIRED_FAMILIES = ("t2d", "n2")
+# The regions each family must price or the run fails: where AnVIL runs that
+# kind of work. Other US regions are priced when they resolve, never required.
+REQUIRED_REGIONS: dict[str, tuple[str, ...]] = {
+    "t2d": ("us-central1", "us-east4"),
+    "n2": ("us-central1", "us-east4"),
+    "g2": ("us-central1", "us-east1", "us-east4"),
+}
+MACHINE_FAMILIES = tuple(REQUIRED_REGIONS)
 SOURCE_URLS = (
     "https://docs.cloud.google.com/billing/v1/how-tos/catalog-api",
     "https://docs.cloud.google.com/compute/docs/general-purpose-machines",
+    "https://docs.cloud.google.com/compute/docs/accelerator-optimized-machines",
 )
 COVERAGE_NOTE = (
-    "T2D standard and N2 standard/highmem/highcpu on-demand compute prices "
-    "only, for the regions listed above. Excludes Spot, custom machines, "
-    "other families and providers, commitments, premium OS licenses, GPU, "
-    "disk and network. Not a complete GCP price list."
+    "T2D standard, N2 standard/highmem/highcpu and G2 standard on-demand "
+    "compute prices only, for the US regions listed above. A G2 price "
+    "includes the NVIDIA L4 GPUs that come with the machine. Excludes Spot, "
+    "custom machines, other families and providers, commitments, premium OS "
+    "licenses, GPUs attached to other machines, disk and network. Not a "
+    "complete GCP price list."
 )
 
 
@@ -39,23 +48,37 @@ class PublishError(ValueError):
 
 
 def _combined_effective_time(rates: ComponentRates) -> str | None:
-    """When the derived machine rate took effect: its later component's time.
+    """When the derived machine rate took effect: its latest component's time.
 
-    A predefined shape's hourly rate is assembled from a vCPU rate and a memory
-    rate, so the combined rate was not in effect until both of its components
-    were. Publishing the retrieval time instead would date every rate to the
+    A predefined shape's hourly rate is assembled from a vCPU rate, a memory
+    rate and, for a GPU machine, a GPU rate, so the combined rate was not in
+    effect until all of its components were. Publishing the retrieval time instead would date every rate to the
     moment the catalog was built, and the application only applies a rate whose
     effective time precedes the work being priced — so a freshly published
     catalog could price nothing that had already finished.
 
-    The provider's own spelling is kept. When either component does not say,
+    The provider's own spelling is kept. When any component does not say,
     the rate carries no effective time rather than a guessed one, which the
     application reads as always-applicable.
     """
-    cpu_time, ram_time = rates.cpu.effective_time, rates.ram.effective_time
-    if not (cpu_time and ram_time):
+    times = [point.effective_time for point in rates.points()]
+    if not all(times):
         return None
-    return max(cpu_time, ram_time, key=lambda value: datetime.fromisoformat(value.replace("Z", "+00:00")))
+    return max(times, key=lambda value: datetime.fromisoformat(value.replace("Z", "+00:00")))
+
+
+def _gpu_provenance(shape: MachineShape, rates: ComponentRates) -> dict:
+    if shape.gpu is None or rates.gpu is None:
+        return {}
+    return {
+        "gpu_sku_id": rates.gpu.sku_id,
+        "gpu_sku_description": rates.gpu.description,
+        "gpu_rate_per_gpu_hour": str(rates.gpu.rate_per_unit),
+        "gpu_usage_unit": rates.gpu.usage_unit,
+        "gpu_effective_time": rates.gpu.effective_time,
+        "gpu_count": shape.gpu.count,
+        "gpu_model": shape.gpu.model,
+    }
 
 
 def build_rates(
@@ -93,6 +116,7 @@ def build_rates(
                         "ram_effective_time": component_rates.ram.effective_time,
                         "vcpu_count": shape.vcpu,
                         "memory_gib": str(shape.memory_gib),
+                        **_gpu_provenance(shape, component_rates),
                         "mapping_version": mapping_version,
                         "retrieved_at": observed_iso,
                     },
@@ -104,13 +128,12 @@ def build_rates(
 def check_required_regions(
     region_rates: dict[tuple[str, str], ComponentRates],
     *,
-    required_regions: tuple[str, ...] = REQUIRED_REGIONS,
-    families: tuple[str, ...] = REQUIRED_FAMILIES,
+    required: dict[str, tuple[str, ...]] = REQUIRED_REGIONS,
 ) -> None:
     missing = [
         f"{family}/{region}"
-        for family in families
-        for region in required_regions
+        for family, regions in required.items()
+        for region in regions
         if (family, region) not in region_rates
     ]
     if missing:
@@ -130,8 +153,10 @@ def check_no_regression(
     family losing an entire region is the regression this guards against.
     Losing one shape while the family/region pair still prices other shapes
     is visible directly in the rates list, not flagged as a regression here.
+    A previous region outside `PRICED_REGION_PREFIX` is out of scope, not lost.
     """
-    lost = _family_region_pairs(previous_rates) - _family_region_pairs(new_rates) - set(acknowledged)
+    in_scope = [rate for rate in previous_rates if rate["region"].startswith(PRICED_REGION_PREFIX)]
+    lost = _family_region_pairs(in_scope) - _family_region_pairs(new_rates) - set(acknowledged)
     if lost:
         raise PublishError(
             "coverage regression: previously priced but now missing: "
@@ -140,7 +165,7 @@ def check_no_regression(
 
 
 def catalog_id_for(observed_at: datetime) -> str:
-    return f"gcp-t2d-n2-{observed_at.strftime('%Y%m%dT%H%M%SZ')}"
+    return f"gcp-compute-{observed_at.strftime('%Y%m%dT%H%M%SZ')}"
 
 
 def build_catalog_document(
@@ -167,7 +192,7 @@ def build_catalog_document(
         "source_urls": list(SOURCE_URLS),
         "coverage": {
             "regions": sorted({rate["region"] for rate in rates}),
-            "machine_families": list(REQUIRED_FAMILIES),
+            "machine_families": list(MACHINE_FAMILIES),
             "purchase_models": ["on_demand"],
             "complete": False,
             "note": COVERAGE_NOTE,

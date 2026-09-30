@@ -231,12 +231,19 @@ export interface InvocationDetail extends Invocation {
   meta: Meta;
 }
 
+export interface MachineCapacity {
+  vcpu: string; memory_mib: string;
+  /** The GPUs the machine type always comes with; null for a machine without them. */
+  gpu: { count: string; model: string } | null;
+  source: "published_machine_shape";
+}
+
 /** One chargeable resource lifetime a job used. Amounts are the whole job's, never the period's. */
 export interface JobResource {
   lifetime_id: string; resource_key: string; resource_uid: string; provider: string;
   machine_type: string | null;
   /** The machine's own size from Google's published shapes; null when its type is not one of them. */
-  machine_capacity: { vcpu: string; memory_mib: string; source: "published_machine_shape" } | null;
+  machine_capacity: MachineCapacity | null;
   region: string | null; zone: string | null;
   purchase_model: string | null; capacity_relationship: string;
   resource_started_at: string | null;

@@ -96,7 +96,9 @@ def test_measured_use_is_compared_with_the_request_of_one_execution(client, metr
 def test_a_machine_reports_its_published_size_apart_from_what_the_job_requested(client) -> None:
     [resource] = detail(client, BATCH_JOB)["resources"]
     assert resource["machine_type"] == "n2-highmem-4"
-    assert resource["machine_capacity"] == {"vcpu": "4", "memory_mib": "32768", "source": "published_machine_shape"}
+    assert resource["machine_capacity"] == {
+        "vcpu": "4", "memory_mib": "32768", "gpu": None, "source": "published_machine_shape"
+    }
     assert Decimal(resource["requested_vcpu"]) == 1
 
 

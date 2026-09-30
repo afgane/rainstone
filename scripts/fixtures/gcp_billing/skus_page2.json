@@ -209,6 +209,48 @@
         }
       ],
       "serviceProviderName": "Google"
+    },
+    {
+      "name": "services/6F81-5844-456A/skus/L4VW-0000-0004",
+      "skuId": "L4VW-0000-0004",
+      "description": "Nvidia L4 GPU Virtual Workstation running in Americas",
+      "category": {
+        "serviceDisplayName": "Compute Engine",
+        "resourceFamily": "Compute",
+        "resourceGroup": "GPU",
+        "usageType": "OnDemand"
+      },
+      "serviceRegions": [
+        "us-central1",
+        "us-east1",
+        "us-east4",
+        "us-west1",
+        "northamerica-northeast1",
+        "southamerica-east1"
+      ],
+      "pricingInfo": [
+        {
+          "effectiveTime": "2026-01-01T00:00:00Z",
+          "summary": "",
+          "pricingExpression": {
+            "usageUnit": "h",
+            "usageUnitDescription": "hour",
+            "displayQuantity": 1,
+            "tieredRates": [
+              {
+                "startUsageAmount": 0,
+                "unitPrice": {
+                  "currencyCode": "USD",
+                  "units": "0",
+                  "nanos": 200000000
+                }
+              }
+            ]
+          },
+          "currencyConversionRate": 1
+        }
+      ],
+      "serviceProviderName": "Google"
     }
   ],
   "nextPageToken": ""

@@ -108,3 +108,36 @@ def test_a_representative_job_prices_from_the_publishers_imported_rate(session) 
     lines = calculate_lifetime(job, [], price)
     additional = next(line for line in lines if line.basis == "additional")
     assert additional.amount == Decimal("0.097118")
+
+
+def test_a_g2_job_prices_with_its_gpu_from_the_publishers_imported_rate(session) -> None:
+    document, key_id, public = _signed_catalog()
+    import_catalog(session, _validated(document, key_id, public))
+    session.flush()
+    price = session.scalars(
+        select(PriceVersion).where(
+            PriceVersion.catalog_id == "test-publisher-import",
+            PriceVersion.machine_type == "g2-standard-4",
+            PriceVersion.region == "us-east1",
+        )
+    ).one()
+    assert price.hourly_rate == Decimal("0.706840")
+    assert price.provenance["gpu_count"] == 1
+
+    start = datetime(2026, 9, 22, tzinfo=UTC)
+    job = ResourceLifetime(
+        provider="gcp",
+        resource_key="gce:demo/us-east1-b/901",
+        resource_uid="901",
+        region="us-east1",
+        machine_type="g2-standard-4",
+        purchase_model="on_demand",
+        capacity_relationship=CapacityRelationship.dedicated,
+        observed_start=start,
+        observed_end=start + timedelta(minutes=30),
+        timing_method="provider_billable",
+        facts={},
+    )
+    lines = calculate_lifetime(job, [], price)
+    additional = next(line for line in lines if line.basis == "additional")
+    assert additional.amount == Decimal("0.353420")

@@ -1,48 +1,66 @@
 # GCP pricing publisher
 
-Publishes the price catalog Rainstone consumes: T2D standard and N2
-standard/highmem/highcpu, on-demand, USD compute prices only, across their
-priced regions. It is a release-side maintainer tool, not part of a customer
-deployment, and needs no server, database or Galaxy connection.
+Publishes the price catalog Rainstone consumes: T2D standard, N2
+standard/highmem/highcpu and G2 standard, on-demand, USD compute prices only,
+across their priced US regions. A G2 price includes the NVIDIA L4 GPUs that
+come with the machine. It is a release-side maintainer tool, not part of a
+customer deployment, and needs no server, database or Galaxy connection.
 
 - `scripts/publish_gcp_catalog.py`: fetch, normalize, validate, sign, write.
 - `scripts/gcp_pricing/`: the fetch/mapping/output helpers it's built from.
 - `scripts/verify_published_catalog.py`: re-verify a local or published
   artifact against a trusted key; used by the workflow and by hand.
-- `catalog/gcp-machine-shapes.json`: the 37 supported machine shapes. No
-  regional price lives here; reverify it against the [official
-  specifications](https://docs.cloud.google.com/compute/docs/general-purpose-machines)
-  when adding shapes.
+- `catalog/gcp-machine-shapes.json`: the 45 supported machine shapes, with
+  the GPUs a shape always comes with (`gpu_count`, `gpu_model`). No regional
+  price lives here; reverify it against the official specifications for
+  [general-purpose](https://docs.cloud.google.com/compute/docs/general-purpose-machines)
+  and
+  [accelerator-optimized](https://docs.cloud.google.com/compute/docs/accelerator-optimized-machines)
+  machines when adding shapes.
 - `.github/workflows/publish-prices.yml`: runs the above monthly.
 
-Excluded from this scope: Spot/preemptible, custom machines, other
-families/providers, commitments/discounts, premium OS licenses, GPU, disk and
-network. Unknown combinations stay unpriced rather than guessed.
+Only US regions are priced, for every family, because AnVIL runs only there.
+Excluded from this scope: regions outside the US, Spot/preemptible, custom
+machines, other families/providers, commitments/discounts, premium OS
+licenses, GPUs attached to other machine types, NVIDIA RTX Virtual
+Workstation GPUs, disk and network. Unknown combinations stay unpriced rather
+than guessed.
 
 ## How matching works
 
 The [Cloud Billing Catalog
 API](https://docs.cloud.google.com/billing/v1/how-tos/catalog-api) is queried
-for Compute Engine's complete USD SKU listing. A SKU is selected as a T2D or
-N2 CPU/RAM component only when its category says `resourceFamily: Compute`
+for Compute Engine's complete USD SKU listing. A SKU is selected as a CPU,
+RAM or GPU component only when its category says `resourceFamily: Compute`
 and `usageType: OnDemand`, its description carries none of a short excluded-
 terms list (`Custom`, `Sole Tenancy`, `Premium`, `Spot`, `Preemptible`,
-`Commitment`, `Reserved`, `Extreme`), and its description matches an anchored
-prefix (`"N2 Instance Core running in"`, `"T2D AMD Instance Ram running
-in"`, ...). This is deliberately layered rather than a single check, because
-categories alone group lookalike families (N2D, T2A, N2 Custom) together with
-the real ones.
+`Commitment`, `Reserved`, `Extreme`, `Virtual Workstation`), and its
+description matches an anchored prefix (`"N2 Instance Core running in"`,
+`"T2D AMD Instance Ram running in"`, `"Nvidia L4 GPU running in"`, ...). This
+is deliberately layered rather than a single check, because categories alone
+group lookalike families (N2D, T2A, N2 Custom) together with the real ones.
 
 Each family's CPU and RAM rate is shared by every variant (standard, highmem,
-highcpu): GCP prices by provisioned vCPU and GiB, not by variant name. A
-region is only priced for a family when exactly one CPU SKU and one RAM SKU
-match there; an ambiguous or missing pair blocks that one family/region
-combination and is logged, never filled from another region's rate.
+highcpu): GCP prices by provisioned vCPU and GiB, not by variant name. G2
+machines also come with a fixed number of NVIDIA L4 GPUs, billed per GPU-hour
+under their own SKU, so a G2 shape's rate is
 
-`us-central1` and `us-east4` must resolve for both families or the run fails
-outright. Losing a previously-published family/region combination also fails
-the run, unless explicitly acknowledged with
-`--acknowledge-regression family:region` (repeatable).
+```text
+vcpu × core rate + memory GiB × RAM rate + gpu_count × L4 GPU rate
+```
+
+A region is only priced for a family when exactly one SKU matches there for
+each component the family needs (CPU and RAM, plus GPU for G2); an ambiguous
+or missing component blocks that one family/region combination and is
+logged, never filled from another region's rate. A G2 rate without its GPU
+is never published, since it would understate the machine's cost.
+
+Each family must resolve in the regions where AnVIL runs its work, or the run
+fails outright: `us-central1` and `us-east4` for T2D and N2, and
+`us-central1`, `us-east1` and `us-east4` for G2. Losing a previously-published
+US family/region combination also fails the run, unless explicitly
+acknowledged with `--acknowledge-regression family:region` (repeatable).
+Regions outside the US in a previous catalog are out of scope, not lost.
 
 ## Running locally
 
@@ -141,6 +159,13 @@ against the *live* catalog. Before trusting a real run:
 3. Compare representative T2D and N2 variants, in both `us-central1` and
    `us-east4`, against the [official pricing
    page](https://cloud.google.com/products/compute/pricing/general-purpose).
+   Compare G2 shapes with one, two and several GPUs (`g2-standard-4`, `-24`,
+   `-48`) in `us-central1`, `us-east1` and `us-east4` against the [GPU
+   pricing page](https://cloud.google.com/compute/gpus-pricing). The G2 CPU,
+   RAM and L4 SKU descriptions were not confirmed against the live catalog
+   when G2 was added: if a region reports ambiguous or missing G2 components,
+   inspect the live descriptions and adjust `scripts/gcp_pricing/mapping.py`
+   rather than acknowledging the gap.
 4. Archive that evidence (outside version control; see `ea-no-commit/`
    conventions), then run the workflow for real and confirm
    `scripts/verify_published_catalog.py <feed-url> --key-id ... --public-key
