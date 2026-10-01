@@ -16,9 +16,9 @@ dev-reset:
 	@echo "Rainstone demo reset: http://localhost:5173"
 
 test: test-unit test-integration
-	$(COMPOSE) run --rm frontend npm test -- --run
-	$(COMPOSE) run --rm frontend npm run typecheck
-	$(COMPOSE) run --rm frontend npm run lint
+	$(COMPOSE) run --rm --no-deps frontend npm test -- --run
+	$(COMPOSE) run --rm --no-deps frontend npm run typecheck
+	$(COMPOSE) run --rm --no-deps frontend npm run lint
 
 test-unit:
 	$(COMPOSE) build backend
