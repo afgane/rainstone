@@ -1,16 +1,14 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import type { CostBucket, CostPiece, CostTimeline } from "../../api";
-import { axisSlots, axisText, type AxisSlot } from "../../chart/axis";
-import { axisLabelStep, bucketLabel, MINIMUM_VERTICAL, niceScale } from "../../chart/layout";
+import { periodSlots, type AxisSlot } from "../../chart/axis";
+import { bucketLabel, MINIMUM_VERTICAL, niceScale, PLOT_HEIGHT } from "../../chart/layout";
+import TimeFrame from "../chart/TimeFrame.vue";
 import { useChartTooltip, type TooltipContent } from "../runs/useChartTooltip";
 import {
-  costChartTitle, formatAxisCost, formatCost, jobOutcomes, OVERVIEW_CHART_HINT, pieceCounts,
+  costChartTitle, formatCost, jobOutcomes, OVERVIEW_CHART_HINT, pieceCounts,
   unplacedSentence,
 } from "../../vocabulary";
-
-const PLOT_HEIGHT = 200;
-const AXIS_WIDTH = 48;
 
 const props = defineProps<{
   timeline: CostTimeline;
@@ -29,36 +27,15 @@ const emit = defineEmits<{
 const tooltipElement = ref<HTMLElement | null>(null);
 const tooltip = useChartTooltip(tooltipElement);
 
-const width = ref(0);
-let observed: HTMLElement | null = null;
-const observer = new ResizeObserver(entries => {
-  width.value = Math.round(entries[0].contentRect.width);
-});
-function measure(element: unknown) {
-  const target = element instanceof HTMLElement ? element : null;
-  if (target === observed) return;
-  if (observed) observer.unobserve(observed);
-  observed = target;
-  if (target) observer.observe(target);
-}
-onBeforeUnmount(() => observer.disconnect());
-
 const unit = computed(() => props.timeline.bucket);
 // The axis spans the whole period, so a day without cost still has its column.
-const slots = computed<AxisSlot[]>(() => {
-  const found = props.timeline.axis ?? { from: props.periodFrom, to: props.periodTo };
-  const end = Date.parse(props.axisEnd) > Date.parse(found.to) ? props.axisEnd : found.to;
-  return axisSlots(unit.value, { from: found.from, to: end }, props.timezone);
-});
+const slots = computed<AxisSlot[]>(() => periodSlots(unit.value, props.timeline.axis, {
+  from: props.periodFrom, to: props.periodTo, axisEnd: props.axisEnd,
+}, props.timezone));
 const byStart = computed(() => new Map(
   props.timeline.buckets.map(bucket => [Date.parse(bucket.from), bucket] as const)));
 const scale = computed(() => niceScale(
   Math.max(0, ...props.timeline.buckets.map(bucket => Number(bucket.amount) || 0))));
-const ticks = computed(() => {
-  const found: number[] = [];
-  for (let value = 0; value <= scale.value.max + 1e-9; value += scale.value.step) found.push(value);
-  return found;
-});
 
 const columns = computed(() => slots.value.map(slot => {
   const bucket = byStart.value.get(slot.from) ?? null;
@@ -69,10 +46,6 @@ const columns = computed(() => slots.value.map(slot => {
   return { slot, bucket, blocks, label: bucketLabel(unit.value, slot.from, slot.to, props.timezone) };
 }));
 
-const slotWidth = computed(() =>
-  Math.max(1, (width.value - AXIS_WIDTH - 40) / Math.max(1, slots.value.length)));
-const labelStep = computed(() => axisLabelStep(unit.value, slotWidth.value));
-const asOfTime = computed(() => (props.asOf ? Date.parse(props.asOf) : Infinity));
 const hasCost = computed(() => props.timeline.buckets.some(bucket => bucket.pieces.length > 0));
 const anyIndividual = computed(() => props.timeline.buckets.some(
   bucket => bucket.pieces.some(piece => piece.kind === "individual")));
@@ -156,66 +129,32 @@ watch(() => props.timeline, leave);
     >
       <div class="chart-region">
         <div class="time-bars">
-          <div class="tplot">
-            <div class="yaxis">
-              <span
-                v-for="tick in ticks"
-                :key="tick"
-                class="ytick"
-                :style="{ bottom: `${tick / scale.max * 100}%` }"
-              >{{ formatAxisCost(tick) }}</span>
-            </div>
+          <TimeFrame
+            :slots="slots" :unit="unit" :timezone="timezone" :as-of="asOf" :scale="scale"
+            :empty="hasCost ? '' : 'No cost was recorded in this period.'"
+          >
             <div
-              :ref="measure"
-              class="plot"
+              v-for="column in columns"
+              :key="column.slot.from"
+              class="col overview-col"
+              :class="{ empty: !column.bucket }"
+              @pointermove="columnTip($event, column)"
+              @pointerleave="leave"
             >
-              <p
-                v-if="!hasCost"
-                class="plot-empty"
-              >
-                No cost was recorded in this period.
-              </p>
-              <div
-                v-for="tick in ticks.slice(1)"
-                :key="`grid-${tick}`"
-                class="grid"
-                :style="{ bottom: `${tick / scale.max * 100}%` }"
-              />
-              <div class="cols">
-                <div
-                  v-for="column in columns"
-                  :key="column.slot.from"
-                  class="col overview-col"
-                  :class="{ empty: !column.bucket }"
-                  @pointermove="columnTip($event, column)"
-                  @pointerleave="leave"
-                >
-                  <span class="stack">
-                    <span
-                      v-for="block in column.blocks"
-                      :key="block.piece.key"
-                      class="blk"
-                      aria-hidden="true"
-                      :data-kind="block.piece.kind"
-                      :style="{ height: `${block.size}px` }"
-                      @click="column.bucket && open(column.bucket, block.piece)"
-                      @pointermove.stop="column.bucket && pieceTip($event, column.bucket, block.piece.key, column.label)"
-                    />
-                  </span>
-                </div>
-              </div>
+              <span class="stack">
+                <span
+                  v-for="block in column.blocks"
+                  :key="block.piece.key"
+                  class="blk"
+                  aria-hidden="true"
+                  :data-kind="block.piece.kind"
+                  :style="{ height: `${block.size}px` }"
+                  @click="column.bucket && open(column.bucket, block.piece)"
+                  @pointermove.stop="column.bucket && pieceTip($event, column.bucket, block.piece.key, column.label)"
+                />
+              </span>
             </div>
-            <div class="xaxis">
-              <div
-                v-for="(column, index) in columns"
-                :key="column.slot.from"
-                class="xl"
-                :class="{ future: column.slot.from >= asOfTime }"
-              >
-                <span v-if="index % labelStep === 0">{{ axisText(unit, column.slot.from, timezone) }}</span>
-              </div>
-            </div>
-          </div>
+          </TimeFrame>
         </div>
       </div>
     </div>

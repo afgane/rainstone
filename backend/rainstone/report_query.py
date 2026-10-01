@@ -21,6 +21,8 @@ class ReportQuery(BaseModel):
     search: str | None = None
     tool_id: str | None = None
     tool_version: str | None = None
+    # Every version of one tool together; see `reporting.tool_family_key`.
+    tool_key: str | None = None
     invocation_id: str | None = None
     workflow_id: str | None = None
     owner: str | None = None
@@ -59,6 +61,7 @@ def report_query(
     search: str | None = Query(default=None, max_length=200),
     tool_id: str | None = Query(default=None, max_length=500),
     tool_version: str | None = Query(default=None, max_length=100),
+    tool_key: str | None = Query(default=None, max_length=500),
     invocation_id: str | None = None,
     workflow_id: str | None = Query(default=None, max_length=300),
     owner: str | None = Query(default=None, max_length=200),

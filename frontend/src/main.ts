@@ -6,5 +6,6 @@ import "@galaxyproject/brand-tokens/tokens.css";
 import "./assets/main.css";
 import "./assets/run-drawer.css";
 import "./assets/job-drawer.css";
+import "./assets/jobs.css";
 
 createApp(App).mount("#app");

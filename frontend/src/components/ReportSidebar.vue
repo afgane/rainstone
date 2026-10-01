@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { Activity, BarChart3, Building2, Search, Server, Users, Wrench, Workflow, X } from "@lucide/vue";
+import { Activity, BarChart3, Search, Server, Users, Wrench, Workflow, X } from "@lucide/vue";
 import { computed } from "vue";
 import { activeFilters, FILTER_LABELS, periodOf, type AdvancedFilter, type ReportState, type View } from "../api";
 import { describePeriod, PERIOD_LABELS, PERIOD_ORDER, type PeriodId } from "../periods";
+import { JOBS_SEARCH_HELP } from "../vocabulary";
 
 const props = defineProps<{
   state: ReportState;
@@ -28,7 +29,6 @@ const PRIMARY: Array<{ id: View; label: string; icon: unknown }> = [
   { id: "overview", label: "Overview", icon: BarChart3 },
   { id: "runs", label: "Workflow runs", icon: Workflow },
   { id: "tool-runs", label: "Jobs", icon: Wrench },
-  { id: "tools", label: "Tools", icon: Building2 },
 ];
 
 const secondary = computed(() => [
@@ -41,9 +41,8 @@ const chips = computed(() => activeFilters(props.state));
 const period = computed(() => periodOf(props.state));
 const searchLabel = computed(() =>
   props.state.view === "runs" ? "Find a workflow run"
-    : props.state.view === "tools" ? "Search tools"
-      : props.state.view === "tool-runs" ? "Find a job"
-        : "Search your work");
+    : props.state.view === "tool-runs" ? "Find a job"
+      : "Search your work");
 // Status is operational: report controls do not belong there.
 const showControls = computed(() => props.state.view !== "status");
 </script>
@@ -84,8 +83,13 @@ const showControls = computed(() => props.state.view !== "status");
       <div v-if="state.view !== 'runs'" class="control-group">
         <label class="search"><Search :size="16" aria-hidden="true" />
           <span class="sr-only">{{ searchLabel }}</span>
-          <input :value="state.search" :placeholder="searchLabel" @input="update('search', $event)">
+          <input
+            :value="state.search" :placeholder="searchLabel"
+            :aria-describedby="state.view === 'tool-runs' ? 'search-help' : undefined"
+            @input="update('search', $event)"
+          >
         </label>
+        <p v-if="state.view === 'tool-runs'" id="search-help" class="search-help">{{ JOBS_SEARCH_HELP }}</p>
       </div>
 
       <div class="control-group">
@@ -114,7 +118,7 @@ const showControls = computed(() => props.state.view !== "status");
           </li>
         </ul>
         <div v-show="advancedOpen" id="advanced-filters" class="advanced">
-          <label v-if="state.view !== 'tools'"><span>Status</span>
+          <label><span>Status</span>
             <select 
               :value="state.state" @change="update('state', $event)">
               <option value="">Any status</option>

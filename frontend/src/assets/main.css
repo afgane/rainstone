@@ -44,7 +44,9 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .advanced { display: grid; gap: .5rem; padding: .6rem; border: 1px solid #e3e9ee; border-radius: .5rem; background: rgba(255,255,255,.75); }
 .advanced span { display: block; font-size: .78rem; font-weight: 700; margin-bottom: .2rem; }
 .drawer-toggle { display: none; }
-.page-title { margin: 0 0 1rem; font-size: 1.6rem; }
+.page-title { margin: 0; font-size: 1.6rem; }
+.page-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1.25rem; margin: 0 0 1rem; }
+.recorded-dates { white-space: normal; text-align: left; }
 .measure-note { margin-left: .5rem; font-weight: 400; color: #58585a; font-size: .85rem; }
 .overview-notes { margin: 1rem 0 0; color: #58585a; }
 .overview-notes p { margin: .25rem 0; max-width: 65ch; }
@@ -191,6 +193,8 @@ footer { display: flex; gap: .4rem; align-items: center; margin-top: 1.5rem; fon
 .refetching { opacity: .55; pointer-events: none; }
 
 .figures { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 1rem; }
+/* After the rule above, so a narrow screen stacks the cards instead of squeezing them. */
+@media (max-width: 760px) { .figures { grid-template-columns: 1fr; } }
 .figure { min-width: 0; padding: 1.2rem 1.4rem; background: white; border: 1px solid rgba(37,83,123,.13); border-radius: .65rem; box-shadow: 0 1px 3px rgba(44,49,67,.08); }
 .figure.featured { border-left: 4px solid #ffd700; }
 .figure-amount { margin: .25rem 0; font-size: 2.4rem; font-weight: 700; line-height: 1.1; color: #2c3143; }

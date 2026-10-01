@@ -57,3 +57,18 @@ export function axisText(unit: BucketUnit, from: number, timezone: string): stri
     unit === "hour" ? { hour: "numeric", timeZone: timezone } : { month: "short", day: "numeric", timeZone: timezone },
   );
 }
+
+/**
+ * Every slot a time chart draws: the server's axis, or the period when it sent
+ * none, stretched to `axisEnd` so a week or month still in progress is whole.
+ */
+export function periodSlots(
+  unit: BucketUnit,
+  axis: { from: string; to: string } | null,
+  period: { from: string; to: string; axisEnd: string },
+  timezone: string,
+): AxisSlot[] {
+  const found = axis ?? { from: period.from, to: period.to };
+  const end = Date.parse(period.axisEnd) > Date.parse(found.to) ? period.axisEnd : found.to;
+  return axisSlots(unit, { from: found.from, to: end }, timezone);
+}

@@ -20,20 +20,19 @@ const props = defineProps<{
   runs: Invocation[];
 }>();
 const emit = defineEmits<{
-  view: [view: "runs" | "tool-runs" | "tools" | "daily" | "server"];
+  view: [view: "runs" | "tool-runs" | "daily" | "server"];
+  // The Jobs page's By tool chart.
+  tools: [];
   run: [id: string, opener: HTMLElement];
   runs: [target: { from: string; to: string }];
   jobs: [target: { from: string; to: string }];
-  "demo-period": [];
 }>();
 
 const period = computed(() => periodOf(props.state));
 const periodFrom = computed(() => offsetBoundary(period.value.fromDate, props.state.timezone));
 const periodTo = computed(() => offsetBoundary(exclusiveEnd(period.value), props.state.timezone));
 const axisEnd = computed(() => periodAxisEnd(period.value, props.state.timezone));
-const hasNotices = computed(() => Boolean(
-  (!props.summary.job_count && props.summary.demo_period) || props.summary.undated?.job_count
-));
+const hasNotices = computed(() => Boolean(props.summary.undated?.job_count));
 // The server ranks the period's runs by cost, so the top four are the period's, not a page's.
 const topRuns = computed(() => props.runs.slice(0, 4));
 const topTools = computed(() =>
@@ -52,17 +51,6 @@ const topTools = computed(() =>
     v-if="hasNotices"
     class="overview-notes"
   >
-    <p v-if="!summary.job_count && summary.demo_period">
-      {{ summary.imported_snapshot ? "This imported snapshot's data was recorded" : "This demonstration's data was recorded" }}
-      {{ formatDate(summary.demo_period.from, state.timezone) }} –
-      {{ formatDate(summary.demo_period.to, state.timezone) }}.
-      <button
-        class="link-button"
-        @click="emit('demo-period')"
-      >
-        Show that period
-      </button>
-    </p>
     <p v-if="summary.undated?.job_count">
       {{ undatedSentence(summary.undated.job_count) }}
       <button
@@ -123,7 +111,7 @@ const topTools = computed(() =>
         <div><h2>Tools</h2><p>Where most of that cost came from.</p></div>
         <button
           class="link-button"
-          @click="emit('view', 'tools')"
+          @click="emit('tools')"
         >
           See all tools
         </button>
@@ -138,7 +126,7 @@ const topTools = computed(() =>
         v-for="tool in topTools"
         :key="`${tool.tool_id}@${tool.tool_version}`"
         class="rank-row"
-        @click="emit('view', 'tools')"
+        @click="emit('tools')"
       >
         <span>
           <strong>{{ tool.tool_name || tool.tool_id }}</strong>

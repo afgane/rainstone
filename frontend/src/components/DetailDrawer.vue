@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ArrowLeft, RefreshCw, X } from "@lucide/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import type { InvocationDetail, JobDetail } from "../api";
+import type { DrawerKind, InvocationDetail, JobDetail, ToolDetail, WindowDetail } from "../api";
 import { byAttribute } from "../dom";
 import {
   durationText, formatCost, formatDateTime, JOBS_HEADING, jobStateKind, jobStateLabel, needsCostData,
@@ -9,11 +9,13 @@ import {
 } from "../vocabulary";
 import JobDetails from "./drawer/JobDetails.vue";
 import JobStateIcon from "./drawer/JobStateIcon.vue";
+import JobWindowDetails from "./drawer/JobWindowDetails.vue";
 import RunCostBreakdown from "./drawer/RunCostBreakdown.vue";
 import RuntimeJobList from "./drawer/RuntimeJobList.vue";
+import ToolDetails from "./drawer/ToolDetails.vue";
 
 const props = defineProps<{
-  kind: "runs" | "tool-runs" | null;
+  kind: DrawerKind | null;
   detail: Record<string, unknown> | null;
   loading: boolean;
   periodLabel: string;
@@ -27,6 +29,11 @@ const props = defineProps<{
   restore?: { scrollTop: number; focusId: string } | null;
   /** Why the details could not be loaded; the drawer then offers to try again. */
   error?: string;
+  /** An interval drawer's title, such as "Sep 28", and how its sentences name it. */
+  windowTitle?: string;
+  windowNoun?: string;
+  /** True while another page of an interval's jobs is being fetched. */
+  paging?: boolean;
 }>();
 const emit = defineEmits<{
   // Escape and the close button; focus goes back to whatever opened the drawer.
@@ -34,6 +41,9 @@ const emit = defineEmits<{
   // A press outside dismisses the drawer, and focus stays where the press put it.
   dismiss: [];
   open: [kind: "runs" | "tool-runs", id: string, scrollTop: number];
+  // A tool's jobs, listed on the page itself under that tool's filter.
+  "show-jobs": [key: string];
+  page: [offset: number, scrollTop: number];
   back: [];
   select: [part: string, member: string];
   restored: [];
@@ -106,7 +116,12 @@ const runTotal = computed(() => text("run_total"));
 const run = computed(() => (isRun.value ? props.detail as unknown as InvocationDetail : null));
 const jobs = computed(() => run.value?.jobs ?? []);
 const children = computed(() => list("children"));
-const job = computed(() => (isRun.value ? null : props.detail as unknown as JobDetail));
+const job = computed(() => (props.kind === "tool-runs" ? props.detail as unknown as JobDetail : null));
+const tool = computed(() => (props.kind === "tool" ? props.detail as unknown as ToolDetail : null));
+const interval = computed(() => (props.kind === "window" ? props.detail as unknown as WindowDetail : null));
+const EYEBROWS: Record<DrawerKind, string> = {
+  runs: "Workflow run", "tool-runs": "Job", tool: "Tool", window: "Jobs in this interval",
+};
 </script>
 
 <template>
@@ -123,7 +138,7 @@ const job = computed(() => (isRun.value ? null : props.detail as unknown as JobD
   >
     <div class="drawer-head">
       <p class="eyebrow">
-        {{ isRun ? "Workflow run" : kind === "tool-runs" ? "Job" : "" }}
+        {{ kind ? EYEBROWS[kind] : "" }}
       </p>
       <button
         class="icon-close"
@@ -261,6 +276,22 @@ const job = computed(() => (isRun.value ? null : props.detail as unknown as JobD
           </span>
         </div>
         <JobDetails :detail="job" :timezone="timezone" :period-label="periodLabel" />
+      </template>
+
+      <template v-else-if="tool">
+        <h2 id="detail-title" ref="title" tabindex="-1">{{ tool.name }}</h2>
+        <ToolDetails
+          :detail="tool" :period-label="periodLabel"
+          @open="id => openFrom('tool-runs', id)" @show-jobs="emit('show-jobs', $event)"
+        />
+      </template>
+
+      <template v-else-if="interval">
+        <h2 id="detail-title" ref="title" tabindex="-1">{{ windowTitle }}</h2>
+        <JobWindowDetails
+          :detail="interval" :noun="windowNoun ?? ''" :paging="Boolean(paging)"
+          @open="id => openFrom('tool-runs', id)" @page="emit('page', $event, drawer?.scrollTop ?? 0)"
+        />
       </template>
     </template>
   </div>

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   collectionCutoff, DEFAULT_RUN_CONTROLS, loadReport, NO_RUN_FILTERS, queryString, runQueryString,
-  stateFromUrl, urlQuery, type ReportState,
+  stateFromUrl, urlQuery, withChartBucket, type ReportState,
 } from "./api";
 
 const SUMMARY = { revision_id: "rev-1", coverage: {}, amount: "0" };
@@ -12,10 +12,10 @@ function state(view: ReportState["view"] = "overview"): ReportState {
   return {
     view, period: "this-month", mode: "accrued",
     fromTime: "", toTime: "", timezone: "UTC", search: "", owner: "", toolId: "",
-    toolVersion: "", invocationId: "", workflowId: "", state: "", runner: "",
+    toolVersion: "", toolKey: "", invocationId: "", workflowId: "", state: "", runner: "",
     destination: "", capacity: "", quality: "", minCost: "", maxCost: "",
     sort: "created_at", direction: "desc", offset: 0,
-    ...NO_RUN_FILTERS, ...DEFAULT_RUN_CONTROLS,
+    ...NO_RUN_FILTERS, ...DEFAULT_RUN_CONTROLS, jobsChart: "tool",
   };
 }
 
@@ -179,7 +179,7 @@ describe("the URL of a runs view", () => {
   });
 
   it("keeps run parameters off other pages' links", () => {
-    const query = urlQuery({ ...state("tools"), ...RUN_FIELDS } as ReportState);
+    const query = urlQuery({ ...state("daily"), ...RUN_FIELDS } as ReportState);
     expect(query.has("workflow")).toBe(false);
     expect(query.has("outcome")).toBe(false);
   });
@@ -210,7 +210,7 @@ describe("what each view requests", () => {
   }
 
   it("asks only the Jobs page for a job list", async () => {
-    for (const view of ["overview", "runs", "tools", "daily"] as const) {
+    for (const view of ["overview", "runs", "daily"] as const) {
       const paths: string[] = [];
       vi.stubGlobal("fetch", record(paths));
       await loadReport(state(view));
@@ -278,5 +278,68 @@ describe("what each view requests", () => {
     expect(top.has("workflow_key")).toBe(false);
     expect(top.has("run_status")).toBe(false);
     expect(top.has("search")).toBe(false);
+  });
+});
+
+describe("the Jobs page's state", () => {
+  it("opens a Tools link as the Jobs page's By tool chart", () => {
+    const restored = stateFromUrl("?view=tools&period=last-week&tool_id=cat1&timezone=Europe/Paris&chart=time");
+    expect(restored).toMatchObject({
+      view: "tool-runs", jobsChart: "tool", period: "last-week", toolId: "cat1", timezone: "Europe/Paris",
+    });
+    expect(urlQuery(restored).get("view")).toBe("tool-runs");
+  });
+
+  it("lists the costliest jobs first unless a link asks for another order", () => {
+    expect(stateFromUrl("?view=tool-runs")).toMatchObject({ sort: "amount", direction: "desc" });
+    expect(stateFromUrl("?view=tool-runs&sort=created_at&direction=asc"))
+      .toMatchObject({ sort: "created_at", direction: "asc" });
+  });
+
+  it("keeps its chart apart from the runs page's", () => {
+    const jobs = stateFromUrl("?view=tool-runs&chart=time");
+    expect(jobs.jobsChart).toBe("time");
+    expect(jobs.runChart).toBe("workflow");
+    expect(urlQuery(jobs).get("chart")).toBe("time");
+    expect(urlQuery({ ...jobs, jobsChart: "tool" }).has("chart")).toBe(false);
+    expect(stateFromUrl("?view=runs&chart=time").jobsChart).toBe("tool");
+  });
+
+  it("carries a tool family to every request and back from the URL", () => {
+    const key = "toolshed.g2.bx.psu.edu/repos/devteam/fastqc/fastqc";
+    expect(new URLSearchParams(queryString({ ...state("tool-runs"), toolKey: key })).get("tool_key")).toBe(key);
+    expect(stateFromUrl(`?${urlQuery({ ...state("tool-runs"), toolKey: key })}`).toolKey).toBe(key);
+  });
+
+  it("asks for the shown chart only, with the ranking's size and search", async () => {
+    const paths: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      paths.push(url);
+      const body = url.includes("/summary") ? SUMMARY : { ...EMPTY_LIST, groups: [], buckets: [] };
+      return new Response(JSON.stringify(body), { status: 200 });
+    }));
+    await loadReport({ ...state("tool-runs"), jobsChart: "tool" }, undefined, { limit: 24, search: "bwa" });
+    const breakdown = paths.find(path => path.includes("/jobs/breakdown?"))!;
+    expect(breakdown).toContain("group_limit=24");
+    expect(breakdown).toContain("tool_search=bwa");
+    expect(paths.some(path => path.includes("/jobs/timeline"))).toBe(false);
+    // The ranking's search is never the report's search.
+    expect(new URLSearchParams(breakdown.split("?")[1]).has("search")).toBe(false);
+  });
+});
+
+describe("a time chart's bucket", () => {
+  it("is days for a week or month drawn whole, even on its first day", () => {
+    for (const period of ["this-week", "this-month"] as const) {
+      const query = withChartBucket(queryString({ ...state(), period }), { ...state(), period });
+      expect(new URLSearchParams(query).get("bucket")).toBe("day");
+    }
+  });
+
+  it("is left to the server for every other period", () => {
+    for (const period of ["today", "yesterday", "last-week", "last-month", "custom"] as const) {
+      const query = withChartBucket(queryString({ ...state(), period }), { ...state(), period });
+      expect(new URLSearchParams(query).has("bucket")).toBe(false);
+    }
   });
 });

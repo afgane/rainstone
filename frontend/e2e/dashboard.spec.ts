@@ -42,20 +42,20 @@ test("a workflow run shows its whole cost and its share of the period", async ({
 
   // A run whose cost crosses midnight shows how much of it falls in the period.
   await page.goto(`${BASE}?view=tool-runs&period=custom&from=2026-09-20&to=2026-09-20&search=midnight-price`);
-  // The first button in the table head sorts; the row's tool name opens details.
-  await page.locator(".jobs-table tbody").getByRole("button").first().click();
+  await page.locator(".job-card").first().click();
   await expect(page.getByRole("dialog")).toContainText("falls inside the selected dates");
 });
 
 test("ordinary language explains zero, unknown and incomplete costs", async ({ page }) => {
   await page.goto(`${BASE}?view=tool-runs&${FIXTURE_PERIOD}`);
-  const table = page.locator(".jobs-table");
-  await expect(table.getByText("Used your Galaxy server").first()).toBeVisible();
+  const list = page.locator(".job-cards");
+  await expect(list.getByText("Used your Galaxy server").first()).toBeVisible();
+  await expect(list.getByText("$0 extra").first()).toBeVisible();
   await expect(
-    table.getByText("Price unavailable").or(table.getByText("Cost incomplete")).first(),
+    list.getByText("Price unavailable").or(list.getByText("Cost incomplete")).first(),
   ).toBeVisible();
 
-  await table.locator("tbody").getByRole("button", { name: "goseq" }).first().click();
+  await list.locator(".job-card", { hasText: "goseq" }).first().click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("The server continues to incur costs");
   await expect(dialog.getByRole("heading", { name: "Compute", exact: true })).toBeVisible();
@@ -654,7 +654,7 @@ test("the individual jobs' block opens the jobs for that day", async ({ page }) 
   await page.locator(".chart-panel .blk[data-kind='individual']").last().click();
   await expect(page).toHaveURL(/view=tool-runs/);
   await expect(page).toHaveURL(/period=custom/);
-  await expect(page.locator(".jobs-table")).toBeVisible();
+  await expect(page.locator(".job-cards")).toBeVisible();
 });
 
 test("pressing a column, not a block, on Overview does nothing", async ({ page }) => {
@@ -850,3 +850,148 @@ for (const height of [500, 1000]) {
       .toContain("rgba(0, 0, 0, 0)");
   });
 }
+
+/* The Jobs page. */
+
+async function openJobs(page: Page, extra = "") {
+  await page.goto(`${BASE}?view=tool-runs&${RUNS_PERIOD}${extra}`);
+  await expect(page.locator(".figures")).toBeVisible();
+  await expect(page.locator(".job-card").first()).toBeVisible();
+}
+
+test("the Jobs page answers what the jobs cost, by tool, with every period choice", async ({ page, request }) => {
+  const summary = await api(request, "summary");
+  await openJobs(page);
+  await expect(page.locator(".figure.featured .figure-amount")).toContainText(dollars(summary.amount));
+  for (const period of ["Today", "Yesterday", "This week", "Last week", "This month", "Last month", "Custom dates"]) {
+    await expect(page.getByRole("button", { name: period, exact: true })).toBeVisible();
+  }
+  await expect(page.getByRole("tab", { name: "By tool" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".tool-row")).toHaveCount(12);
+  await expect(page.getByPlaceholder("Find a job")).toBeVisible();
+  await expect(page.getByText("Search by tool")).toBeVisible();
+  // There is no Tools page any more.
+  await expect(page.getByRole("button", { name: "Tools", exact: true })).toHaveCount(0);
+  // No job numbers or invented context on the list.
+  await expect(page.locator(".job-cards")).not.toContainText(/#\d|Job \d/);
+  await expect(page.locator(".origin").first()).toHaveText(/Part of .+|Individual tool job|Workflow link not recorded/);
+});
+
+test("more tools keep one scale, and finding one leaves the report as it was", async ({ page }) => {
+  await openJobs(page);
+  const first = page.locator(".tool-row").first();
+  const width = async () => (await first.locator(".bar").boundingBox())!.width;
+  const before = await width();
+  const headline = await page.locator(".figure.featured .figure-amount").textContent();
+  await page.getByRole("button", { name: /Show \d+ more tools/ }).click();
+  await expect(page.locator(".tool-row")).not.toHaveCount(12);
+  expect(Math.abs((await width()) - before)).toBeLessThan(1);
+  const last = (await page.locator(".tool-row .tool-name").last().textContent())!;
+  await page.goto(`${BASE}?view=tool-runs&${RUNS_PERIOD}`);
+  await page.getByLabel("Find a tool").fill(last);
+  await expect(page.locator(".tool-row .tool-name", { hasText: last }).first()).toBeVisible();
+  await expect(page.locator(".figure.featured .figure-amount")).toHaveText(headline!);
+  await expect(page).not.toHaveURL(/search=/);
+});
+
+test("a tool's drawer ranks its costliest jobs and can list them all", async ({ page }) => {
+  await openJobs(page);
+  const row = page.locator(".tool-row").first();
+  const name = (await row.locator(".tool-name").textContent())!;
+  await row.click();
+  const drawer = page.getByRole("dialog");
+  await expect(drawer.getByRole("heading", { name, exact: true })).toBeFocused();
+  await expect(drawer.getByRole("heading", { name: /jobs? contributing most to the cost/ })).toBeVisible();
+  const rows = drawer.locator(".job-row");
+  expect(await rows.count()).toBeLessThanOrEqual(5);
+  const costs = await rows.locator(".job-cost").allTextContents();
+  const values = costs.map(text => Number(text.replace(/[^0-9.]/g, "")));
+  expect([...values].sort((a, b) => b - a)).toEqual(values);
+  // The action sits under the ranked jobs.
+  const show = drawer.getByRole("button", { name: /^Show \d+ jobs?$/ });
+  expect((await show.boundingBox())!.y).toBeGreaterThan((await rows.last().boundingBox())!.y);
+  // Opening the drawer changed no filter.
+  await expect(page).not.toHaveURL(/tool_key=/);
+  await show.click();
+  await expect(drawer).toBeHidden();
+  await expect(page).toHaveURL(/tool_key=/);
+  await expect(page.getByRole("button", { name: /Tool:/ })).toBeVisible();
+  await settle(page);
+  await expect(page.locator(".job-open").first()).toHaveText(name);
+  for (const title of await page.locator(".job-open").allTextContents()) expect(title).toBe(name);
+});
+
+test("tool, then job, then back to the tool puts the reader back", async ({ page }) => {
+  await openJobs(page);
+  await page.locator(".tool-row").first().click();
+  const drawer = page.getByRole("dialog");
+  const job = drawer.locator(".job-row").nth(1);
+  const id = await job.getAttribute("data-job-id");
+  await job.click();
+  await expect(drawer.getByRole("heading", { name: "Compute", exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/detail_parent_kind=tool/);
+  // A reload keeps the way back.
+  await page.reload();
+  await drawer.getByRole("button", { name: "Back to tool" }).click();
+  await expect(drawer.locator(`.job-row[data-job-id="${id}"]`)).toBeFocused();
+});
+
+test("a column opens its interval's jobs without filtering the page", async ({ page }) => {
+  await openJobs(page, "&chart=time");
+  await expect(page.getByRole("combobox", { name: /interval/i })).toHaveCount(0);
+  const headline = await page.locator(".figure.featured .figure-amount").textContent();
+  const url = page.url();
+  const column = page.locator("button.job-col:not(.empty)").first();
+  await column.click();
+  const drawer = page.getByRole("dialog");
+  await expect(drawer.getByText("Jobs, highest cost first")).toBeVisible();
+  await expect(column).toHaveAttribute("aria-current", "true");
+  await expect(page.locator(".figure.featured .figure-amount")).toHaveText(headline!);
+  await expect(page.getByRole("button", { name: /Runs active|Tool:/ })).toHaveCount(0);
+  expect(new URL(page.url()).searchParams.get("from")).toBe(new URL(url).searchParams.get("from"));
+  await drawer.locator(".job-row").first().click();
+  await expect(drawer).toContainText(/falls inside|Estimated compute cost/);
+  await drawer.getByRole("button", { name: /Back to selected (day|hour|week)/ }).click();
+  await expect(drawer.getByText("Jobs, highest cost first")).toBeVisible();
+});
+
+test("the Tools page's links open the Jobs page by tool", async ({ page }) => {
+  await page.goto(`${BASE}?view=tools&${RUNS_PERIOD}`);
+  await expect(page.getByRole("heading", { name: "Jobs", exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/view=tool-runs/);
+  await expect(page.getByRole("tab", { name: "By tool" })).toHaveAttribute("aria-selected", "true");
+});
+
+test("the Jobs page has no accessibility violations, drawers included", async ({ page }) => {
+  await openJobs(page);
+  const scan = async () => {
+    const results = await new AxeBuilder({ page }).exclude(".chart-tip").analyze();
+    expect(results.violations).toEqual([]);
+  };
+  await scan();
+  await page.locator(".tool-row").first().click();
+  await expect(page.getByRole("dialog").locator(".job-row").first()).toBeVisible();
+  await scan();
+  await page.keyboard.press("Escape");
+  await page.getByRole("tab", { name: "Over time" }).click();
+  await page.locator("button.job-col:not(.empty)").first().click();
+  await expect(page.getByRole("dialog").getByText("Jobs, highest cost first")).toBeVisible();
+  await scan();
+});
+
+test("a workflow job names its run, which opens from the list", async ({ page }) => {
+  await openJobs(page);
+  const link = page.locator(".origin-run").first();
+  const name = (await link.textContent())!.trim();
+  await link.click();
+  const drawer = page.getByRole("dialog");
+  await expect(drawer.getByText("Workflow run", { exact: true })).toBeVisible();
+  await expect(drawer.getByRole("heading", { name, exact: true })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(link).toBeFocused();
+  // Pressing the rest of the card still opens the job itself.
+  const card = page.locator(".job-card").first();
+  const box = (await card.boundingBox())!;
+  await card.click({ position: { x: box.width - 30, y: box.height / 2 } });
+  await expect(drawer.getByRole("heading", { name: "Compute", exact: true })).toBeVisible();
+});

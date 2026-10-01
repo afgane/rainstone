@@ -1,32 +1,32 @@
 <script setup lang="ts">
-import { CircleDollarSign, Filter, RefreshCw } from "@lucide/vue";
+import { CalendarRange, CircleDollarSign, Filter, RefreshCw } from "@lucide/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import {
-  ADVANCED_FILTERS, ApiError, activeFilters, chartsNeeded, collectionCutoff, DEFAULT_RUN_CONTROLS,
-  downloadExport, get, loadMoreRuns, loadReport, loadRunChart, NO_RUN_FILTERS, periodOf, queryString,
-  stateFromUrl, urlQuery,
-  type AdvancedFilter, type CostTimeline, type DailyItem, type Freshness, type GroupItem, type Infrastructure,
-  type Invocation, type JobList, type Me, type ReportState, type RunsView, type RunStatus,
-  type Status, type Summary, type View,
+  ADVANCED_FILTERS, ApiError, activeFilters, chartsNeeded, collectionCutoff, DEFAULT_RANKING,
+  DEFAULT_RUN_CONTROLS, downloadExport, get, loadJobCharts, loadJobPage, loadMoreRuns, loadReport,
+  loadRunChart, loadToolRanking, NO_RUN_FILTERS, periodOf, queryString, stateFromUrl, urlQuery,
+  WINDOW_PAGE_SIZE,
+  type AdvancedFilter, type CostTimeline, type DailyItem, type DrawerKind, type Freshness, type GroupItem,
+  type Infrastructure, type Invocation, type JobCharts, type JobList, type JobsChart, type Me,
+  type ReportState, type RunsView, type RunStatus, type Status, type Summary, type ToolRanking, type View,
 } from "./api";
 import DetailDrawer from "./components/DetailDrawer.vue";
+import JobsPage from "./components/jobs/JobsPage.vue";
 import OverviewPanel from "./components/OverviewPanel.vue";
 import ReportSidebar from "./components/ReportSidebar.vue";
 import PageFilters from "./components/runs/PageFilters.vue";
 import RunsPage from "./components/runs/RunsPage.vue";
 import ServerPanel from "./components/ServerPanel.vue";
 import StatusPanel from "./components/StatusPanel.vue";
-import ToolRunsPanel from "./components/ToolRunsPanel.vue";
-import ToolsPanel from "./components/ToolsPanel.vue";
 import { localDate } from "./chart/axis";
+import { parseWindowId, windowId, windowLabel, type JobWindow } from "./jobsView";
 import { describePeriod, PERIOD_LABELS, todayIn, type PeriodId } from "./periods";
-import { formatCost, formatDateTime, PRIMARY_MEASURE, RUN_SORTS } from "./vocabulary";
+import { formatCost, formatDate, formatDateTime, PRIMARY_MEASURE, RUN_SORTS } from "./vocabulary";
 
 const TITLES: Record<View, string> = {
   overview: "Overview",
   runs: "Workflow runs",
   "tool-runs": "Jobs",
-  tools: "Tools",
   daily: "Daily cost",
   users: "Galaxy accounts",
   server: "Galaxy server",
@@ -46,8 +46,11 @@ const renderedView = ref<View | null>(null);
 const loading = ref(true);
 const error = ref("");
 const detail = ref<Record<string, unknown> | null>(null);
-const detailKind = ref<"runs" | "tool-runs" | null>(null);
+const detailKind = ref<DrawerKind | null>(null);
 const detailId = ref("");
+// Which page of an interval's jobs is open, and whether another is being fetched.
+const detailOffset = ref(0);
+const detailPaging = ref(false);
 const detailLoading = ref(false);
 const detailError = ref("");
 // The part of a run's cost that is open in the drawer, and a member of a pooled part inside it.
@@ -60,6 +63,10 @@ const drawerOpen = ref(false);
 const hoverRunId = ref("");
 const loadingMore = ref(false);
 const loadingChart = ref(false);
+// How much of the Jobs page's tool ranking is shown, and the tool search inside it.
+const toolRanking = ref<ToolRanking>({ ...DEFAULT_RANKING });
+const loadingRanking = ref(false);
+const loadingList = ref(false);
 // A minimum height for the page while a narrower answer would otherwise make it jump; 0 for none.
 const holdHeight = ref(0);
 let detailOpener: HTMLElement | null = null;
@@ -70,20 +77,37 @@ let firstLoad = true;
 // arrives after the report has changed is dropped, never mixed into the new one.
 let generation = 0;
 let detailToken = 0;
-// Runs and jobs opened from inside the drawer, so its back button can retrace them.
+// Runs, jobs, tools and intervals opened from inside the drawer, so its back button can retrace them.
 interface TrailStop {
-  kind: "runs" | "tool-runs"; id: string; part: string; member: string; scrollTop: number; focusId: string;
+  kind: DrawerKind; id: string; part: string; member: string; offset: number;
+  scrollTop: number; focusId: string;
 }
 const detailTrail = ref<TrailStop[]>([]);
 // The scroll position and row of whatever the drawer is about to open from itself.
 let leaving = { scrollTop: 0, focusId: "" };
-const DETAIL_PARAMS = ["detail_kind", "detail_id", "detail_part", "detail_member"] as const;
+// The drawer's place in the address, and the one it was opened from, so a reload can go back to it.
+const DETAIL_PARAMS = [
+  "detail_kind", "detail_id", "detail_part", "detail_member", "detail_offset",
+  "detail_parent_kind", "detail_parent_id", "detail_parent_offset",
+] as const;
+const DRAWER_KINDS: DrawerKind[] = ["runs", "tool-runs", "tool", "window"];
+const BACK_LABELS: Record<DrawerKind, string> = {
+  runs: "Back to workflow run", "tool-runs": "Back to job", tool: "Back to tool", window: "",
+};
 
 const period = computed(() => periodOf(state));
 const periodLabel = computed(() => (state.period === "custom"
   ? "the selected dates"
   : PERIOD_LABELS[state.period].toLowerCase()));
 const filters = computed(() => activeFilters(state));
+// Fixture and imported data have fixed dates; an empty period offers to jump to them.
+const recordedDates = computed(() => {
+  const window = summary.value?.demo_period;
+  if (!window || summary.value?.job_count || ["server", "status"].includes(state.view)) return "";
+  const from = formatDate(window.from, state.timezone);
+  const to = formatDate(window.to, state.timezone);
+  return from === to ? from : `${from} – ${to}`;
+});
 const overviewParts = computed(() => (Array.isArray(viewData.value)
   ? viewData.value as Array<{ items?: unknown[] }>
   : []));
@@ -101,16 +125,40 @@ const runs = computed(() => (state.view === "overview"
   : []));
 const runsView = computed(() => (state.view === "runs" && renderedView.value === "runs" && viewData.value
   ? viewData.value as RunsView : null));
+const jobCharts = computed(() => (
+  state.view === "tool-runs" && renderedView.value === "tool-runs" && viewData.value
+    ? viewData.value as JobCharts : null));
 const server = computed(() => (state.view === "server"
   ? viewData.value as Infrastructure | null
   : null));
 const status = computed(() => (state.view === "status" ? viewData.value as Status | null : null));
 const collection = computed(() => collectionCutoff(freshness.value));
-const page = computed(() => Math.floor(state.offset / 50) + 1);
 const openRunId = computed(() => (detailKind.value === "runs" ? detailId.value : ""));
-// Refetching the runs page keeps the last picture, dimmed, instead of a skeleton,
-// so nothing on the page moves while the answer changes.
-const keepPrevious = computed(() => loading.value && runsView.value !== null);
+/** The drawer, or the drawer a job was opened from, of the given kind; its ID or empty. */
+function openOrParent(kind: DrawerKind): string {
+  if (detailKind.value === kind) return detailId.value;
+  const parent = detailTrail.value[detailTrail.value.length - 1];
+  return detailKind.value && parent?.kind === kind ? parent.id : "";
+}
+const openToolKey = computed(() => openOrParent("tool"));
+const openWindowFrom = computed(() => parseWindowId(openOrParent("window"))?.from ?? "");
+const openJobId = computed(() => (detailKind.value === "tool-runs" && !detailTrail.value.length ? detailId.value : ""));
+// A job opened from an interval describes its share of that interval, not of the period.
+const parentWindow = computed<JobWindow | null>(() => {
+  const parent = detailTrail.value[detailTrail.value.length - 1];
+  return detailKind.value === "tool-runs" && parent?.kind === "window" ? parseWindowId(parent.id) : null;
+});
+const openWindow = computed(() => (detailKind.value === "window" ? parseWindowId(detailId.value) : null));
+const drawerPeriodLabel = computed(() => (parentWindow.value
+  ? windowLabel(parentWindow.value, state.timezone) : periodLabel.value));
+const backLabel = computed(() => {
+  const parent = detailTrail.value[detailTrail.value.length - 1];
+  if (!parent) return "";
+  return parent.kind === "window" ? `Back to selected ${parseWindowId(parent.id)?.unit ?? "interval"}` : BACK_LABELS[parent.kind];
+});
+// Refetching the runs or jobs page keeps the last picture, dimmed, instead of a
+// skeleton, so nothing on the page moves while the answer changes.
+const keepPrevious = computed(() => loading.value && (runsView.value !== null || jobCharts.value !== null));
 const runSortChoice = computed(() => RUN_SORTS.find(
   choice => choice.sort === state.runSort && choice.direction === state.runDirection,
 )?.id ?? RUN_SORTS[0].id);
@@ -137,7 +185,7 @@ async function refresh(push = false) {
   loading.value = true; error.value = "";
   updateUrl(push && !firstLoad);
   try {
-    const result = await loadReport(state, controller.signal);
+    const result = await loadReport(state, controller.signal, toolRanking.value);
     if (mine !== generation) return;
     // The totals, the charts and the list are committed together, so a new
     // total is never shown beside the previous filter's chart.
@@ -188,7 +236,10 @@ function clearGrouped() {
   state.maxRunAmount = ""; state.boundaryRunId = "";
 }
 function changeView(view: View) {
-  if (state.view !== view) resetRunPage();
+  if (state.view !== view) {
+    resetRunPage();
+    toolRanking.value = { ...DEFAULT_RANKING };
+  }
   state.view = view; state.offset = 0; drawerOpen.value = false; closeDetail(false, false);
   void refresh(true);
 }
@@ -222,11 +273,6 @@ function clearFilters() {
   state.search = "";
   clearGrouped();
   void refresh(true);
-}
-function sort(field: string) {
-  if (state.sort === field) state.direction = state.direction === "asc" ? "desc" : "asc";
-  else { state.sort = field; state.direction = "asc"; }
-  state.offset = 0; void refresh(true);
 }
 /** The calendar dates a chart block's column covers, kept inside the selected period. */
 function columnDates(target: { from: string; to: string }) {
@@ -267,10 +313,11 @@ async function moreUndated() {
     error.value = reason instanceof Error ? reason.message : "Unable to load more jobs";
   }
 }
-function selectTool(toolId: string) {
-  state.toolId = toolId; changeView("tool-runs");
+/** Overview's tools lead to the Jobs page's By tool chart, which replaced the Tools page. */
+function openTools() {
+  state.jobsChart = "tool";
+  changeView("tool-runs");
 }
-
 /* The Workflow runs page. Every control below narrows the list, the totals and
    the chart together, and a filter that changes clears any grouped selection. */
 function pinned(): ReportState {
@@ -394,18 +441,129 @@ async function downloadRuns() {
   await download();
 }
 
-/** The drawer's place in the address: which run or job, and which part of a run's cost is open. */
-function detailParams(params: URLSearchParams, kind: string, id: string, part: string, member: string) {
-  params.set("detail_kind", kind); params.set("detail_id", id);
-  for (const [name, value] of [["detail_part", part], ["detail_member", member]]) {
+/* The Jobs page. Its chart tab, ranking size and tool search are presentation:
+   only the list's page and order, and an explicit "Show N jobs", touch the report. */
+async function chooseJobsChart(kind: JobsChart) {
+  state.jobsChart = kind;
+  updateUrl(true);
+  const current = jobCharts.value;
+  if (!current || (kind === "tool" ? current.breakdown : current.timeline)) return;
+  // The other tab loads lazily, from the same revision the page already shows.
+  const mine = generation;
+  loadingChart.value = true;
+  try {
+    const charts = await loadJobCharts(pinned(), kind, toolRanking.value);
+    if (mine !== generation) return;
+    viewData.value = {
+      breakdown: charts.breakdown ?? current.breakdown, timeline: charts.timeline ?? current.timeline,
+    };
+  } catch (reason) {
+    recoverFrom(reason, mine, "Unable to load the chart");
+  } finally {
+    if (mine === generation) loadingChart.value = false;
+  }
+}
+let rankingToken = 0;
+async function rankTools(next: ToolRanking) {
+  toolRanking.value = next;
+  const current = jobCharts.value;
+  if (!current?.breakdown) return;
+  const mine = generation;
+  const asked = ++rankingToken;
+  loadingRanking.value = true;
+  try {
+    const breakdown = await loadToolRanking(pinned(), next);
+    if (mine !== generation || asked !== rankingToken) return;
+    viewData.value = { ...(jobCharts.value ?? current), breakdown };
+  } catch (reason) {
+    recoverFrom(reason, mine, "Unable to load the tools");
+  } finally {
+    if (asked === rankingToken) loadingRanking.value = false;
+  }
+}
+function searchTools(text: string) {
+  void rankTools({ ...toolRanking.value, search: text });
+}
+function showTools(count: number) {
+  void rankTools({ ...toolRanking.value, limit: count });
+}
+/** Another page or order of the job list; the figures and charts do not change, so they are kept. */
+async function reloadJobs() {
+  updateUrl(true);
+  const mine = generation;
+  loadingList.value = true;
+  try {
+    const list = await loadJobPage(pinned());
+    if (mine !== generation) return;
+    jobs.value = list;
+  } catch (reason) {
+    recoverFrom(reason, mine, "Unable to load the jobs");
+  } finally {
+    if (mine === generation) loadingList.value = false;
+  }
+}
+function pageJobs(offset: number) {
+  state.offset = offset;
+  void reloadJobs();
+}
+function sortJobs(sort: string, direction: "asc" | "desc") {
+  state.sort = sort; state.direction = direction; state.offset = 0;
+  void reloadJobs();
+}
+function openWindowDrawer(window: JobWindow, opener: HTMLElement) {
+  void showDetail("window", windowId(window), true, opener);
+}
+/** The tool drawer's one action that changes the report: list that tool's jobs on the page. */
+function showToolJobs(key: string) {
+  closeDetail(false);
+  state.toolKey = key; state.offset = 0;
+  clearGrouped();
+  void refresh(true).then(() => document.getElementById("job-list-title")?.scrollIntoView({ block: "start" }));
+}
+
+/** The drawer's place in the address: what is open, which part of it, and what it was opened from. */
+function detailParams(
+  params: URLSearchParams, stop: Pick<TrailStop, "kind" | "id" | "part" | "member" | "offset">,
+  parent: TrailStop | undefined,
+) {
+  params.set("detail_kind", stop.kind); params.set("detail_id", stop.id);
+  const values: Array<[string, string]> = [
+    ["detail_part", stop.part], ["detail_member", stop.member],
+    ["detail_offset", stop.offset ? String(stop.offset) : ""],
+    ["detail_parent_kind", parent?.kind ?? ""], ["detail_parent_id", parent?.id ?? ""],
+    ["detail_parent_offset", parent?.offset ? String(parent.offset) : ""],
+  ];
+  for (const [name, value] of values) {
     if (value) params.set(name, value); else params.delete(name);
   }
 }
+/** Where a drawer's details come from, under the page's filters at its pinned revision. */
+function detailPath(kind: DrawerKind, id: string, offset: number, parent: TrailStop | undefined): string | null {
+  const query = new URLSearchParams(queryString(pinned()));
+  if (kind === "runs") return `/invocations/${encodeURIComponent(id)}?${query}`;
+  if (kind === "tool") {
+    query.set("tool_key", id);
+    return `/jobs/tool-detail?${query}`;
+  }
+  if (kind === "window") {
+    const window = parseWindowId(id);
+    if (!window) return null;
+    query.set("window_from", window.from); query.set("window_to", window.to);
+    query.set("limit", String(WINDOW_PAGE_SIZE)); query.set("offset", String(offset));
+    return `/jobs/window-detail?${query}`;
+  }
+  const window = parent?.kind === "window" ? parseWindowId(parent.id) : null;
+  if (window) {
+    query.set("from", window.from); query.set("to", window.to);
+  }
+  return `/jobs/${encodeURIComponent(id)}?${query}`;
+}
 async function showDetail(
-  kind: "runs" | "tool-runs", id: string, updateHistory = true, opener: HTMLElement | null = null,
+  kind: DrawerKind, id: string, updateHistory = true, opener: HTMLElement | null = null,
   trail: "reset" | "push" | "keep" = "reset",
   selection: { part: string; member: string } = { part: "", member: "" },
   restore: { scrollTop: number; focusId: string } | null = null,
+  offset = 0,
 ) {
   // Pressing the open run's own trigger closes the drawer again.
   if (detailKind.value === kind && detailId.value === id && detail.value) {
@@ -417,7 +575,7 @@ async function showDetail(
   else if (trail === "push" && detailKind.value) {
     detailTrail.value = [...detailTrail.value, {
       kind: detailKind.value, id: detailId.value, part: detailPart.value, member: detailMember.value,
-      ...leaving,
+      offset: detailOffset.value, ...leaving,
     }];
   }
   // Focus goes back to whatever the person last used to open a run.
@@ -426,23 +584,59 @@ async function showDetail(
   detailKind.value = kind;
   detailId.value = id;
   detailPart.value = selection.part; detailMember.value = selection.member;
+  detailOffset.value = offset;
   detailRestore.value = restore;
   detailError.value = "";
+  const parent = detailTrail.value[detailTrail.value.length - 1];
   if (updateHistory) {
     const params = new URLSearchParams(location.search);
-    detailParams(params, kind, id, selection.part, selection.member);
+    detailParams(params, { kind, id, offset, ...selection }, parent);
     // A swap replaces the entry, so Back leaves the drawer rather than stepping through runs.
     history[swapping ? "replaceState" : "pushState"]({}, "", `${location.pathname}?${params}`);
   }
   detailLoading.value = true;
-  const path = kind === "runs" ? "invocations" : "jobs";
+  const path = detailPath(kind, id, offset, parent);
   try {
-    const result = await get<Record<string, unknown>>(`/${path}/${id}?${queryString(state)}`);
+    if (!path) throw new Error("This link does not name an interval of the chart.");
+    const result = await get<Record<string, unknown>>(path);
     if (mine === detailToken) detail.value = result;
   } catch (reason) {
-    if (mine === detailToken) detailError.value = reason instanceof Error ? reason.message : "Unable to load detail";
+    if (mine !== detailToken) return;
+    // A superseded snapshot reloads the page, then this drawer from the new one.
+    if (reason instanceof ApiError && reason.status === 409) {
+      detailLoading.value = false;
+      await refresh(false);
+      if (mine === detailToken) void showDetail(kind, id, false, null, "keep", selection, restore, offset);
+      return;
+    }
+    detailError.value = reason instanceof Error ? reason.message : "Unable to load detail";
   } finally {
     if (mine === detailToken) detailLoading.value = false;
+  }
+}
+/** Another page of an interval's jobs, inside its drawer; its totals and the page stay as they are. */
+async function pageWindow(offset: number, scrollTop: number) {
+  if (detailKind.value !== "window") return;
+  const mine = detailToken;
+  const parent = detailTrail.value[detailTrail.value.length - 1];
+  const path = detailPath("window", detailId.value, offset, parent);
+  if (!path) return;
+  detailPaging.value = true;
+  try {
+    const result = await get<{ items: Array<{ id: string }> }>(path);
+    if (mine !== detailToken) return;
+    detailOffset.value = offset;
+    detailRestore.value = { scrollTop, focusId: result.items[0]?.id ?? "" };
+    detail.value = result as unknown as Record<string, unknown>;
+    const params = new URLSearchParams(location.search);
+    detailParams(params, {
+      kind: "window", id: detailId.value, part: "", member: "", offset,
+    }, parent);
+    history.replaceState({}, "", `${location.pathname}?${params}`);
+  } catch (reason) {
+    if (mine === detailToken) detailError.value = reason instanceof Error ? reason.message : "Unable to load these jobs";
+  } finally {
+    if (mine === detailToken) detailPaging.value = false;
   }
 }
 /** A run or job opened from inside the drawer, remembering where the reader was. */
@@ -454,14 +648,16 @@ function retryDetail() {
   if (!detailKind.value) return;
   void showDetail(detailKind.value, detailId.value, false, null, "keep", {
     part: detailPart.value, member: detailMember.value,
-  });
+  }, null, detailOffset.value);
 }
 /** Choosing a part of a run's cost is part of the address, but not a step in the history. */
 function selectPart(part: string, member: string) {
   detailPart.value = part; detailMember.value = member;
   if (!detailKind.value) return;
   const params = new URLSearchParams(location.search);
-  detailParams(params, detailKind.value, detailId.value, part, member);
+  detailParams(params, {
+    kind: detailKind.value, id: detailId.value, part, member, offset: detailOffset.value,
+  }, detailTrail.value[detailTrail.value.length - 1]);
   history.replaceState({}, "", `${location.pathname}?${params}`);
 }
 function detailBack() {
@@ -470,7 +666,7 @@ function detailBack() {
   detailTrail.value = detailTrail.value.slice(0, -1);
   void showDetail(previous.kind, previous.id, true, null, "keep",
     { part: previous.part, member: previous.member },
-    { scrollTop: previous.scrollTop, focusId: previous.focusId });
+    { scrollTop: previous.scrollTop, focusId: previous.focusId }, previous.offset);
 }
 function closeDetail(returnFocus = true, updateHistory = true) {
   detailToken += 1;
@@ -478,6 +674,7 @@ function closeDetail(returnFocus = true, updateHistory = true) {
   const wasOpen = detailKind.value !== null;
   detail.value = null; detailKind.value = null; detailId.value = ""; detailLoading.value = false;
   detailError.value = ""; detailPart.value = ""; detailMember.value = ""; detailRestore.value = null;
+  detailOffset.value = 0; detailPaging.value = false;
   if (updateHistory && wasOpen) {
     const params = new URLSearchParams(location.search);
     for (const name of DETAIL_PARAMS) params.delete(name);
@@ -493,15 +690,30 @@ async function download() {
   try { await downloadExport(state); }
   catch (reason) { error.value = reason instanceof Error ? reason.message : "Unable to export report"; }
 }
-function onPopState() {
+/**
+ * The drawer an address describes. A drawer opened from another keeps that one
+ * as the place its back button returns to, so a reloaded link still leads back.
+ */
+function detailFromUrl(): boolean {
   const params = new URLSearchParams(location.search);
-  const kind = params.get("detail_kind"); const id = params.get("detail_id");
+  const kind = params.get("detail_kind") as DrawerKind | null;
+  const id = params.get("detail_id");
+  if (!kind || !DRAWER_KINDS.includes(kind) || !id) return false;
+  const parentKind = params.get("detail_parent_kind") as DrawerKind | null;
+  const parentId = params.get("detail_parent_id");
+  detailKind.value = null;
+  detailTrail.value = parentKind && DRAWER_KINDS.includes(parentKind) && parentId ? [{
+    kind: parentKind, id: parentId, part: "", member: "",
+    offset: Number(params.get("detail_parent_offset")) || 0, scrollTop: 0, focusId: id,
+  }] : [];
+  void showDetail(kind, id, false, null, "keep", {
+    part: params.get("detail_part") ?? "", member: params.get("detail_member") ?? "",
+  }, null, Number(params.get("detail_offset")) || 0);
+  return true;
+}
+function onPopState() {
   Object.assign(state, stateFromUrl(location.search)); void refresh(false);
-  if ((kind === "runs" || kind === "tool-runs") && id) {
-    void showDetail(kind, id, false, null, "reset", {
-      part: params.get("detail_part") ?? "", member: params.get("detail_member") ?? "",
-    });
-  } else closeDetail(false, false);
+  if (!detailFromUrl()) closeDetail(false, false);
 }
 function onKey(event: KeyboardEvent) {
   // The detail drawer closes itself on Escape; this closes the filters panel on narrow screens.
@@ -512,13 +724,7 @@ onMounted(() => {
   window.addEventListener("popstate", onPopState);
   window.addEventListener("keydown", onKey);
   void refresh();
-  const params = new URLSearchParams(location.search);
-  const kind = params.get("detail_kind"); const id = params.get("detail_id");
-  if ((kind === "runs" || kind === "tool-runs") && id) {
-    void showDetail(kind, id, false, null, "reset", {
-      part: params.get("detail_part") ?? "", member: params.get("detail_member") ?? "",
-    });
-  }
+  detailFromUrl();
 });
 onBeforeUnmount(() => {
   controller?.abort();
@@ -570,7 +776,16 @@ onBeforeUnmount(() => {
     </div>
 
     <main id="main" class="page" :style="{ minHeight: holdHeight ? `${holdHeight}px` : undefined }">
-      <h1 class="page-title">{{ TITLES[state.view] }}</h1>
+      <div class="page-title-row">
+        <h1 class="page-title">{{ TITLES[state.view] }}</h1>
+        <button
+          v-if="recordedDates" type="button" class="secondary recorded-dates"
+          @click="showDemoPeriod"
+        >
+          <CalendarRange :size="16" aria-hidden="true" />
+          Show {{ recordedDates }}, when this {{ summary?.imported_snapshot ? "snapshot" : "demonstration" }} was recorded
+        </button>
+      </div>
       <div v-if="error" class="error" role="alert">
         <strong>Reporting data unavailable.</strong> {{ error }}
       </div>
@@ -585,9 +800,8 @@ onBeforeUnmount(() => {
         <OverviewPanel
           v-if="state.view === 'overview' && costTimeline"
           :state="state" :summary="summary" :timeline="costTimeline" :tools="tools" :runs="runs"
-          @view="changeView" @run="(id, opener) => showDetail('runs', id, true, opener)"
+          @view="changeView" @tools="openTools" @run="(id, opener) => showDetail('runs', id, true, opener)"
           @runs="openRunsWindow" @jobs="openJobsWindow"
-          @demo-period="showDemoPeriod"
         />
 
         <RunsPage
@@ -601,17 +815,17 @@ onBeforeUnmount(() => {
           @sort="reloadRuns" @more="moreRuns" @clear="clearRunFilters" @export="downloadRuns"
         />
 
-        <ToolRunsPanel
-          v-else-if="state.view === 'tool-runs'"
-          :jobs="jobs.items" :undated-jobs="jobs.undated_items" :total="jobs.total"
-          :undated="summary.undated" :period-label="periodLabel" :timezone="state.timezone"
-          @detail="(id, opener) => showDetail('tool-runs', id, true, opener)" @sort="sort" @export="download"
-          @more-undated="moreUndated"
-        />
-
-        <ToolsPanel
-          v-else-if="state.view === 'tools'"
-          :tools="tools" :period-label="periodLabel" @select="selectTool"
+        <JobsPage
+          v-else-if="state.view === 'tool-runs' && jobCharts"
+          :state="state" :summary="summary" :charts="jobCharts" :list="jobs"
+          :tool-search="toolRanking.search" :loading-chart="loadingChart" :loading-ranking="loadingRanking"
+          :loading-list="loadingList" :open-key="openToolKey" :open-window-from="openWindowFrom"
+          :open-job-id="openJobId"
+          @chart="chooseJobsChart" @tool="(key, opener) => showDetail('tool', key, true, opener)"
+          @window="openWindowDrawer" @search="searchTools" @limit="showTools"
+          @job="(id, opener) => showDetail('tool-runs', id, true, opener)"
+          @run="(id, opener) => showDetail('runs', id, true, opener)"
+          @sort="sortJobs" @page="pageJobs" @export="download" @more-undated="moreUndated"
         />
 
         <ServerPanel v-else-if="state.view === 'server'" :server="server" :timezone="state.timezone" />
@@ -661,20 +875,6 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <nav
-          v-if="state.view === 'tool-runs' && jobs.total > jobs.limit" class="pagination"
-          aria-label="Pages"
-        >
-          <button
-            :disabled="state.offset === 0"
-            @click="state.offset = Math.max(0, state.offset - jobs.limit); refresh(true)"
-          >Previous</button>
-          <span>Page {{ page }} · {{ jobs.total }} jobs</span>
-          <button
-            :disabled="state.offset + jobs.limit >= jobs.total"
-            @click="state.offset += jobs.limit; refresh(true)"
-          >Next</button>
-        </nav>
 
         <div v-if="state.view !== 'status'" class="snapshot">
           {{ PRIMARY_MEASURE }} · {{ describePeriod(period, state.timezone) }} ·
@@ -706,10 +906,13 @@ onBeforeUnmount(() => {
   </div>
 
   <DetailDrawer
-    :kind="detailKind" :detail="detail" :loading="detailLoading" :period-label="periodLabel"
-    :timezone="state.timezone" :back-label="detailTrail.length ? (detailTrail[detailTrail.length - 1].kind === 'runs' ? 'Back to workflow run' : 'Back to job') : ''"
+    :kind="detailKind" :detail="detail" :loading="detailLoading" :period-label="drawerPeriodLabel"
+    :timezone="state.timezone" :back-label="backLabel"
     :part="detailPart" :member="detailMember" :restore="detailRestore" :error="detailError"
+    :window-title="openWindow ? windowLabel(openWindow, state.timezone) : ''"
+    :window-noun="openWindow ? `this ${openWindow.unit}` : ''" :paging="detailPaging"
     @close="closeDetail(true)" @dismiss="closeDetail(false)" @back="detailBack"
     @open="openFromDrawer" @select="selectPart" @restored="detailRestore = null" @retry="retryDetail"
+    @show-jobs="showToolJobs" @page="pageWindow"
   />
 </template>

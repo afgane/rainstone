@@ -40,7 +40,7 @@ export function emptyUse(overrides: Partial<JobResourceUse> = {}): JobResourceUs
 
 export function job(overrides: Partial<JobDetail> = {}): JobDetail {
   return {
-    id: "j1", source_id: "42", tool_id: "toolshed/bwa_mem/0.7", tool_name: "bwa mem", tool_version: "0.7",
+    id: "j1", source_id: "42", tool_id: "toolshed/bwa_mem/0.7", tool_name: "bwa mem", tool_key: "toolshed/bwa_mem/0.7", tool_version: "0.7",
     owner: "alice", owner_id: "alice", state: "ok", runner: "gcp_batch", destination: null,
     created_at: "2026-09-29T00:51:00Z", amount: "0.77", currency: "USD", quality: "complete", reason: "",
     cost_lines: 1, attempt_count: 1, repeat_attempt_count: 0, attempt_evidence: "provider",

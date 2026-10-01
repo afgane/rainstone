@@ -79,6 +79,23 @@ def tool_display_name(tool_id: str) -> str:
     return name.replace("_", " ")
 
 
+def tool_family_key(tool_id: str, tool_version: str | None) -> str:
+    """The identity every version of one tool shares.
+
+    A Tool Shed ID is `<shed>/repos/<owner>/<repository>/<tool>/<version>`;
+    only that terminal version is removed, and only when the job's recorded
+    version confirms it is one. Any other ID is its own family, because a
+    readable name alone cannot tell two different tools apart.
+    """
+    parts = tool_id.split("/")
+    if (
+        len(parts) == 6 and parts[1] == "repos" and all(parts)
+        and (tool_version is None or parts[5] == tool_version)
+    ):
+        return "/".join(parts[:5])
+    return tool_id
+
+
 def _revision(session: Session, identity: Identity, requested: str | None) -> CostRevision | None:
     if requested:
         try:
@@ -326,8 +343,11 @@ def _load_job_facts(
         conditions.append(Owner.source_id == query.owner)
     if query.search:
         term = f"%{query.search}%"
+        # The displayed tool name is part of the ID with underscores read as
+        # spaces, so matching that spelling finds every name the page shows.
         job_match = (
             Job.source_id.ilike(term) | Job.tool_id.ilike(term)
+            | func.replace(Job.tool_id, "_", " ").ilike(term)
             | func.coalesce(Job.tool_version, "").ilike(term) | Owner.label.ilike(term)
         )
         if workflow_jobs:
@@ -340,6 +360,12 @@ def _load_job_facts(
     ):
         if value:
             conditions.append(column == value)
+    if query.tool_key:
+        # A coarse match the records then confirm exactly per job.
+        conditions.append(
+            (Job.tool_id == query.tool_key)
+            | Job.tool_id.startswith(f"{query.tool_key}/", autoescape=True)
+        )
     if within_runs:
         in_a_run = (
             select(InvocationJob.job_id)
@@ -533,6 +559,8 @@ def _records_from_facts(
             continue
         if query.tool_version and job.tool_version != query.tool_version:
             continue
+        if query.tool_key and tool_family_key(job.tool_id, job.tool_version) != query.tool_key:
+            continue
         if query.state and job.state != query.state:
             continue
         if query.runner and job.runner != query.runner:
@@ -550,6 +578,7 @@ def _records_from_facts(
         record = {
             "id": str(job.id), "source_id": job.source_id, "tool_id": job.tool_id,
             "tool_name": tool_display_name(job.tool_id),
+            "tool_key": tool_family_key(job.tool_id, job.tool_version),
             "tool_version": job.tool_version, "owner": job.owner_label, "owner_id": job.owner_source_id,
             "state": job.state, "runner": job.runner, "destination": job.destination,
             "created_at": job.created_at, "updated_at": job.updated_at, "amount": amount,
@@ -738,21 +767,115 @@ def _sorted(records: list[dict], query: ReportQuery) -> list[dict]:
     return known + sorted(missing, key=lambda r: r["id"])
 
 
+WORKFLOW_ORIGIN = "workflow"
+INDIVIDUAL_ORIGIN = "individual"
+UNKNOWN_ORIGIN = "unknown"
+
+
+@dataclass
+class JobOrigin:
+    """What the record says about where a job came from."""
+
+    kind: str
+    # The root runs that hold the job, earliest first; empty unless `kind` is a workflow.
+    runs: list[Invocation]
+
+
+def job_origins(session: Session, identity: Identity, jobs: list) -> dict[uuid.UUID, JobOrigin]:
+    """Whether a recorded workflow run contains each job, decided as Overview decides it.
+
+    A job is part of a workflow when an authorized root run holds it through
+    ownership-consistent memberships, as `_invocation_job_sets` builds them.
+    It is individual only when nothing recorded says otherwise. A membership
+    that cannot be traced to a run the viewer may see, or a run of the job's
+    owner that was still adding jobs when it was submitted, leaves the origin
+    unknown rather than claiming the job was launched on its own.
+    """
+    if not jobs:
+        return {}
+    by_id = {inv.id: inv for inv in _authorized_invocations(session, identity)}
+
+    def root_of(invocation_id: uuid.UUID) -> Invocation | None:
+        seen: set[uuid.UUID] = set()
+        current = by_id.get(invocation_id)
+        while current is not None and current.id not in seen:
+            if current.parent_id is None:
+                return current
+            seen.add(current.id)
+            current = by_id.get(current.parent_id)
+        return None
+
+    ids = [job.id for job in jobs]
+    held: dict[uuid.UUID, dict[uuid.UUID, Invocation]] = defaultdict(dict)
+    linked: set[uuid.UUID] = set()
+    for invocation_id, job_id, consistent in session.execute(
+        select(InvocationJob.invocation_id, InvocationJob.job_id, Job.owner_id == Invocation.owner_id)
+        .join(Invocation, InvocationJob.invocation_id == Invocation.id)
+        .join(Job, InvocationJob.job_id == Job.id)
+        .where(InvocationJob.job_id.in_(ids), Invocation.tenant_id == identity.tenant_id)
+    ):
+        linked.add(job_id)
+        root = root_of(invocation_id) if consistent else None
+        if root is not None:
+            held[job_id][root.id] = root
+    unsettled: dict[uuid.UUID, datetime] = {}
+    for inv in by_id.values():
+        if not inv.membership_settled:
+            earliest = unsettled.get(inv.owner_id)
+            unsettled[inv.owner_id] = inv.created_at if earliest is None else min(earliest, inv.created_at)
+    origins = {}
+    for job in jobs:
+        pending = unsettled.get(job.owner_id)
+        if job.id in held:
+            runs = sorted(held[job.id].values(), key=lambda inv: (inv.created_at, inv.id))
+            origins[job.id] = JobOrigin(WORKFLOW_ORIGIN, runs)
+        elif job.id in linked or (pending is not None and pending <= job.created_at):
+            origins[job.id] = JobOrigin(UNKNOWN_ORIGIN, [])
+        else:
+            origins[job.id] = JobOrigin(INDIVIDUAL_ORIGIN, [])
+    return origins
+
+
+def _job_summaries(session: Session, identity: Identity, records: list[dict], as_of: datetime) -> list[dict]:
+    """Public rows with the facts a job list states beside each cost, read in bulk."""
+    origins = job_origins(session, identity, [record["job"] for record in records])
+    rows = []
+    for record in records:
+        resourced = {
+            attempt.id for users in record["lifetime_attempts"].values() for attempt in users
+        }
+        span = _execution_span(record, resourced, as_of)
+        origin = origins[record["job"].id]
+        first = origin.runs[0] if origin.runs else None
+        rows.append({
+            **_public(record), "origin": origin.kind,
+            # The run the job is named under, and how many other runs also hold it.
+            "origin_run": {"id": str(first.id), "workflow_name": first.workflow_name} if first else None,
+            "origin_run_count": len(origin.runs),
+            "duration_seconds": span["duration_seconds"], "duration_running": span["duration_running"],
+        })
+    return rows
+
+
 def list_jobs(session: Session, identity: Identity, query: ReportQuery, paginate: bool = True) -> dict:
     if query.sort not in SORT_FIELDS:
         raise HTTPException(422, f"Unsupported sort field: {query.sort}")
     undated: list[dict] = []
     records, revision = _base_records(session, identity, query, undated=undated)
     records = _sorted(records, query)
-    page = records[query.offset:query.offset + query.limit] if paginate else records
+    undated_page = _sorted(undated, query)[query.undated_offset:query.undated_offset + query.limit]
+    if paginate:
+        as_of = revision.created_at if revision else datetime.now(UTC)
+        items = _job_summaries(session, identity, records[query.offset:query.offset + query.limit], as_of)
+        undated_items = _job_summaries(session, identity, undated_page, as_of)
+    else:
+        items = [_public(r) for r in records]
+        undated_items = [_public(r) for r in undated_page]
     return {
-        "items": [_public(r) for r in page], "total": len(records),
+        "items": items, "total": len(records),
         "limit": query.limit, "offset": query.offset,
         # Outside every period's totals, but still inspectable beside them.
-        "undated_items": [
-            _public(r) for r in
-            _sorted(undated, query)[query.undated_offset:query.undated_offset + query.limit]
-        ],
+        "undated_items": undated_items,
         "undated_offset": query.undated_offset,
         "meta": _meta(session, identity, query, revision, records, undated),
     }
@@ -800,7 +923,7 @@ def job_detail(session: Session, identity: Identity, job_id: uuid.UUID, query: R
     whole-job headline is never shown beside period-only evidence.
     """
     unrestricted = query.model_copy(update={
-        "search": None, "tool_id": None, "tool_version": None, "invocation_id": None,
+        "search": None, "tool_id": None, "tool_version": None, "tool_key": None, "invocation_id": None,
         "min_cost": None, "max_cost": None, "quality": None,
     })
     facts = _load_job_facts(session, identity, unrestricted, lifetime_facts=True, only_job=job_id)
@@ -926,6 +1049,32 @@ def job_detail(session: Session, identity: Identity, job_id: uuid.UUID, query: R
     return result
 
 
+def tool_statistics(rows: list[dict]) -> dict:
+    """What past complete, successful jobs of a tool cost; a description, not a prediction."""
+    complete_rows = [
+        r for r in rows
+        if r["state"] == "ok" and r["full_amount"] is not None
+        and r["quality"] not in INCOMPLETE_QUALITIES
+    ]
+    values = sorted(r["full_amount"] for r in complete_rows)
+    if values:
+        position = Decimal("0.95") * Decimal(len(values) - 1)
+        lower = int(position)
+        fraction = position - lower
+        p95 = values[lower] + (values[min(lower + 1, len(values) - 1)] - values[lower]) * fraction
+    else:
+        p95 = None
+    return {
+        "cohort": "complete successful jobs", "sample_count": len(values),
+        "excluded_count": len(rows) - len(values),
+        "mean": _money(statistics.mean(values)) if values else None,
+        "median": _money(statistics.median(values)) if values else None,
+        "p95": _money(p95) if p95 is not None else None,
+        "method": "continuous linear interpolation (R-7)",
+        "approximate": any(r["quality"] == "approximate" for r in complete_rows),
+    }
+
+
 def tools(session: Session, identity: Identity, query: ReportQuery) -> dict:
     undated: list[dict] = []
     records, revision = _base_records(session, identity, query, undated=undated)
@@ -935,33 +1084,12 @@ def tools(session: Session, identity: Identity, query: ReportQuery) -> dict:
     items = []
     for (tool_id, version), rows in groups.items():
         known = [r["amount"] for r in rows if r["amount"] is not None]
-        complete_rows = [
-            r for r in rows
-            if r["state"] == "ok" and r["full_amount"] is not None
-            and r["quality"] not in INCOMPLETE_QUALITIES
-        ]
-        values = sorted(r["full_amount"] for r in complete_rows)
-        if values:
-            position = Decimal("0.95") * Decimal(len(values) - 1)
-            lower = int(position)
-            fraction = position - lower
-            p95 = values[lower] + (values[min(lower + 1, len(values) - 1)] - values[lower]) * fraction
-        else:
-            p95 = None
         items.append({
             "tool_id": tool_id, "tool_name": tool_display_name(tool_id),
             "tool_version": version, "job_count": len(rows),
             "amount": _money(sum(known, ZERO)) if known else None, "priced_count": len(known),
             "incomplete_count": sum(r["quality"] in INCOMPLETE_QUALITIES for r in rows),
-            "statistics": {
-                "cohort": "complete successful jobs", "sample_count": len(values),
-                "excluded_count": len(rows) - len(values),
-                "mean": _money(statistics.mean(values)) if values else None,
-                "median": _money(statistics.median(values)) if values else None,
-                "p95": _money(p95) if p95 is not None else None,
-                "method": "continuous linear interpolation (R-7)",
-                "approximate": any(r["quality"] == "approximate" for r in complete_rows),
-            },
+            "statistics": tool_statistics(rows),
         })
     items.sort(key=lambda x: (
         x["amount"] is None, -(Decimal(x["amount"]) if x["amount"] else ZERO),
@@ -1080,7 +1208,7 @@ def _job_amount(record: dict, query: ReportQuery) -> Decimal | None:
 
 
 JOB_FILTERS = (
-    "tool_id", "tool_version", "state", "runner", "destination", "capacity", "quality",
+    "tool_id", "tool_version", "tool_key", "state", "runner", "destination", "capacity", "quality",
     "min_cost", "max_cost", "owner",
 )
 

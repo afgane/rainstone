@@ -529,3 +529,88 @@ export function formatExactDateTime(instant: string, timezone: string): string {
 export function dayKey(instant: string, timezone: string): string {
   return new Date(instant).toLocaleDateString("en-CA", { timeZone: timezone });
 }
+
+/* The Jobs page. */
+export const JOBS_SEARCH_HELP = "Search by tool";
+export const TOOL_SEARCH_LABEL = "Find a tool";
+export const TOOL_SEARCH_HELP = "Finds a tool in this chart. The totals and the job list stay as they are.";
+export const JOBS_SCOPE = "Workflow jobs and individual tool jobs";
+export const JOBS_CHART_HINT =
+  "Pointer-only shortcut. The table under this chart and the job list below hold the same "
+  + "information for keyboard and screen reader use.";
+export const STATUS_NOTE =
+  "Colours show each job's status as recorded for this report, not its status at that time.";
+export const SPAN_NOTE =
+  "Jobs that ran across this interval show only the part of their cost inside it. "
+  + "Each duration is the job's whole run.";
+export const RANKING_NOTE = "Among jobs with complete cost data.";
+export const SERVER_TOOL_NOTE =
+  "These jobs used your Galaxy server and added no compute charge. The server's own cost is reported separately.";
+
+const ORIGIN: Record<string, string> = {
+  workflow: "Part of a workflow",
+  individual: "Individual tool job",
+  unknown: "Workflow link not recorded",
+};
+
+/** What the record says about a job's workflow, never more than it can show. */
+export function originLabel(origin: string | null | undefined): string {
+  return ORIGIN[origin ?? "unknown"] ?? ORIGIN.unknown;
+}
+
+/** "and 2 other runs", for a job that more than one workflow run holds. */
+export function otherRuns(count: number): string {
+  return count > 0 ? `and ${pluralize(count, "other run")}` : "";
+}
+
+const STATUS_PIECE: Record<string, string> = {
+  completed: "Completed", running: "Running", failed: "Failed", other: "Other status",
+};
+
+export function statusPieceLabel(status: string): string {
+  return STATUS_PIECE[status] ?? status;
+}
+
+/** "157 completed · 4 running · 8 failed", from status pieces; empty when there are none. */
+export function statusMix(pieces: Array<{ status: string; job_count: number }>): string {
+  return pieces.filter(piece => piece.job_count)
+    .map(piece => `${piece.job_count} ${piece.status === "other" ? "other status" : piece.status}`)
+    .join(" · ");
+}
+
+/** A job's amount in a list: a server job adds nothing, which is not the same as a $0.00 charge. */
+export function jobAmountText(amount: string | null, quality: string): string {
+  return quality === "known_zero" ? "$0 extra" : formatCost(amount);
+}
+
+export function contributorsHeading(count: number): string {
+  return count === 1 ? "The job contributing most to the cost" : `${count} jobs contributing most to the cost`;
+}
+
+export function excludedFromRanking(count: number): string {
+  return `${pluralize(count, "job")} with incomplete cost data ${count === 1 ? "is" : "are"} not ranked.`;
+}
+
+export function showJobs(count: number): string {
+  return `Show ${pluralize(count, "job")}`;
+}
+
+export function moreTools(count: number): string {
+  return pluralize(count, "more tool");
+}
+
+
+/** One status's part of a tool or interval, in words: "Failed: $1.20 · 3 jobs". */
+export function statusLine(piece: { status: string; amount: string | null; job_count: number }): string {
+  return `${statusPieceLabel(piece.status)}: ${formatCost(piece.amount)} · ${pluralize(piece.job_count, "job")}`;
+}
+
+/** The Jobs page's list orders. Links can carry any other supported order, which is kept. */
+export const JOB_SORTS: Array<{ id: string; label: string; sort: string; direction: "asc" | "desc" }> = [
+  { id: "highest", label: "Highest cost", sort: "amount", direction: "desc" },
+  { id: "lowest", label: "Lowest cost", sort: "amount", direction: "asc" },
+  { id: "newest", label: "Newest first", sort: "created_at", direction: "desc" },
+  { id: "oldest", label: "Oldest first", sort: "created_at", direction: "asc" },
+  { id: "tool", label: "Tool name", sort: "tool_id", direction: "asc" },
+  { id: "status", label: "Status", sort: "state", direction: "asc" },
+];

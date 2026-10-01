@@ -120,11 +120,23 @@ class SummaryResponse(ReportMeta):
     imported_snapshot: dict[str, Any] | None = None
 
 
+JobOrigin = Literal["workflow", "individual", "unknown"]
+
+
+class OriginRun(APIModel):
+    """The earliest authorized root run that holds a job."""
+
+    id: str
+    workflow_name: str
+
+
 class JobItem(APIModel):
     id: str
     source_id: str
     tool_id: str
     tool_name: str
+    # Every version of the tool shares this key; it is what `tool_key` filters by.
+    tool_key: str
     tool_version: str | None
     owner: str
     owner_id: str
@@ -146,6 +158,13 @@ class JobItem(APIModel):
     unattributed_amount: str
     temporally_unattributed: bool
     completed_at: datetime | None
+    # Set on job list rows: whether a recorded workflow run holds the job, and
+    # how long its tool executed, whatever part of that the period holds.
+    origin: JobOrigin | None = None
+    origin_run: OriginRun | None = None
+    origin_run_count: int = 0
+    duration_seconds: int | None = None
+    duration_running: bool = False
 
 
 class JobListResponse(APIModel):
@@ -508,6 +527,149 @@ class CostTimelineResponse(APIModel):
     label: str
     unplaced: dict[str, Any] | None = None
     meta: ReportMeta
+
+
+class StatusPiece(APIModel):
+    """Known cost and job counts of one recorded job status."""
+
+    status: Literal["completed", "running", "failed", "other"]
+    amount: str | None
+    job_count: int
+    incomplete_job_count: int
+
+
+class JobTotals(APIModel):
+    amount: str | None
+    job_count: int
+    tool_count: int
+    incomplete_job_count: int
+    known_zero_job_count: int
+    by_status: list[StatusPiece]
+
+
+class ToolVersion(APIModel):
+    version: str | None
+    job_count: int
+
+
+class ToolFamily(APIModel):
+    key: str
+    name: str
+    tool_ids: list[str]
+    versions: list[ToolVersion]
+    job_count: int
+    amount: str | None
+    incomplete_job_count: int
+    known_zero_job_count: int
+    category: Literal["ranked", "server", "zero", "unavailable"]
+    by_status: list[StatusPiece]
+
+
+class ToolSection(APIModel):
+    """Tools outside the ranking; the counts ignore the tool search, the list does not."""
+
+    tool_count: int
+    job_count: int
+    groups: list[ToolFamily]
+
+
+class ToolRemainder(APIModel):
+    tool_count: int
+    job_count: int
+    amount: str | None
+    incomplete_job_count: int
+
+
+class JobBreakdownResponse(APIModel):
+    groups: list[ToolFamily]
+    total: int
+    ranked_tool_count: int
+    remainder: ToolRemainder
+    scale: str | None
+    server: ToolSection
+    zero: ToolSection
+    unavailable: ToolSection
+    totals: JobTotals
+    meta: ReportMeta
+
+
+class JobBucket(APIModel):
+    from_: datetime = Field(alias="from")
+    to: datetime
+    amount: str | None
+    job_count: int
+    incomplete_job_count: int
+    provisional: bool
+    by_status: list[StatusPiece]
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+
+class JobTimelineResponse(APIModel):
+    bucket: Literal["hour", "day", "week"]
+    buckets: list[JobBucket]
+    axis: TimelineAxis | None
+    totals: JobTotals
+    label: str
+    unplaced: dict[str, Any] | None = None
+    meta: ReportMeta
+
+
+class ScopedJob(APIModel):
+    """A job in a drawer list. `amount` is the drawer's scope; the duration is the whole execution."""
+
+    id: str
+    tool_name: str
+    tool_id: str
+    tool_version: str | None
+    state: str
+    amount: str | None
+    quality: str
+    capacities: list[str]
+    created_at: datetime
+    duration_seconds: int | None
+    duration_running: bool
+
+
+class Contributors(APIModel):
+    kind: Literal["ranked", "server", "zero", "unavailable"]
+    jobs: list[ScopedJob]
+    eligible_job_count: int
+    excluded_job_count: int
+    limit: int
+
+
+class ToolDetailResponse(APIModel):
+    key: str
+    name: str
+    tool_ids: list[str]
+    versions: list[ToolVersion]
+    amount: str | None
+    job_count: int
+    incomplete_job_count: int
+    known_zero_job_count: int
+    category: Literal["ranked", "server", "zero", "unavailable"] | None
+    by_status: list[StatusPiece]
+    contributors: Contributors
+    statistics: ToolStatistics
+    meta: ReportMeta
+
+
+class WindowDetailResponse(APIModel):
+    from_: datetime = Field(alias="from")
+    to: datetime
+    amount: str | None
+    job_count: int
+    incomplete_job_count: int
+    provisional: bool
+    by_status: list[StatusPiece]
+    items: list[ScopedJob]
+    total: int
+    limit: int
+    offset: int
+    meta: ReportMeta
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
 
 
 class DailyItem(APIModel):

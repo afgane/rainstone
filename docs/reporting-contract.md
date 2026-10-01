@@ -215,6 +215,62 @@ it; only an observed zero is `0`. As elsewhere, an unbounded report keeps cost
 with no usable timing in `unplaced` beside the columns, and a dated one leaves
 it out.
 
+## Jobs page
+
+**Tool families.** Each job carries `tool_key`, the identity every version of
+its tool shares. For a Tool Shed ID,
+`<shed>/repos/<owner>/<repository>/<tool>/<version>`, the terminal version is
+removed when the job's recorded `tool_version` agrees with it; every other ID
+is its own key. A display name never merges tools. The shared `tool_key` filter
+selects one family in every report and in the CSV export, and intersects with
+`tool_id` and `tool_version`, which keep their exact meaning. Search matches a
+job's source ID, tool ID, the tool ID with underscores read as spaces (the
+displayed name), tool version, owner label, and recorded workflow identity.
+
+**Job rows.** `/api/jobs` items add `origin` and the tool's whole execution
+time, `duration_seconds` and `duration_running`, under the job details' union
+rule. `origin` is `workflow` when an authorized root run holds the job through
+an ownership-consistent membership, which is Overview's rule; `unknown` when a
+membership exists that cannot be traced to such a run, or a run of the job's
+owner created no later than the job has not settled its membership; and
+`individual` otherwise. A workflow job also carries `origin_run`, the
+earliest of those root runs (by creation, then ID) with its `id` and
+`workflow_name`, and `origin_run_count`, how many hold it. All of these are
+read in bulk for the returned page only.
+
+**Status pieces.** Amounts are split by the job's recorded status, in the
+words Overview counts it (`completed`, `running`, `failed`, `other`), in that
+order. Each job is in one piece, and the pieces of a whole add up to it
+exactly; each carries `amount`, `job_count` and `incomplete_job_count`.
+
+`/api/jobs/breakdown` groups the matching jobs by `tool_key`. Families with a
+positive known amount are ranked by it, then key, and returned up to
+`group_limit` (default 12); `remainder` sums the rest. `tool_search` narrows the
+listed families by name, key or tool ID and changes no total; `scale` is the
+largest family's amount. Families with a known amount of zero go to `server`
+when every job is known-zero on the existing Galaxy server, otherwise to
+`zero`, and families with no known amount to `unavailable`; those sections
+count every family and list those the search matches. `totals` describes the
+whole matching set.
+
+`/api/jobs/timeline` takes `bucket` like the other timelines and returns
+buckets with status pieces, the same slicing and unplaced handling as the
+Overview timeline, and the same `totals`.
+
+`/api/jobs/tool-detail?tool_key=` returns a family under the page's filters
+and up to five `contributors`, ranked by their period amount, largest first,
+ties by job ID, over every matching job with complete cost; the rest are
+`excluded_job_count`. `kind` is `ranked`, `server` (the newest server jobs),
+`zero` or `unavailable` (none can be ranked). It also carries the family's
+past-job statistics.
+
+`/api/jobs/window-detail?window_from=&window_to=` takes a half-open interval,
+clipped to the period. Its jobs are the page's matching jobs, decided over the
+whole period, that have cost inside the interval; each carries only that part
+of its cost, beside its whole duration. Totals describe every such job and do
+not change with `limit` and `offset`. A job can be in several intervals, so
+interval job counts need not add up to the period's.
+
 ## Resource lifetimes in reports (Phase 2B)
 
 Cost lines are keyed by chargeable resource lifetime and attributed job, not by

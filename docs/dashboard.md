@@ -15,9 +15,10 @@ them in a tinted section under Period, apart from these app-wide controls
 (see [Workflow runs](#workflow-runs)). The sidebar scrolls on its own when it is
 taller than the window.
 
-Navigation is **Overview**, **Workflow runs**, **Jobs** and **Tools**, with
-**Galaxy accounts** (administrator only), **Galaxy server** (when authorized)
-and **Status** in a secondary group. Status carries no report controls.
+Navigation is **Overview**, **Workflow runs** and **Jobs**, with **Galaxy
+accounts** (administrator only), **Galaxy server** (when authorized) and
+**Status** in a secondary group. Status carries no report controls. The former
+Tools page is the Jobs page's By tool chart; `view=tools` links open it.
 
 Advanced filters that are active remain visible as removable chips while the
 section is collapsed, so a hidden selection can never quietly change an easy
@@ -130,6 +131,56 @@ In order, the drawer then shows:
   lifetime on one scale; the machine can be held before and after the tool
   runs. The second holds identifiers, the recorded metrics with their units, and
   the cost lines' own wording.
+
+## Jobs
+
+The Jobs page reports every job in the period, in a workflow or run on its
+own, so its total is the Overview headline for the same filters. Two cards
+give the period's cost (recorded so far, with how many jobs still need cost
+data) and its workload: jobs by status, and how many tools ran. The sidebar's
+search is "Find a job", searching by tool.
+
+**By tool.** One row per tool, every version of it together: a Tool Shed
+tool's versions share a row, and any other tool keeps its exact identity, so
+two tools with the same readable name stay apart (their identity is shown
+under the name). The twelve costliest tools are shown, with the rest summed in
+one box, and "Show 12 more tools" and "Show all" reveal them without changing
+the scale. "Find a tool" finds a row anywhere in the ranking; it is not a
+report filter and changes neither the totals nor the list. Tools that added
+$0 on the Galaxy server, tools whose jobs recorded no cost, and tools with no
+cost data yet sit in collapsed sections below, counted.
+
+**Over time.** Columns follow the shared rule: hours for one day, days up to
+92 days, weeks beyond. There is no interval selector. Every column of the
+period is drawn, a week or month in progress included; a column not reached
+yet cannot be opened. A column whose jobs have no known cost shows a dashed
+outline at the baseline rather than a $0 bar.
+
+**Status.** Both charts stack each tool's or column's cost by the job's
+recorded status: completed solid, still running and failed with the run
+chart's textures, any other status cross-hatched. A piece's size is cost, not a
+count of jobs; tooltips and the table alternative give both. The colours are
+each job's status in this report, not its status at that time.
+
+**Drawers.** Selecting a tool opens its drawer: its cost in the period, its
+jobs by status and its versions, and the five jobs contributing most to its
+cost, chosen from every matching job. Jobs with incomplete cost data are not
+ranked and are counted beside the ranking. A server-only tool lists recent
+jobs instead, and a tool with no complete costs says why it has no ranking.
+"Show N jobs" under the list is the one action that filters the page: it
+closes the drawer and narrows the figures, charts, list and export to that
+tool. Selecting a column opens that interval's jobs, highest cost in the
+interval first, a page at a time, without filtering anything. Rows show only
+the job's cost inside the drawer's scope beside its whole run's duration, and
+no job numbers. A job opened from either drawer leads back to it, also after
+a reload, and its details name the interval when it came from one.
+
+**The list.** Costliest first by default; each row gives the tool, the
+workflow run that holds the job ("Part of RNA-seq QC", "and 1 other run" when
+several do; "Individual tool job", or "Workflow link not recorded" when the
+record cannot say), when it was submitted, its status, how long it ran, and its
+cost in the period with where it ran. Server jobs read "$0 extra". The run's
+name opens that run; anywhere else on the row opens the job.
 
 ## Time and freshness
 

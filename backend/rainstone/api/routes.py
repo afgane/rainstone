@@ -1,10 +1,12 @@
 import json
 import uuid
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 
+from rainstone import jobs_report
 from rainstone.api.schemas import (
     BreakdownResponse,
     CatalogResponse,
@@ -14,14 +16,18 @@ from rainstone.api.schemas import (
     InfrastructureResponse,
     InvocationDetailResponse,
     InvocationListResponse,
+    JobBreakdownResponse,
     JobDetailResponse,
     JobListResponse,
+    JobTimelineResponse,
     MeResponse,
     StatusResponse,
     SummaryResponse,
     TimelineResponse,
+    ToolDetailResponse,
     ToolListResponse,
     UserListResponse,
+    WindowDetailResponse,
 )
 from rainstone.auth import Identity, current_identity
 from rainstone.catalog import coverage as catalog_coverage
@@ -150,6 +156,53 @@ def get_jobs(
     identity: Identity = Depends(current_identity),
 ) -> dict:
     return list_jobs(session, identity, query)
+
+
+# The literal Jobs routes come before the `{job_id}` route below.
+@router.get("/jobs/breakdown", response_model=JobBreakdownResponse)
+def get_job_breakdown(
+    query: ReportQuery = Depends(report_query),
+    tool_search: str | None = Query(default=None, max_length=200),
+    group_limit: int = Query(default=jobs_report.DEFAULT_GROUP_LIMIT, ge=1, le=10000),
+    session: Session = Depends(get_session),
+    identity: Identity = Depends(current_identity),
+) -> dict:
+    return jobs_report.breakdown(session, identity, query, tool_search, group_limit)
+
+
+@router.get("/jobs/timeline", response_model=JobTimelineResponse)
+def get_job_timeline(
+    query: RunReportQuery = Depends(cost_timeline_query),
+    session: Session = Depends(get_session),
+    identity: Identity = Depends(current_identity),
+) -> dict:
+    return jobs_report.timeline(session, identity, query)
+
+
+@router.get("/jobs/tool-detail", response_model=ToolDetailResponse)
+def get_tool_detail(
+    tool_key: str = Query(min_length=1, max_length=500),
+    query: ReportQuery = Depends(report_query),
+    session: Session = Depends(get_session),
+    identity: Identity = Depends(current_identity),
+) -> dict:
+    return jobs_report.tool_detail(session, identity, query, tool_key)
+
+
+@router.get("/jobs/window-detail", response_model=WindowDetailResponse)
+def get_window_detail(
+    window_from: datetime,
+    window_to: datetime,
+    query: ReportQuery = Depends(report_query),
+    session: Session = Depends(get_session),
+    identity: Identity = Depends(current_identity),
+) -> dict:
+    for label, value in (("window_from", window_from), ("window_to", window_to)):
+        if value.utcoffset() is None:
+            raise HTTPException(422, f"{label} must include an explicit UTC offset")
+    if window_from >= window_to:
+        raise HTTPException(422, "The interval must satisfy window_from < window_to")
+    return jobs_report.window_detail(session, identity, query, window_from, window_to)
 
 
 @router.get("/jobs/{job_id}", response_model=JobDetailResponse)

@@ -12,6 +12,8 @@ import type { BucketUnit, Remainder } from "../api";
 export const BLOCK_GAP = 2;
 export const MINIMUM_HORIZONTAL = 6;
 export const MINIMUM_VERTICAL = 5;
+/** The height of every time chart's plot, in pixels. */
+export const PLOT_HEIGHT = 200;
 
 /** A run as the layout sees it: what to draw, and where it sits in the order. */
 export interface LayoutRun {

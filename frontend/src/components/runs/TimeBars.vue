@@ -1,17 +1,14 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch, watchEffect } from "vue";
+import { computed, watch, watchEffect } from "vue";
 import type { Timeline, TimelineBucket } from "../../api";
-import { axisSlots, axisText, type AxisSlot } from "../../chart/axis";
+import { periodSlots, type AxisSlot } from "../../chart/axis";
 import {
-  axisLabelStep, bucketLabel, layoutSegments, MINIMUM_VERTICAL, niceScale, type Segment,
+  bucketLabel, layoutSegments, MINIMUM_VERTICAL, niceScale, PLOT_HEIGHT, type Segment,
 } from "../../chart/layout";
-import { formatAxisCost, formatCost, pluralize } from "../../vocabulary";
+import { formatCost, pluralize } from "../../vocabulary";
+import TimeFrame from "../chart/TimeFrame.vue";
 import { groupedTooltip, runTooltip } from "./tooltips";
 import type { TooltipContent } from "./useChartTooltip";
-
-const PLOT_HEIGHT = 200;
-// The y axis and the plot's own padding leave this much of the chart unusable.
-const AXIS_WIDTH = 48;
 
 const props = defineProps<{
   timeline: Timeline;
@@ -35,37 +32,16 @@ const emit = defineEmits<{
   more: [present: boolean];
 }>();
 
-const width = ref(0);
-let observed: HTMLElement | null = null;
-const observer = new ResizeObserver(entries => {
-  width.value = Math.round(entries[0].contentRect.width);
-});
-function measure(element: unknown) {
-  const target = element instanceof HTMLElement ? element : null;
-  if (target === observed) return;
-  if (observed) observer.unobserve(observed);
-  observed = target;
-  if (target) observer.observe(target);
-}
-onBeforeUnmount(() => observer.disconnect());
-
 const unit = computed(() => props.timeline.bucket);
 // The axis spans the whole period, so a day without cost still has its column.
-const slots = computed<AxisSlot[]>(() => {
-  const found = props.timeline.axis ?? { from: props.periodFrom, to: props.periodTo };
-  const end = Date.parse(props.axisEnd) > Date.parse(found.to) ? props.axisEnd : found.to;
-  return axisSlots(unit.value, { from: found.from, to: end }, props.timezone);
-});
+const slots = computed<AxisSlot[]>(() => periodSlots(unit.value, props.timeline.axis, {
+  from: props.periodFrom, to: props.periodTo, axisEnd: props.axisEnd,
+}, props.timezone));
 const byStart = computed(() => new Map(
   props.timeline.buckets.map(bucket => [Date.parse(bucket.from), bucket] as const)));
 const maxAmount = computed(() =>
   Math.max(0, ...props.timeline.buckets.map(bucket => Number(bucket.amount) || 0)));
 const scale = computed(() => niceScale(maxAmount.value));
-const ticks = computed(() => {
-  const found: number[] = [];
-  for (let value = 0; value <= scale.value.max + 1e-9; value += scale.value.step) found.push(value);
-  return found;
-});
 
 const periodStart = computed(() => Date.parse(props.periodFrom));
 const periodEnd = computed(() => Date.parse(props.periodTo));
@@ -93,9 +69,6 @@ const columns = computed(() => slots.value.map(slot => {
   return { slot, bucket, segments, label, selected: isSelected(slot) };
 }));
 
-const slotWidth = computed(() => Math.max(1, (width.value - AXIS_WIDTH - 40) / Math.max(1, slots.value.length)));
-const labelStep = computed(() => axisLabelStep(unit.value, slotWidth.value));
-const asOfTime = computed(() => (props.asOf ? Date.parse(props.asOf) : Infinity));
 
 function pieceTip(event: PointerEvent, bucket: TimelineBucket, id: string) {
   const piece = bucket.pieces.find(candidate => candidate.id === id);
@@ -143,91 +116,57 @@ watchEffect(() => emit("more", columns.value.some(column => column.segments.some
 
 <template>
   <div class="time-bars">
-    <div class="tplot">
-      <div class="yaxis">
-        <span
-          v-for="tick in ticks"
-          :key="tick"
-          class="ytick"
-          :style="{ bottom: `${tick / scale.max * 100}%` }"
-        >{{ formatAxisCost(tick) }}</span>
-      </div>
-      <div
-        :ref="measure"
-        class="plot"
+    <TimeFrame
+      :slots="slots" :unit="unit" :timezone="timezone" :as-of="asOf" :scale="scale"
+      :empty="timeline.buckets.length ? '' : 'No cost was recorded for these runs.'"
+    >
+      <component
+        :is="column.bucket ? 'button' : 'div'"
+        v-for="column in columns"
+        :key="column.slot.from"
+        class="col"
+        :class="{ empty: !column.bucket }"
+        :type="column.bucket ? 'button' : undefined"
+        :aria-pressed="column.bucket ? column.selected : undefined"
+        :aria-label="column.bucket
+          ? `${column.label}: ${formatCost(column.bucket.amount)}, ${pluralize(column.bucket.run_count, 'run')}. Select to filter the list.`
+          : undefined"
+        @click="column.bucket && emit('column', {
+          from: new Date(windowOf(column.slot).from).toISOString(),
+          to: new Date(windowOf(column.slot).to).toISOString(),
+        })"
+        @pointermove="column.bucket && columnTip($event.clientX, $event.clientY, column)"
+        @pointerleave="leave"
+        @focus="column.bucket && focusColumn($event, column)"
+        @blur="leave"
       >
-        <p
-          v-if="!timeline.buckets.length"
-          class="plot-empty"
-        >
-          No cost was recorded for these runs.
-        </p>
-        <div
-          v-for="tick in ticks.slice(1)"
-          :key="`grid-${tick}`"
-          class="grid"
-          :style="{ bottom: `${tick / scale.max * 100}%` }"
-        />
-        <div class="cols">
-          <component
-            :is="column.bucket ? 'button' : 'div'"
-            v-for="column in columns"
-            :key="column.slot.from"
-            class="col"
-            :class="{ empty: !column.bucket }"
-            :type="column.bucket ? 'button' : undefined"
-            :aria-pressed="column.bucket ? column.selected : undefined"
-            :aria-label="column.bucket
-              ? `${column.label}: ${formatCost(column.bucket.amount)}, ${pluralize(column.bucket.run_count, 'run')}. Select to filter the list.`
-              : undefined"
-            @click="column.bucket && emit('column', {
-              from: new Date(windowOf(column.slot).from).toISOString(),
-              to: new Date(windowOf(column.slot).to).toISOString(),
-            })"
-            @pointermove="column.bucket && columnTip($event.clientX, $event.clientY, column)"
-            @pointerleave="leave"
-            @focus="column.bucket && focusColumn($event, column)"
-            @blur="leave"
+        <span class="stack">
+          <template
+            v-for="segment in column.segments"
+            :key="segment.kind === 'run' ? segment.run.id : 'more'"
           >
-            <span class="stack">
-              <template
-                v-for="segment in column.segments"
-                :key="segment.kind === 'run' ? segment.run.id : 'more'"
-              >
-                <span
-                  v-if="segment.kind === 'run'"
-                  class="blk"
-                  aria-hidden="true"
-                  data-detail-trigger
-                  :data-run-id="segment.run.id"
-                  :data-status="segment.run.status"
-                  :class="{ hl: hoverRunId === segment.run.id, sel: openRunId === segment.run.id }"
-                  :style="{ height: `${segment.size}px` }"
-                  @click.stop="emit('run', segment.run.id)"
-                  @pointermove.stop="column.bucket && pieceTip($event, column.bucket, segment.run.id)"
-                />
-                <span
-                  v-else
-                  class="blk more"
-                  aria-hidden="true"
-                  :style="{ height: `${segment.size}px` }"
-                  @pointermove.stop="groupedTip($event, segment)"
-                />
-              </template>
-            </span>
-          </component>
-        </div>
-      </div>
-      <div class="xaxis">
-        <div
-          v-for="(column, index) in columns"
-          :key="column.slot.from"
-          class="xl"
-          :class="{ future: column.slot.from >= asOfTime }"
-        >
-          <span v-if="index % labelStep === 0">{{ axisText(unit, column.slot.from, timezone) }}</span>
-        </div>
-      </div>
-    </div>
+            <span
+              v-if="segment.kind === 'run'"
+              class="blk"
+              aria-hidden="true"
+              data-detail-trigger
+              :data-run-id="segment.run.id"
+              :data-status="segment.run.status"
+              :class="{ hl: hoverRunId === segment.run.id, sel: openRunId === segment.run.id }"
+              :style="{ height: `${segment.size}px` }"
+              @click.stop="emit('run', segment.run.id)"
+              @pointermove.stop="column.bucket && pieceTip($event, column.bucket, segment.run.id)"
+            />
+            <span
+              v-else
+              class="blk more"
+              aria-hidden="true"
+              :style="{ height: `${segment.size}px` }"
+              @pointermove.stop="groupedTip($event, segment)"
+            />
+          </template>
+        </span>
+      </component>
+    </TimeFrame>
   </div>
 </template>

@@ -3,7 +3,7 @@ import { exclusiveEnd, resolvePeriod, type Period, type PeriodId } from "./perio
 export type Basis = "additional" | "allocated";
 /** Views are named for the questions they answer, not for their endpoints. */
 export type View =
-  | "overview" | "runs" | "tool-runs" | "tools" | "daily" | "users" | "server" | "status";
+  | "overview" | "runs" | "tool-runs" | "daily" | "users" | "server" | "status";
 
 export interface ReportState {
   view: View;
@@ -16,6 +16,8 @@ export interface ReportState {
   owner: string;
   toolId: string;
   toolVersion: string;
+  /** Every version of one tool; the key the server groups the By tool chart by. */
+  toolKey: string;
   invocationId: string;
   workflowId: string;
   state: string;
@@ -40,7 +42,14 @@ export interface ReportState {
   runSort: RunSort;
   runDirection: "asc" | "desc";
   runChart: "workflow" | "time";
+  /** Which chart the Jobs page shows; independent of the Workflow runs page's. */
+  jobsChart: JobsChart;
 }
+
+export type JobsChart = "tool" | "time";
+
+/** What the detail drawer can show: a run, a job, a tool's jobs or a chart interval's jobs. */
+export type DrawerKind = "runs" | "tool-runs" | "tool" | "window";
 
 export type RunStatus = "completed" | "failed" | "running" | "cancelled";
 export type RunSort = "started_at" | "amount" | "run_total" | "duration";
@@ -122,14 +131,25 @@ export interface Summary extends Meta {
   } | null;
 }
 
+/** Whether a recorded workflow run holds a job; `unknown` when the record cannot say. */
+export type JobOrigin = "workflow" | "individual" | "unknown";
+
 export interface Job {
   id: string; source_id: string; tool_id: string; tool_name: string;
-  tool_version: string | null;
+  tool_key: string; tool_version: string | null;
   owner: string; owner_id: string; state: string; runner: string | null;
   destination: string | null; created_at: string; amount: string | null; currency: string;
   quality: string; reason: string; cost_lines: number; attempt_count: number;
   repeat_attempt_count: number; attempt_evidence: "provider" | "galaxy_record" | "none";
   capacities: string[]; temporally_unattributed: boolean;
+  /** Set on job list rows only. */
+  origin?: JobOrigin | null;
+  /** The earliest run that holds the job, and how many runs hold it in all. */
+  origin_run?: { id: string; workflow_name: string } | null;
+  origin_run_count?: number;
+  /** The tool's whole execution, whatever part of it the period holds; null when not recorded. */
+  duration_seconds?: number | null;
+  duration_running?: boolean;
 }
 
 export interface JobList {
@@ -437,6 +457,98 @@ export interface RunsView {
   strip: Breakdown | null;
 }
 
+/** A recorded job status as the Jobs page stacks it. */
+export type JobStatus = "completed" | "running" | "failed" | "other";
+
+/** Known cost and job counts of one status; the pieces of a whole add up to it exactly. */
+export interface StatusPiece {
+  status: JobStatus; amount: string | null; job_count: number; incomplete_job_count: number;
+}
+
+/** The whole matching set of jobs, never a page or a batch of tools. */
+export interface JobTotals {
+  amount: string | null; job_count: number; tool_count: number;
+  incomplete_job_count: number; known_zero_job_count: number; by_status: StatusPiece[];
+}
+
+export type ToolCategory = "ranked" | "server" | "zero" | "unavailable";
+
+/** Every version of one tool, under the page's filters. */
+export interface ToolFamily {
+  key: string; name: string; tool_ids: string[];
+  versions: Array<{ version: string | null; job_count: number }>;
+  job_count: number; amount: string | null;
+  incomplete_job_count: number; known_zero_job_count: number;
+  category: ToolCategory; by_status: StatusPiece[];
+}
+
+/** Tools outside the ranking. The counts ignore the tool search; the list follows it. */
+export interface ToolSection { tool_count: number; job_count: number; groups: ToolFamily[] }
+
+export interface JobBreakdown {
+  /** Ranked tools, as many as were asked for, matching the tool search. */
+  groups: ToolFamily[];
+  /** Ranked tools matching the tool search. */
+  total: number;
+  ranked_tool_count: number;
+  remainder: { tool_count: number; job_count: number; amount: string | null; incomplete_job_count: number };
+  /** The largest tool's amount, so every bar keeps one scale. */
+  scale: string | null;
+  server: ToolSection; zero: ToolSection; unavailable: ToolSection;
+  totals: JobTotals; meta: Meta;
+}
+
+export interface JobBucket {
+  from: string; to: string; amount: string | null; job_count: number;
+  incomplete_job_count: number; provisional: boolean; by_status: StatusPiece[];
+}
+
+export interface JobTimeline {
+  bucket: BucketUnit; buckets: JobBucket[]; axis: { from: string; to: string } | null;
+  totals: JobTotals; label: string;
+  unplaced: { job_count: number; amount: string | null } | null; meta: Meta;
+}
+
+/** A job in a drawer list: the drawer's own share of its cost, beside its whole duration. */
+export interface ScopedJob {
+  id: string; tool_name: string; tool_id: string; tool_version: string | null; state: string;
+  amount: string | null; quality: string; capacities: string[]; created_at: string;
+  duration_seconds: number | null; duration_running: boolean;
+}
+
+export interface ToolDetail {
+  key: string; name: string; tool_ids: string[];
+  versions: Array<{ version: string | null; job_count: number }>;
+  amount: string | null; job_count: number; incomplete_job_count: number; known_zero_job_count: number;
+  category: ToolCategory | null; by_status: StatusPiece[];
+  contributors: {
+    kind: ToolCategory; jobs: ScopedJob[];
+    eligible_job_count: number; excluded_job_count: number; limit: number;
+  };
+  statistics: {
+    sample_count: number; excluded_count: number;
+    mean: string | null; median: string | null; p95: string | null;
+  };
+  meta: Meta;
+}
+
+export interface WindowDetail {
+  from: string; to: string; amount: string | null; job_count: number; incomplete_job_count: number;
+  provisional: boolean; by_status: StatusPiece[];
+  items: ScopedJob[]; total: number; limit: number; offset: number; meta: Meta;
+}
+
+/** The Jobs page's charts, from the revision the rest of the page shows; one may not be loaded yet. */
+export interface JobCharts { breakdown: JobBreakdown | null; timeline: JobTimeline | null }
+
+/** How much of the tool ranking is shown and which tools it is narrowed to. Never a report filter. */
+export interface ToolRanking { limit: number; search: string }
+
+export const TOOL_BATCH = 12;
+export const DEFAULT_RANKING: ToolRanking = { limit: TOOL_BATCH, search: "" };
+export const WINDOW_PAGE_SIZE = 20;
+export const JOB_PAGE_SIZE = 50;
+
 export interface GroupItem {
   tool_id?: string; tool_name?: string; tool_version?: string; owner_id?: string; label?: string;
   job_count: number; amount: string | null; priced_count: number; incomplete_count: number;
@@ -495,7 +607,7 @@ function apiPath(path: string): string {
 
 /** Filters a scientist never has to touch to get an answer. */
 export const ADVANCED_FILTERS = [
-  "state", "runner", "destination", "capacity", "quality", "toolId", "toolVersion",
+  "state", "runner", "destination", "capacity", "quality", "toolKey", "toolId", "toolVersion",
   "workflowId", "invocationId", "minCost", "maxCost", "owner",
 ] as const;
 
@@ -507,6 +619,7 @@ export const FILTER_LABELS: Record<AdvancedFilter, string> = {
   destination: "Destination",
   capacity: "Capacity",
   quality: "Cost coverage",
+  toolKey: "Tool",
   toolId: "Tool ID",
   toolVersion: "Tool version",
   workflowId: "Workflow ID",
@@ -536,7 +649,7 @@ export function queryString(state: ReportState, now = new Date()): string {
   query.set("to", offsetBoundary(exclusiveEnd(period), state.timezone));
   const filters = {
     search: state.search, owner: state.owner, tool_id: state.toolId,
-    tool_version: state.toolVersion, invocation_id: state.invocationId,
+    tool_version: state.toolVersion, tool_key: state.toolKey, invocation_id: state.invocationId,
     workflow_id: state.workflowId, state: state.state, runner: state.runner,
     destination: state.destination, capacity: state.capacity, quality: state.quality,
     min_cost: state.minCost, max_cost: state.maxCost,
@@ -590,14 +703,16 @@ export const DEFAULT_RUN_CONTROLS = {
   runSort: "started_at", runDirection: "desc", runChart: "workflow",
 } as const;
 
-const VIEWS: View[] = ["overview", "runs", "tool-runs", "tools", "daily", "users", "server", "status"];
+const VIEWS: View[] = ["overview", "runs", "tool-runs", "daily", "users", "server", "status"];
 const RUN_STATUSES: RunStatus[] = ["completed", "failed", "running", "cancelled"];
 const RUN_SORTS: RunSort[] = ["started_at", "amount", "run_total", "duration"];
 
 /** The report a URL describes. Anything missing or unrecognised falls back to its default. */
 export function stateFromUrl(search: string): ReportState {
   const params = new URLSearchParams(search);
-  const view = params.get("view") as View;
+  // The Tools page became the Jobs page's By tool chart; its links still lead there.
+  const legacyTools = params.get("view") === "tools";
+  const view = (legacyTools ? "tool-runs" : params.get("view")) as View;
   const outcome = params.get("outcome") as RunStatus;
   const runSort = params.get("run_sort") as RunSort;
   return {
@@ -609,11 +724,13 @@ export function stateFromUrl(search: string): ReportState {
     timezone: params.get("timezone") || "UTC",
     search: params.get("search") || "", owner: params.get("owner") || "",
     toolId: params.get("tool_id") || "", toolVersion: params.get("tool_version") || "",
+    toolKey: params.get("tool_key") || "",
     invocationId: params.get("invocation_id") || "", workflowId: params.get("workflow_id") || "",
     state: params.get("state") || "", runner: params.get("runner") || "",
     destination: params.get("destination") || "", capacity: params.get("capacity") || "",
     quality: params.get("quality") || "", minCost: params.get("min_cost") || "",
-    maxCost: params.get("max_cost") || "", sort: params.get("sort") || "created_at",
+    // The Jobs page lists the costliest jobs first unless a link asks for another order.
+    maxCost: params.get("max_cost") || "", sort: params.get("sort") || "amount",
     direction: params.get("direction") === "asc" ? "asc" : "desc",
     offset: Number(params.get("offset")) || 0,
     workflowKey: params.get("workflow") || "",
@@ -624,7 +741,8 @@ export function stateFromUrl(search: string): ReportState {
     boundaryRunId: params.get("boundary_run_id") || "",
     runSort: RUN_SORTS.includes(runSort) ? runSort : DEFAULT_RUN_CONTROLS.runSort,
     runDirection: params.get("run_dir") === "asc" ? "asc" : "desc",
-    runChart: params.get("chart") === "time" ? "time" : DEFAULT_RUN_CONTROLS.runChart,
+    runChart: view === "runs" && params.get("chart") === "time" ? "time" : DEFAULT_RUN_CONTROLS.runChart,
+    jobsChart: !legacyTools && view === "tool-runs" && params.get("chart") === "time" ? "time" : "tool",
   };
 }
 
@@ -656,7 +774,20 @@ export function urlQuery(state: ReportState): URLSearchParams {
       if (value && value !== fallback) query.set(key, value);
     }
   }
+  if (state.view === "tool-runs" && state.jobsChart !== "tool") query.set("chart", state.jobsChart);
   return query;
+}
+
+/**
+ * A time chart's request. A week or month still in progress is drawn whole, so
+ * it is asked for in days even on its first day, when the elapsed part alone
+ * would be a single day and come back in hours.
+ */
+export function withChartBucket(query: string, state: ReportState): string {
+  if (state.period !== "this-week" && state.period !== "this-month") return query;
+  const params = new URLSearchParams(query);
+  params.set("bucket", "day");
+  return params.toString();
 }
 
 /** The UTC instant of a local calendar date or date-time in the report's timezone. */
@@ -698,16 +829,18 @@ export async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export async function loadReport(state: ReportState, signal?: AbortSignal) {
+export async function loadReport(
+  state: ReportState, signal?: AbortSignal, ranking: ToolRanking = DEFAULT_RANKING,
+) {
   try {
-    return await loadPinnedReport(state, signal);
+    return await loadPinnedReport(state, signal, ranking);
   } catch (reason) {
     // The snapshot this load pinned was superseded while the load was still
     // running, which an unattended collector does routinely. Every part of one
     // view must come from one revision, so the load is repeated against the
     // new one rather than shown as an error or mixed with the old one.
     if (reason instanceof ApiError && reason.status === 409) {
-      return await loadPinnedReport(state, signal);
+      return await loadPinnedReport(state, signal, ranking);
     }
     throw reason;
   }
@@ -737,7 +870,7 @@ async function loadRunCharts(
   const allWorkflows = runQueryString({ ...state, workflowKey: "", maxRunAmount: "", boundaryRunId: "" });
   const [breakdown, timeline, strip] = await Promise.all([
     wanted.breakdown ? get<Breakdown>(`/invocations/breakdown?${allWorkflows}`, signal) : null,
-    wanted.timeline ? get<Timeline>(`/invocations/timeline?${query}`, signal) : null,
+    wanted.timeline ? get<Timeline>(`/invocations/timeline?${withChartBucket(query, state)}`, signal) : null,
     wanted.strip ? get<Breakdown>(`/invocations/breakdown?${query}`, signal) : null,
   ]);
   return { breakdown, timeline, strip };
@@ -763,8 +896,29 @@ function topRunsQuery(state: ReportState): string {
   );
 }
 
+/** The tool ranking a Jobs page shows. Its size and search are presentation, never report filters. */
+export function loadToolRanking(state: ReportState, ranking: ToolRanking, signal?: AbortSignal) {
+  const query = new URLSearchParams(queryString(state));
+  query.set("group_limit", String(ranking.limit));
+  if (ranking.search.trim()) query.set("tool_search", ranking.search.trim());
+  return get<JobBreakdown>(`/jobs/breakdown?${query}`, signal);
+}
+
+/** The Jobs page's chart that is shown; the other loads when its tab is chosen. */
+export async function loadJobCharts(
+  state: ReportState, kind: JobsChart, ranking: ToolRanking, signal?: AbortSignal,
+): Promise<JobCharts> {
+  if (kind === "tool") return { breakdown: await loadToolRanking(state, ranking, signal), timeline: null };
+  return { breakdown: null, timeline: await get<JobTimeline>(`/jobs/timeline?${withChartBucket(queryString(state), state)}`, signal) };
+}
+
+/** One page of the job list, from a pinned report. */
+export function loadJobPage(state: ReportState, signal?: AbortSignal) {
+  return get<JobList>(`/jobs?${queryString(state)}`, signal);
+}
+
 /** One view, assembled from a single calculation revision. */
-async function loadPinnedReport(state: ReportState, signal?: AbortSignal) {
+async function loadPinnedReport(state: ReportState, signal?: AbortSignal, ranking = DEFAULT_RANKING) {
   const initialQuery = queryString(state);
   const summary = await get<Summary>(`/summary?${initialQuery}`, signal);
   const snapshotState = { ...state, revision: summary.revision_id || state.revision };
@@ -776,11 +930,11 @@ async function loadPinnedReport(state: ReportState, signal?: AbortSignal) {
   const common = [jobs, get<Freshness>("/freshness", signal), get<Me>("/me", signal)] as const;
   const viewRequest = state.view === "overview"
     ? Promise.all([
-        get<CostTimeline>(`/timeline?${query}`, signal),
+        get<CostTimeline>(`/timeline?${withChartBucket(query, state)}`, signal),
         get<{ items: GroupItem[]; meta: Meta }>(`/tools?${query}`, signal),
         get<InvocationList>(`/invocations?${topRunsQuery(snapshotState)}`, signal),
       ])
-    : state.view === "tools" ? get<{ items: GroupItem[]; meta: Meta }>(`/tools?${query}`, signal)
+    : state.view === "tool-runs" ? loadJobCharts(snapshotState, state.jobsChart, ranking, signal)
     : state.view === "runs" ? loadRunsView(snapshotState, signal)
     : state.view === "daily" ? get<{ items: DailyItem[]; meta: Meta }>(`/daily?${query}`, signal)
     : state.view === "users" ? get<{ items: GroupItem[]; meta: Meta }>(`/users?${query}`, signal)
