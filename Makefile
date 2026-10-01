@@ -26,7 +26,7 @@ test-unit:
 	$(COMPOSE) run --rm --no-deps backend ruff check backend scripts
 
 test-integration:
-	$(COMPOSE) --profile test up --build --abort-on-container-exit --exit-code-from integration-tests integration-tests
+	$(COMPOSE) --profile test up --build --force-recreate --abort-on-container-exit --exit-code-from integration-tests integration-tests
 
 e2e:
 	$(COMPOSE) --profile e2e up --build --abort-on-container-exit --exit-code-from e2e e2e

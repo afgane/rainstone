@@ -106,8 +106,10 @@ services:
       timeout: 3s
       retries: 30
 
-  test-postgres:
-    profiles: ["test", "e2e"]
+  # The integration tests and the e2e stack each seed their own data and assert
+  # on what they seeded, so they never share a database.
+  integration-postgres: &test-postgres
+    profiles: ["test"]
     image: postgres:17.6-alpine
     environment:
       POSTGRES_DB: rainstone_test
@@ -121,17 +123,21 @@ services:
     tmpfs:
       - /var/lib/postgresql/data
 
+  e2e-postgres:
+    <<: *test-postgres
+    profiles: ["e2e"]
+
   integration-tests:
     profiles: ["test"]
     build:
       context: .
       target: backend-dev
     environment:
-      RAINSTONE_DATABASE_URL: postgresql+psycopg://rainstone:rainstone@test-postgres:5432/rainstone_test
+      RAINSTONE_DATABASE_URL: postgresql+psycopg://rainstone:rainstone@integration-postgres:5432/rainstone_test
       RAINSTONE_AUTH_MODE: development
       RAINSTONE_DEMO_DATA: "true"
     depends_on:
-      test-postgres:
+      integration-postgres:
         condition: service_healthy
     command: ["sh", "-c", "alembic upgrade head && pytest backend/tests/integration"]
 
@@ -141,11 +147,11 @@ services:
       context: .
       target: runtime
     environment:
-      RAINSTONE_DATABASE_URL: postgresql+psycopg://rainstone:rainstone@test-postgres:5432/rainstone_test
+      RAINSTONE_DATABASE_URL: postgresql+psycopg://rainstone:rainstone@e2e-postgres:5432/rainstone_test
       RAINSTONE_AUTH_MODE: development
       RAINSTONE_DEMO_DATA: "true"
     depends_on:
-      test-postgres:
+      e2e-postgres:
         condition: service_healthy
     command:
       - sh
