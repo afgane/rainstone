@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch, watchEffect } from "vue";
+import { computed, watch, watchEffect } from "vue";
 import type { BreakdownGroup } from "../../api";
 import { layoutSegments, MINIMUM_HORIZONTAL, type LayoutRun, type Segment } from "../../chart/layout";
 import { formatCost, pluralize, smallerRuns } from "../../vocabulary";
+import { useBarRoom } from "../useBarRoom";
 import { groupedTooltip, runTooltip } from "./tooltips";
 import type { TooltipContent } from "./useChartTooltip";
 
@@ -24,21 +25,7 @@ const emit = defineEmits<{
   more: [present: boolean];
 }>();
 
-// Room for the value label at the end of the longest bar.
-const VALUE_LABEL_WIDTH = 96;
-const trackWidth = ref(0);
-let observed: HTMLElement | null = null;
-const observer = new ResizeObserver(entries => {
-  trackWidth.value = Math.round(entries[0].contentRect.width);
-});
-function measure(element: unknown) {
-  const target = element instanceof HTMLElement ? element : null;
-  if (target === observed) return;
-  if (observed) observer.unobserve(observed);
-  observed = target;
-  if (target) observer.observe(target);
-}
-onBeforeUnmount(() => observer.disconnect());
+const { chart, room } = useBarRoom();
 
 // All groups share one scale: the largest group's attributed cost.
 const scale = computed(() => Math.max(0, ...props.groups.map(group => Number(group.amount) || 0)));
@@ -53,7 +40,7 @@ function asRuns(group: BreakdownGroup): LayoutRun[] {
 const rows = computed(() => props.groups.map(group => {
   const length = Math.max(
     MINIMUM_HORIZONTAL,
-    (trackWidth.value - VALUE_LABEL_WIDTH) * ((Number(group.amount) || 0) / (scale.value || 1)),
+    room.value * ((Number(group.amount) || 0) / (scale.value || 1)),
   );
   const segments: Segment[] = group.amount === null ? [] : layoutSegments(
     asRuns(group), group.remainder, length, MINIMUM_HORIZONTAL,
@@ -93,9 +80,9 @@ watchEffect(() => emit("more", rows.value.some(row => row.segments.some(segment 
 </script>
 
 <template>
-  <div class="workflow-bars">
+  <div ref="chart" class="workflow-bars">
     <div
-      v-for="(row, index) in rows"
+      v-for="row in rows"
       :key="row.group.key"
       class="wf-row"
     >
@@ -110,7 +97,6 @@ watchEffect(() => emit("more", rows.value.some(row => row.segments.some(segment 
         <small>{{ pluralize(row.group.run_count, "run") }}</small>
       </button>
       <div
-        :ref="index === 0 ? measure : undefined"
         class="track"
       >
         <div class="bar">

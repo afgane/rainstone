@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watchEffect } from "vue";
+import { computed, watchEffect } from "vue";
 import type { BreakdownGroup } from "../../api";
 import { layoutSegments, MINIMUM_HORIZONTAL, type Segment } from "../../chart/layout";
 import { formatCost, pluralize, rangeCaption, smallerRuns, STRIP_HINT, STRIP_TITLE } from "../../vocabulary";
+import { useBarRoom } from "../useBarRoom";
 import { groupedTooltip, runTooltip } from "./tooltips";
 import type { TooltipContent } from "./useChartTooltip";
 
@@ -23,20 +24,7 @@ const emit = defineEmits<{
   more: [present: boolean];
 }>();
 
-const VALUE_LABEL_WIDTH = 96;
-const trackWidth = ref(0);
-let observed: HTMLElement | null = null;
-const observer = new ResizeObserver(entries => {
-  trackWidth.value = Math.round(entries[0].contentRect.width);
-});
-function measure(element: unknown) {
-  const target = element instanceof HTMLElement ? element : null;
-  if (target === observed) return;
-  if (observed) observer.unobserve(observed);
-  observed = target;
-  if (target) observer.observe(target);
-}
-onBeforeUnmount(() => observer.disconnect());
+const { chart, room } = useBarRoom();
 
 // The strip draws the same contributions and grouped boundary as By workflow,
 // at the chosen workflow's own scale: another view of it, never extra cost.
@@ -48,7 +36,7 @@ const segments = computed<Segment[]>(() => {
       id: run.id, drawn: run.chart_amount === null ? null : Number(run.chart_amount),
       amount: run.amount, status: run.status,
     })),
-    group.remainder, trackWidth.value - VALUE_LABEL_WIDTH, MINIMUM_HORIZONTAL,
+    group.remainder, room.value, MINIMUM_HORIZONTAL,
   );
 });
 watchEffect(() => emit("more", segments.value.some(segment => segment.kind === "more")));
@@ -82,7 +70,7 @@ function leave() {
 </script>
 
 <template>
-  <div class="wf-row zoom">
+  <div ref="chart" class="wf-row zoom">
     <div class="zoom-label">
       <template v-if="group">
         <span :title="group.name">{{ group.name }}</span>
@@ -95,7 +83,6 @@ function leave() {
     <div class="strip-body">
       <div
         v-if="group"
-        :ref="measure"
         class="track"
       >
         <div class="bar">

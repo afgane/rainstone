@@ -7,6 +7,7 @@ import { costShares } from "../../jobsView";
 import {
   formatCost, moreTools, needsCostData, pluralize, statusLine, TOOL_SEARCH_HELP, TOOL_SEARCH_LABEL,
 } from "../../vocabulary";
+import { useBarRoom } from "../useBarRoom";
 import type { TooltipContent } from "../runs/useChartTooltip";
 
 const props = defineProps<{
@@ -24,21 +25,7 @@ const emit = defineEmits<{
   tip: [content: TooltipContent | null, x: number, y: number];
 }>();
 
-// Room for the value label at the end of the longest bar.
-const VALUE_LABEL_WIDTH = 96;
-const trackWidth = ref(0);
-let observed: HTMLElement | null = null;
-const observer = new ResizeObserver(entries => {
-  trackWidth.value = Math.round(entries[0].contentRect.width);
-});
-function measure(element: unknown) {
-  const target = element instanceof HTMLElement ? element : null;
-  if (target === observed) return;
-  if (observed) observer.unobserve(observed);
-  observed = target;
-  if (target) observer.observe(target);
-}
-onBeforeUnmount(() => observer.disconnect());
+const { chart, room } = useBarRoom();
 
 // One scale for every row, however many are shown or found: the largest tool's cost.
 const scale = computed(() => Number(props.breakdown.scale) || 0);
@@ -59,9 +46,8 @@ const sharedNames = computed(() => {
  * held at a minimum; a status piece is never enlarged.
  */
 const rows = computed(() => props.breakdown.groups.map(group => {
-  const available = Math.max(0, trackWidth.value - VALUE_LABEL_WIDTH);
   const shares = costShares(group.by_status);
-  const length = Math.max(MINIMUM_HORIZONTAL, available * ((Number(group.amount) || 0) / (scale.value || 1)));
+  const length = Math.max(MINIMUM_HORIZONTAL, room.value * ((Number(group.amount) || 0) / (scale.value || 1)));
   const drawable = Math.max(0, length - BLOCK_GAP * (shares.length - 1));
   return {
     group,
@@ -119,7 +105,7 @@ const sections = computed(() => [
 </script>
 
 <template>
-  <div class="tool-bars" :aria-busy="loading">
+  <div ref="chart" class="tool-bars" :aria-busy="loading">
     <div class="tool-bars-head">
       <p class="tool-count">
         {{ search.trim()
@@ -140,7 +126,7 @@ const sections = computed(() => [
       {{ search.trim() ? "No tool with recorded cost matches this search." : "No tool recorded a cost in this period." }}
     </p>
     <ul v-else class="tool-rows" role="list">
-      <li v-for="(row, index) in rows" :key="row.group.key">
+      <li v-for="row in rows" :key="row.group.key">
         <button
           type="button" class="tool-row" data-detail-trigger :data-tool-key="row.group.key"
           :aria-current="openKey === row.group.key ? 'true' : undefined"
@@ -154,7 +140,7 @@ const sections = computed(() => [
             <small v-if="qualifier(row.group)" class="tool-key" :title="row.group.key">{{ row.group.key }}</small>
             <small>{{ pluralize(row.group.job_count, "job") }}</small>
           </span>
-          <span :ref="index === 0 ? measure : undefined" class="track">
+          <span class="track">
             <span class="bar" aria-hidden="true">
               <span
                 v-for="segment in row.segments" :key="segment.piece.status" class="blk"
