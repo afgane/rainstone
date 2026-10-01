@@ -156,7 +156,6 @@ footer { display: flex; gap: .4rem; align-items: center; margin-top: 1.5rem; fon
   }
 @media (max-width: 760px) {
   .figures { grid-template-columns: 1fr; }
-  .wf-row { grid-template-columns: 1fr; gap: 2px; }
   .list-tools { flex-wrap: wrap; }
   .page-heading { align-items: stretch; flex-direction: column; }
   .stats { grid-template-columns: 1fr; }
@@ -224,6 +223,8 @@ footer { display: flex; gap: .4rem; align-items: center; margin-top: 1.5rem; fon
 .bar { display: flex; gap: 2px; height: 22px; }
 .total { margin-left: 8px; color: #2c3143; font-weight: 700; white-space: nowrap; }
 .wf-row.zoom { min-height: 80px; margin: 8px 0 6px; padding: 8px 6px; border-radius: .4rem; background: #f4f8fb; }
+/* After the rules above, so a narrow screen puts each bar under its name. */
+@media (max-width: 760px) { .wf-row { grid-template-columns: 1fr; gap: 2px; } }
 .zoom-label { min-width: 0; padding-left: .3rem; font-size: .8rem; color: #58585a; }
 .zoom-label span, .zoom-label small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .zoom-label span { color: #2c3143; font-size: 1rem; font-weight: 700; }
