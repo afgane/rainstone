@@ -355,6 +355,9 @@ def _seed_baseline(
         session.add(policy)
         policy.effective_from = datetime.now(UTC)
     policy.baseline_resource_ids = [settings.baseline_resource_uid]
+    # Starts at installation until the collector reads when the host VM was
+    # created; see extend_baseline_to_host_creation. Re-enrolling keeps that.
+    period = (policy.assumptions or {}).get("period", "installation")
     policy.assumptions = {
         "unchanged_vm_size": True,
         "unchanged_vm_uptime": True,
@@ -365,6 +368,7 @@ def _seed_baseline(
         "runners": list(settings.baseline_runner_list),
         "default_basis": "additional",
         "descriptor_source": descriptor.get("resolved_by", "configuration"),
+        "period": period,
     }
     policy.evidence = (
         "Discovered host descriptor; placement is verified per observation before any "

@@ -369,3 +369,71 @@ def test_the_undated_list_pages_on_its_own(client, tenant) -> None:
     second = _get(client, tenant, f"{query}&undated_offset=1")["undated_items"]
     assert len(first) == len(second) == 1
     assert {first[0]["source_id"], second[0]["source_id"]} == {"unplaced", "paused"}
+
+
+def test_a_seeded_baseline_starts_when_the_host_vm_was_created(tenant) -> None:
+    """Local work between the VM's creation and Rainstone's installation was on that VM."""
+    from rainstone.adapters.contracts import NormalizedServerObservation
+    from rainstone.collector import (
+        baseline_transform,
+        extend_baseline_to_host_creation,
+        resolve_baseline_profile,
+    )
+    from rainstone.models import DeploymentPolicy, LifetimeAttempt
+
+    settings = Settings(
+        auth_mode="development", demo_data=True, tenant_slug=tenant["slug"],
+        baseline_policy_version="seeded", baseline_resource_uid="host-vm", baseline_runners="local",
+    )
+    created = datetime(2026, 9, 22, 8, tzinfo=UTC)
+    installed = datetime(2026, 9, 22, 12, tzinfo=UTC)
+    before_vm = created - timedelta(days=30)
+    before_install = installed - timedelta(hours=1)
+    batch = ObservationBatch(source="galaxy_db", observed_at=DAY, jobs=(
+        _job("old-vm", runner="local", attempts=[_galaxy("old-vm", before_vm, before_vm + timedelta(minutes=1))]),
+        _job("pre-install", runner="local",
+             attempts=[_galaxy("pre-install", before_install, before_install + timedelta(minutes=1))]),
+    ))
+
+    def classified(session) -> set[str]:
+        return set(session.scalars(
+            select(Job.source_id)
+            .join(ExecutionAttempt, ExecutionAttempt.job_id == Job.id)
+            .join(LifetimeAttempt, LifetimeAttempt.attempt_id == ExecutionAttempt.id)
+            .where(Job.tenant_id == tenant["id"], Job.source_id.in_(("old-vm", "pre-install")))
+        ))
+
+    def host(created_at: datetime, uid: str = "host-vm") -> NormalizedServerObservation:
+        return NormalizedServerObservation(
+            provider="gcp", resource_uid=uid, descriptor_source="test", observed_at=DAY,
+            created_at=created_at,
+        )
+
+    with Session(engine) as session:
+        session.add(DeploymentPolicy(
+            id=stable_id(str(tenant["id"]), "policy", "seeded"), tenant_id=tenant["id"],
+            version="seeded", effective_from=installed, baseline_resource_ids=["host-vm"],
+            assumptions={"period": "installation"}, evidence="Seeded at enrollment.",
+        ))
+        session.flush()
+        apply_batch(session, tenant["id"], baseline_transform(
+            resolve_baseline_profile(session, tenant["id"], settings))(batch))
+        assert classified(session) == set()
+
+        # Another machine's creation time says nothing about this host.
+        assert not extend_baseline_to_host_creation(
+            session, tenant["id"], settings, [host(created, uid="other-vm")])
+        assert extend_baseline_to_host_creation(session, tenant["id"], settings, [host(created)])
+        assert classified(session) == {"pre-install"}
+        policy = session.get(DeploymentPolicy, stable_id(str(tenant["id"]), "policy", "seeded"))
+        assert policy.effective_from == created
+        # The start only ever moves back.
+        assert not extend_baseline_to_host_creation(
+            session, tenant["id"], settings, [host(created + timedelta(hours=1))])
+
+        # A period an operator declared is never moved.
+        policy.effective_from = installed
+        policy.assumptions = {"period": "declared"}
+        session.flush()
+        assert not extend_baseline_to_host_creation(session, tenant["id"], settings, [host(created)])
+        session.rollback()

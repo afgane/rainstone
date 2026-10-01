@@ -184,6 +184,7 @@ def observe(
             "The Compute API reported no lastStartTimestamp for this instance, so the start of "
             "the current session is unknown."
         ),
+        created_at=provider_time(payload.get("creationTimestamp")),
         ended_at=_ended_at(payload, status, launch),
         shape_conflict=_shape_conflict(host, machine_type, model),
         facts={

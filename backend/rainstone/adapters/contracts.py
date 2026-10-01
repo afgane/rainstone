@@ -12,7 +12,7 @@ from typing import Protocol
 
 from rainstone.models import CapacityRelationship
 
-CONTRACT_VERSION = 4
+CONTRACT_VERSION = 5
 
 # Galaxy's own record of a job's execution. Provider adapters observe the same
 # execution separately, so this is evidence about an attempt, not an attempt of
@@ -149,7 +149,8 @@ class NormalizedServerObservation:
 
     `launch_at` is the provider's start of the current session. When it cannot
     be established it is None and `launch_unavailable_reason` says why; no
-    other timestamp stands in for it.
+    other timestamp stands in for it. `created_at` is when the VM itself was
+    created, which bounds the work that can have run on it.
     """
 
     provider: str
@@ -166,6 +167,7 @@ class NormalizedServerObservation:
     launch_at: datetime | None = None
     launch_source: str | None = None
     launch_unavailable_reason: str | None = None
+    created_at: datetime | None = None
     ended_at: datetime | None = None
     shape_conflict: str | None = None
     facts: dict = field(default_factory=dict)

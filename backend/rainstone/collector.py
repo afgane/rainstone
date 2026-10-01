@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 from sqlalchemy import Engine, select, text
 from sqlalchemy.orm import Session
 
-from rainstone.adapters.contracts import ObservationBatch, SourceAdapter
+from rainstone.adapters.contracts import NormalizedServerObservation, ObservationBatch, SourceAdapter
 from rainstone.adapters.galaxy_db import GalaxyDatabaseAdapter, discover_capabilities
 from rainstone.adapters.galaxy_server import GalaxyServerCollector, HostDescriptor, resolve_host
 from rainstone.adapters.gcp_batch import BatchCollector, BatchTarget, HttpGcpClient
@@ -157,12 +157,52 @@ def resolve_baseline_profile(
                 effective_from=profile.effective_from,
                 effective_to=profile.effective_to,
                 baseline_resource_ids=[profile.resource_uid],
-                assumptions=profile.assumptions,
+                assumptions={**profile.assumptions, "period": "declared"},
                 evidence="Declared by the RAINSTONE_BASELINE_* configuration.",
             )
         )
         session.flush()
     return profile
+
+
+def extend_baseline_to_host_creation(
+    session: Session,
+    tenant_id: uuid.UUID,
+    settings: Settings,
+    servers: Sequence[NormalizedServerObservation],
+) -> bool:
+    """Start the installation-seeded baseline policy when its host VM was created.
+
+    Enrollment can only date the policy from installation, but the host ran
+    Galaxy work before Rainstone arrived, and local work then was on the same
+    VM. Every job after the VM's creation ran on it, so the policy moves back to
+    the creation time the Compute API reports, never forward, and work already
+    collected is reclassified. A period an operator declared is never moved.
+    """
+    if settings.baseline_effective_from is not None:
+        return False
+    created = min(
+        (server.created_at for server in servers
+         if server.resource_uid == settings.baseline_resource_uid and server.created_at),
+        default=None,
+    )
+    policy = session.scalar(
+        select(DeploymentPolicy).where(
+            DeploymentPolicy.tenant_id == tenant_id,
+            DeploymentPolicy.version == settings.baseline_policy_version,
+        )
+    )
+    if (
+        created is None or policy is None
+        or (policy.assumptions or {}).get("period") == "declared"
+        or created >= policy.effective_from
+    ):
+        return False
+    policy.effective_from = created
+    policy.assumptions = {**(policy.assumptions or {}), "period": "host_created"}
+    session.flush()
+    reclassify_baseline(session, tenant_id, resolve_baseline_profile(session, tenant_id, settings))
+    return True
 
 
 def baseline_transform(
@@ -274,6 +314,10 @@ class Collector:
                     "retry_in_seconds": round(delay, 1),
                 }
             result = apply_batch(session, self._tenant_id, batch)
+            if batch.servers and extend_baseline_to_host_creation(
+                session, self._tenant_id, self._settings, batch.servers
+            ):
+                logger.info("baseline policy now starts when the Galaxy host VM was created")
             revision = calculate_tenant(
                 session, self._tenant_id, reason=f"{batch.source} collection"
             )
@@ -384,8 +428,16 @@ def build_collector(settings: Settings | None = None) -> Collector:
             verify_enrollment(
                 session, settings, capabilities, read_evidence(settings, capabilities)
             )
-            profile = resolve_baseline_profile(session, tenant_id_for(settings, session), settings)
+            resolve_baseline_profile(session, tenant_id_for(settings, session), settings)
             session.commit()
+
+        def current_profile() -> BaselineProfile | None:
+            # Read per batch, because the policy's start can move back once the
+            # host VM's creation time is known.
+            with Session(application_engine) as session:
+                profile = resolve_baseline_profile(session, tenant_id_for(settings, session), settings)
+                session.commit()
+                return profile
 
         sources.append(
             ScheduledSource(
@@ -396,7 +448,7 @@ def build_collector(settings: Settings | None = None) -> Collector:
                     statement_timeout=settings.galaxy_statement_timeout,
                 ),
                 interval_seconds=settings.collect_interval_seconds,
-                transform=baseline_transform(profile),
+                transform=lambda batch: baseline_transform(current_profile())(batch),
             )
         )
 

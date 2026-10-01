@@ -330,6 +330,14 @@ period under the same version is refused: nothing is classified, the
 changes. Changing the period needs a new policy version. With no period
 declared or saved, the assumptions apply to all work and the self-check warns.
 
+Without a declared period, enrollment saves the policy starting at
+installation. Galaxy usually ran work on the host before Rainstone was
+installed, so once the collector reads the host VM's `creationTimestamp` from
+the Compute API, the policy's start moves back to it and collected work is
+reclassified. Every local job after the VM's creation ran on that VM; work from
+before it, such as jobs carried over in a restored Galaxy database, stays
+outside. The start only ever moves back, and a declared period never moves.
+
 The `baseline_coverage` self-check compares the profile with the placements
 Galaxy recorded. It warns when the profile matches nothing, when a baseline
 runner recorded destinations that are not listed, and when Kubernetes ran pods
