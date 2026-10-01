@@ -1,4 +1,4 @@
-import { exclusiveEnd, resolvePeriod, type Period, type PeriodId } from "./periods";
+import { exclusiveEnd, isTimezone, PERIOD_ORDER, resolvePeriod, type Period, type PeriodId } from "./periods";
 
 export type Basis = "additional" | "allocated";
 /** Views are named for the questions they answer, not for their endpoints. */
@@ -715,13 +715,15 @@ export function stateFromUrl(search: string): ReportState {
   const view = (legacyTools ? "tool-runs" : params.get("view")) as View;
   const outcome = params.get("outcome") as RunStatus;
   const runSort = params.get("run_sort") as RunSort;
+  const period = params.get("period") as PeriodId;
+  const timezone = params.get("timezone") || "";
   return {
     view: VIEWS.includes(view) ? view : "overview",
-    period: (params.get("period") || "this-month") as PeriodId,
+    period: PERIOD_ORDER.includes(period) ? period : "this-month",
     mode: "accrued",
     fromTime: params.get("from") || "",
     toTime: params.get("to") || "",
-    timezone: params.get("timezone") || "UTC",
+    timezone: isTimezone(timezone) ? timezone : "UTC",
     search: params.get("search") || "", owner: params.get("owner") || "",
     toolId: params.get("tool_id") || "", toolVersion: params.get("tool_version") || "",
     toolKey: params.get("tool_key") || "",

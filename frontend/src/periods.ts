@@ -45,6 +45,16 @@ export const PERIOD_ORDER: PeriodId[] = [
   "custom",
 ];
 
+/** True when the runtime knows the IANA timezone name, so formatting in it cannot throw. */
+export function isTimezone(name: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: name });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function parts(instant: Date, timezone: string): { year: number; month: number; day: number } {
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,

@@ -185,7 +185,9 @@ describe("the URL of a runs view", () => {
   });
 
   it("falls back to defaults for values it does not know", () => {
-    const restored = stateFromUrl("?view=runs&outcome=paused&run_sort=colour&chart=bars&run_dir=up");
+    const restored = stateFromUrl("?view=runs&period=last-90-days&timezone=Not/AZone&outcome=paused&run_sort=colour&chart=bars&run_dir=up");
+    expect(restored.period).toBe("this-month");
+    expect(restored.timezone).toBe("UTC");
     expect(restored.runStatus).toBe("");
     expect(restored.runSort).toBe("started_at");
     expect(restored.runChart).toBe("workflow");
