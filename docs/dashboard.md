@@ -52,6 +52,7 @@ total substituted for "what did I spend yesterday".
 | `in_progress` | Still running, only for queued or running work |
 | `unavailable` | Cost data unavailable, for finished work whose evidence was not collected |
 | `not_started` | Not run yet, for new or paused work |
+| `collecting` | Cost still being collected, for a day after the work finished |
 | root invocation | Workflow run |
 | `ok` / `error` / scheduling states | Completed, Failed, and a run status derived from the run's executions |
 | `gcp_batch` / `kubernetes` | Dedicated cloud compute / Your Galaxy server, only where the resource relationship is established |

@@ -484,3 +484,28 @@ def test_provider_evidence_waits_for_its_galaxy_job(tenant) -> None:
         ))
         assert "never" in gap.detail
         session.rollback()
+
+
+def test_a_recently_finished_job_is_still_being_collected(tenant, client) -> None:
+    """Provider evidence can lag Galaxy's finish; it is not unavailable until a day has passed."""
+    from rainstone.ingestion import PENDING_ATTEMPT_LIMIT
+    from rainstone.models import CostRevision
+
+    with Session(engine) as session:
+        apply_batch(session, tenant["id"], ObservationBatch(
+            source="galaxy_db", observed_at=DAY, jobs=(_job("recent"), _job("stale"))))
+        calculate_tenant(session, tenant["id"], reason="test")
+        # The day is measured from the calculation time, not the wall clock.
+        as_of = session.get(CostRevision, tenant["id"]).created_at
+        for source_id, finished in (
+            ("recent", as_of - timedelta(minutes=2)),
+            ("stale", as_of - PENDING_ATTEMPT_LIMIT - timedelta(minutes=1)),
+        ):
+            session.execute(Job.__table__.update().where(
+                Job.tenant_id == tenant["id"], Job.source_id == source_id).values(updated_at=finished))
+        calculate_tenant(session, tenant["id"], reason="test")
+        session.commit()
+    jobs = {item["source_id"]: item for item in _get(client, tenant, "jobs?limit=200")["items"]}
+    assert jobs["recent"]["quality"] == "collecting"
+    assert "has not arrived yet" in jobs["recent"]["reason"]
+    assert jobs["stale"]["quality"] == "unavailable"

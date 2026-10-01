@@ -23,6 +23,7 @@ from rainstone.costing import (
     calculate_server_session,
     current_generation,
 )
+from rainstone.ingestion import PENDING_ATTEMPT_LIMIT
 from rainstone.job_use import job_resource_use
 from rainstone.machine_shapes import machine_capacity
 from rainstone.models import (
@@ -56,9 +57,10 @@ UNSTARTED_STATES = {"new", "paused"}
 # lines is unavailable when it finished and not started when it never ran.
 UNAVAILABLE = "unavailable"
 NOT_STARTED = "not_started"
+COLLECTING = "collecting"
 INCOMPLETE_QUALITIES = {
     Quality.partial.value, Quality.unpriced.value, Quality.in_progress.value,
-    UNAVAILABLE, NOT_STARTED,
+    UNAVAILABLE, NOT_STARTED, COLLECTING,
 }
 
 
@@ -121,11 +123,22 @@ def validate_snapshot(session: Session, identity: Identity, query: ReportQuery) 
     _revision(session, identity, query.revision)
 
 
-def _quality(lines: list[CostLine], state: str | None = None) -> str:
+def _evidence_pending(job: Job, as_of: datetime | None) -> bool:
+    """Finished so recently that its provider evidence may still be on its way.
+
+    Evidence for a finished job can arrive up to a day later; it waits that
+    long for its Galaxy job too.
+    """
+    return bool(as_of and job.updated_at and as_of - job.updated_at < PENDING_ATTEMPT_LIMIT)
+
+
+def _quality(lines: list[CostLine], state: str | None = None, *, collecting: bool = False) -> str:
     if not lines:
         if state in EXECUTING_STATES:
             return Quality.in_progress.value
-        return NOT_STARTED if state in UNSTARTED_STATES else UNAVAILABLE
+        if state in UNSTARTED_STATES:
+            return NOT_STARTED
+        return COLLECTING if collecting else UNAVAILABLE
     qualities = {line.quality for line in lines}
     if Quality.partial in qualities:
         return Quality.partial.value
@@ -140,13 +153,20 @@ def _quality(lines: list[CostLine], state: str | None = None) -> str:
     return Quality.complete.value
 
 
-def _missing_evidence_reason(job: Job, attempts: list[ExecutionAttempt]) -> str:
+def _missing_evidence_reason(
+    job: Job, attempts: list[ExecutionAttempt], *, collecting: bool = False
+) -> str:
     if job.state in EXECUTING_STATES:
         return "Awaiting execution evidence for work that is still running."
     if job.state == "paused":
         return "Paused before running; no execution was recorded."
     if job.state == "new":
         return "Not started yet; no execution was recorded."
+    if collecting:
+        return (
+            "This job finished recently and the evidence of where it ran has not arrived yet. "
+            "It usually takes a few minutes; the cost appears once it does."
+        )
     if any(attempt.tool_started_at for attempt in attempts):
         return (
             "Galaxy recorded when this ran but no evidence of where it ran was collected, so its "
@@ -480,7 +500,8 @@ def _records_from_facts(
         pairs = line_map[job.id]
         attempts = attempt_map[job.id]
         lines = [pair[0] for pair in pairs]
-        quality = _quality(lines, job.state)
+        collecting = not lines and _evidence_pending(job, as_of)
+        quality = _quality(lines, job.state, collecting=collecting)
         first, repeats, attempt_evidence = _executions(attempts, resourced_attempts)
         repeat_ids = {attempt.id for attempt in repeats}
         completions = [
@@ -585,7 +606,7 @@ def _records_from_facts(
             "currency": "USD", "quality": quality,
             "reason": " | ".join(sorted(
                 {line.reason for line in lines} | ({UNCOSTED_ATTEMPT_REASON} if lines and uncosted else set())
-            )) or _missing_evidence_reason(job, attempts),
+            )) or _missing_evidence_reason(job, attempts, collecting=collecting),
             "cost_lines": len(lines),
             "attempt_count": len(first) + len(repeats),
             "repeat_attempt_count": len(repeats),

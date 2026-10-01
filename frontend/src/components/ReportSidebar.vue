@@ -137,6 +137,7 @@ const showControls = computed(() => props.state.view !== "status");
               <option value="unpriced">Price unavailable</option>
               <option value="in_progress">Still running</option>
               <option value="unavailable">Cost data unavailable</option>
+              <option value="collecting">Cost still being collected</option>
               <option value="not_started">Not run yet</option>
             </select></label>
           <label><span>Where it ran</span>

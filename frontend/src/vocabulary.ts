@@ -115,6 +115,7 @@ const QUALITY: Record<string, string> = {
   unpriced: "Price unavailable",
   in_progress: "Still running",
   unavailable: "Cost data unavailable",
+  collecting: "Cost still being collected",
   not_started: "Not run yet",
 };
 
@@ -139,6 +140,9 @@ export function costExplanation(record: {
   if (record.quality === "in_progress") return "This work is still running, so its cost is provisional.";
   if (record.quality === "unavailable") {
     return "This job finished, but the evidence needed to cost it was not collected, so its cost is unavailable rather than zero.";
+  }
+  if (record.quality === "collecting") {
+    return "This job finished recently and the evidence needed to cost it is still arriving; its cost appears once it does.";
   }
   if (record.quality === "not_started") return "This work has not run, so there is no cost to show.";
   return record.reason || "Estimated from the observed run using public prices.";

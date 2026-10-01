@@ -306,9 +306,12 @@ inside every period, so a missing cost never drops out of all of them.
 
 A job with no cost lines reports its evidence state, not an execution state:
 `in_progress` while it is queued or running, `not_started` when it is new or
-paused, and `unavailable` once it has finished. An unavailable job's reason says
-whether Galaxy recorded when it ran; recalculating alone cannot recover
-observations that were never collected.
+paused, `collecting` for a day after it finished, and `unavailable` after that.
+Provider evidence can arrive minutes after Galaxy marks a job finished, and
+waits up to a day for its Galaxy job, so a recently finished job is not yet
+called unavailable; the day is measured from the calculation time. An
+unavailable job's reason says whether Galaxy recorded when it ran;
+recalculating alone cannot recover observations that were never collected.
 
 A price that takes effect after work ran is never applied to it. Such work is
 unpriced, and its reason names when the earliest published price takes effect.
