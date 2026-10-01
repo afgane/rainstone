@@ -8,11 +8,11 @@ committed before its cursor advances, which makes restart and replay safe.
 import hashlib
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import delete, select
+from sqlalchemy import and_, delete, select
 from sqlalchemy.orm import Session
 
 from rainstone.adapters.contracts import (
@@ -29,6 +29,8 @@ from rainstone.adapters.contracts import (
     NormalizedServerObservation,
     NormalizedStateEvent,
     ObservationBatch,
+    attempt_from_json,
+    attempt_to_json,
 )
 from rainstone.baseline import TIMING_METHOD as BASELINE_TIMING
 from rainstone.baseline import BaselineProfile, classify_job
@@ -49,6 +51,7 @@ from rainstone.models import (
     LifetimeAttempt,
     ObservationGap,
     Owner,
+    PendingAttempt,
     PriceVersion,
     Quality,
     ResourceLifetime,
@@ -482,6 +485,69 @@ def batch_digest(batch: ObservationBatch) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
+# How long provider evidence waits for its Galaxy job before it is dropped as
+# an observation gap.
+PENDING_ATTEMPT_LIMIT = timedelta(days=1)
+
+
+def hold_attempt(
+    session: Session, tenant_id: uuid.UUID, source: str, attempt: NormalizedAttempt,
+    observed_at: datetime,
+) -> None:
+    """Keep provider evidence that arrived before its Galaxy job, latest observation only."""
+    pending_id = stable_id(str(tenant_id), "pending", attempt.job_source_id, attempt.source_attempt_id)
+    row = session.get(PendingAttempt, pending_id)
+    if row is None:
+        row = PendingAttempt(
+            id=pending_id, tenant_id=tenant_id, source=source,
+            job_source_id=attempt.job_source_id, source_attempt_id=attempt.source_attempt_id,
+            first_observed_at=observed_at,
+        )
+        session.add(row)
+    row.observed_at = observed_at
+    row.attempt = attempt_to_json(attempt)
+
+
+def apply_pending_attempts(session: Session, tenant_id: uuid.UUID) -> tuple[int, int]:
+    """Apply held evidence whose Galaxy job has arrived; drop what waited too long.
+
+    Returns how many attempts were applied and how many expired.
+    """
+    arrived = session.execute(
+        select(PendingAttempt, Job.id)
+        .join(Job, and_(Job.tenant_id == PendingAttempt.tenant_id, Job.source_id == PendingAttempt.job_source_id))
+        .where(PendingAttempt.tenant_id == tenant_id)
+    ).all()
+    for row, job_id in arrived:
+        upsert_attempt(session, tenant_id, job_id, attempt_from_json(row.attempt))
+        session.delete(row)
+    now = datetime.now(UTC)
+    expired = session.scalars(
+        select(PendingAttempt).where(
+            PendingAttempt.tenant_id == tenant_id,
+            PendingAttempt.first_observed_at < now - PENDING_ATTEMPT_LIMIT,
+        )
+    ).all()
+    if expired:
+        jobs = sorted({row.job_source_id for row in expired})
+        record_gap(session, tenant_id, NormalizedGap(
+            source=expired[0].source,
+            kind="provider_evidence_without_galaxy_job",
+            detail=(
+                f"{len(expired)} provider observations waited a day for Galaxy jobs that were "
+                f"never collected and were dropped (Galaxy jobs {', '.join(jobs[:10])}"
+                f"{', ...' if len(jobs) > 10 else ''})."
+            ),
+            gap_start=min(row.first_observed_at for row in expired),
+            gap_end=max(row.observed_at for row in expired),
+            recoverable=False,
+        ), now)
+        for row in expired:
+            session.delete(row)
+    session.flush()
+    return len(arrived), len(expired)
+
+
 def apply_batch(
     session: Session,
     tenant_id: uuid.UUID,
@@ -501,13 +567,15 @@ def apply_batch(
             stable_id(str(tenant_id), "job", source_id) for source_id in batch.withdrawn_jobs
         ])))
     session.flush()
-    orphans = 0
+    # Held evidence goes first, so this batch's newer observation of the same
+    # attempt is the one that remains.
+    pending_applied, pending_expired = apply_pending_attempts(session, tenant_id)
+    held = 0
     for attempt in batch.attempts:
         job_id = stable_id(str(tenant_id), "job", attempt.job_source_id)
         if session.get(Job, job_id) is None:
-            # Provider evidence can precede the Galaxy record; the next cycle
-            # retries once the job exists.
-            orphans += 1
+            hold_attempt(session, tenant_id, batch.source, attempt, batch.observed_at)
+            held += 1
             continue
         upsert_attempt(session, tenant_id, job_id, attempt)
     session.flush()
@@ -559,7 +627,9 @@ def apply_batch(
         **batch.metrics,
         "contract_version": batch.contract_version,
         "observed_at": batch.observed_at.isoformat(),
-        "orphan_attempts": orphans,
+        "held_attempts": held,
+        "pending_applied": pending_applied,
+        "pending_expired": pending_expired,
         "gaps": len(batch.gaps),
     }
     session.flush()
@@ -569,7 +639,8 @@ def apply_batch(
         "attempts": len(batch.attempts),
         "invocations": len(batch.invocations),
         "gaps": len(batch.gaps),
-        "orphan_attempts": orphans,
+        "held_attempts": held,
+        "pending_applied": pending_applied,
         **({"servers": server_outcomes} if server_outcomes else {}),
         "replayed": prior is not None,
         "exhausted": batch.exhausted,

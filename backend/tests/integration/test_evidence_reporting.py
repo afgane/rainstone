@@ -437,3 +437,50 @@ def test_a_seeded_baseline_starts_when_the_host_vm_was_created(tenant) -> None:
         session.flush()
         assert not extend_baseline_to_host_creation(session, tenant["id"], settings, [host(created)])
         session.rollback()
+
+
+def test_provider_evidence_waits_for_its_galaxy_job(tenant) -> None:
+    """A short pod can come and go before the Galaxy collector has seen its job."""
+    from rainstone.ingestion import PENDING_ATTEMPT_LIMIT
+    from rainstone.models import LifetimeAttempt, ObservationGap, PendingAttempt
+
+    start = DAY + timedelta(hours=5)
+    pod = _attempt("late", "k8s:pod-1", start=start, end=start + timedelta(seconds=5), lifetimes=[
+        _lifetime(f"pod:{tenant['slug']}:1", start, start + timedelta(seconds=6)),
+    ])
+    pending = select(PendingAttempt).where(PendingAttempt.tenant_id == tenant["id"])
+    with Session(engine) as session:
+        held = apply_batch(session, tenant["id"], ObservationBatch(
+            source="kubernetes", observed_at=start, attempts=(pod,)))
+        assert held["held_attempts"] == 1
+        assert len(session.scalars(pending).all()) == 1
+
+        arrived = apply_batch(session, tenant["id"], ObservationBatch(
+            source="galaxy_db", observed_at=start + timedelta(seconds=30),
+            jobs=(_job("late", runner="k8s"),)))
+        assert arrived["pending_applied"] == 1
+        assert session.scalars(pending).all() == []
+        linked = session.scalar(
+            select(ExecutionAttempt.source_attempt_id)
+            .join(LifetimeAttempt, LifetimeAttempt.attempt_id == ExecutionAttempt.id)
+            .join(Job, ExecutionAttempt.job_id == Job.id)
+            .where(Job.tenant_id == tenant["id"], Job.source_id == "late")
+        )
+        assert linked == "k8s:pod-1"
+
+        # Evidence for a job that never arrives is dropped as a recorded gap.
+        stray = _attempt("never", "k8s:pod-2", start=start, end=start)
+        apply_batch(session, tenant["id"], ObservationBatch(
+            source="kubernetes", observed_at=start, attempts=(stray,)))
+        row = session.scalars(pending).one()
+        row.first_observed_at = datetime.now(UTC) - PENDING_ATTEMPT_LIMIT - timedelta(minutes=1)
+        session.flush()
+        expired = apply_batch(session, tenant["id"], ObservationBatch(source="galaxy_db", observed_at=DAY))
+        assert expired["pending_applied"] == 0
+        assert session.scalars(pending).all() == []
+        gap = session.scalar(select(ObservationGap).where(
+            ObservationGap.tenant_id == tenant["id"],
+            ObservationGap.kind == "provider_evidence_without_galaxy_job",
+        ))
+        assert "never" in gap.detail
+        session.rollback()

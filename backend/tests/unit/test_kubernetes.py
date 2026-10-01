@@ -173,3 +173,31 @@ def test_expired_watch_relists_and_records_an_unrecoverable_gap() -> None:
     assert batch.gaps[0].kind == "watch_resource_version_expired"
     assert batch.gaps[0].recoverable is False
     assert batch.cursor["resource_version"] == "4300"
+
+
+def test_a_held_attempt_survives_its_json_round_trip() -> None:
+    from datetime import UTC, datetime
+
+    from rainstone.adapters.contracts import (
+        NormalizedAttempt,
+        NormalizedLifetime,
+        NormalizedSegment,
+        attempt_from_json,
+        attempt_to_json,
+    )
+    from rainstone.models import CapacityRelationship
+
+    start = datetime(2026, 10, 1, 22, 4, 6, tzinfo=UTC)
+    attempt = NormalizedAttempt(
+        job_source_id="34", source_attempt_id="k8s:uid", runner="kubernetes", outcome="succeeded",
+        exit_code=0, tool_started_at=start, tool_finished_at=None, correlation="galaxy_pod_label",
+        facts={"resource_version": "27001"},
+        lifetimes=(NormalizedLifetime(
+            provider="kubernetes", resource_key="pod:uid", resource_uid="ea-dev",
+            capacity_relationship=CapacityRelationship.existing,
+            timing_method="kubernetes_pod_occupancy", observed_start=start,
+            requested_vcpu=Decimal("0.5"), requested_memory_mib=Decimal("1024"),
+            segments=(NormalizedSegment("tool:final", start, None, "kubernetes_container_run"),),
+        ),),
+    )
+    assert attempt_from_json(json.loads(json.dumps(attempt_to_json(attempt)))) == attempt

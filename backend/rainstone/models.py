@@ -493,6 +493,29 @@ class InstallationRecord(Base):
     __table_args__ = (UniqueConstraint("tenant_id", "installation_id"),)
 
 
+class PendingAttempt(Base):
+    """Provider evidence held until the Galaxy job it belongs to is collected.
+
+    A Kubernetes watch delivers each pod event once, and a short pod can come
+    and go before the Galaxy collector has seen its job. Only the latest
+    observation of each attempt is kept.
+    """
+
+    __tablename__ = "pending_attempt"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"))
+    source: Mapped[str] = mapped_column(String(80))
+    job_source_id: Mapped[str] = mapped_column(String(200))
+    source_attempt_id: Mapped[str] = mapped_column(String(300))
+    first_observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    attempt: Mapped[dict] = mapped_column(JSON)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "job_source_id", "source_attempt_id"),
+        Index("ix_pending_attempt_tenant_job", "tenant_id", "job_source_id"),
+    )
+
+
 class ObservationGap(Base):
     """A recorded loss of observation coverage that reports must not hide."""
 

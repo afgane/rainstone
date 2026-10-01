@@ -74,6 +74,13 @@ segment, and restarts do not merge into one interval. Admitted requests include
 init containers. A node without a provider ID gives no verified VM identity, and
 that qualification travels with the observation.
 
+A watch delivers each pod event once, and a short tool run outside a workflow
+can start, finish and be deleted before the Galaxy collector has seen its job.
+Provider evidence for a job that has not been collected yet is held in
+`pending_attempt`, keeping only its latest observation, and applied when the
+job arrives. Evidence still waiting after a day is dropped and recorded as an
+unrecoverable `provider_evidence_without_galaxy_job` gap.
+
 ## GCP Batch, Compute and Logging observation
 
 Galaxy stores a short Batch job name, so every read combines it with the

@@ -5,14 +5,14 @@ of database rows. Keeping the contract explicit lets the same collector feed a
 local database now and a hosted transport later without changing adapters.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from typing import Protocol
 
 from rainstone.models import CapacityRelationship
 
-CONTRACT_VERSION = 5
+CONTRACT_VERSION = 6
 
 # Galaxy's own record of a job's execution. Provider adapters observe the same
 # execution separately, so this is evidence about an attempt, not an attempt of
@@ -69,6 +69,60 @@ class NormalizedAttempt:
     lifetimes: tuple[NormalizedLifetime, ...] = ()
     correlation: str = "provider_event"
     facts: dict = field(default_factory=dict)
+
+
+def _plain(value):
+    if isinstance(value, dict):
+        return {key: _plain(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_plain(item) for item in value]
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, CapacityRelationship):
+        return value.value
+    return value
+
+
+def attempt_to_json(attempt: NormalizedAttempt) -> dict:
+    """A JSON-safe copy of an attempt, for holding it until its Galaxy job arrives."""
+    return _plain(asdict(attempt))
+
+
+def attempt_from_json(data: dict) -> NormalizedAttempt:
+    """The attempt `attempt_to_json` produced."""
+
+    def time(value: str | None) -> datetime | None:
+        return datetime.fromisoformat(value) if value else None
+
+    def decimal(value: str | None) -> Decimal | None:
+        return Decimal(value) if value is not None else None
+
+    def segment(item: dict) -> NormalizedSegment:
+        return NormalizedSegment(**{
+            **item,
+            "observed_start": time(item["observed_start"]),
+            "observed_end": time(item["observed_end"]),
+        })
+
+    def lifetime(item: dict) -> NormalizedLifetime:
+        return NormalizedLifetime(**{
+            **item,
+            "capacity_relationship": CapacityRelationship(item["capacity_relationship"]),
+            "observed_start": time(item["observed_start"]),
+            "observed_end": time(item["observed_end"]),
+            "requested_vcpu": decimal(item["requested_vcpu"]),
+            "requested_memory_mib": decimal(item["requested_memory_mib"]),
+            "segments": tuple(segment(value) for value in item["segments"]),
+        })
+
+    return NormalizedAttempt(**{
+        **data,
+        "tool_started_at": time(data["tool_started_at"]),
+        "tool_finished_at": time(data["tool_finished_at"]),
+        "lifetimes": tuple(lifetime(value) for value in data["lifetimes"]),
+    })
 
 
 @dataclass(frozen=True)
