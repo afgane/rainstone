@@ -287,6 +287,23 @@ def test_current_snapshot_replays_all_report_scopes(client) -> None:
     assert empty["observation_window"]["from"].startswith("2020-01-01")
 
 
+def test_freshness_offers_no_revision_while_one_awaits_recalculation(client) -> None:
+    auth = headers("alice")
+    assert client.get("/api/freshness", headers=auth).json()["revision_id"] is not None
+    with Session(engine) as session:
+        job = session.scalar(select(Job).where(Job.source_id == "13"))
+        original_tool = job.tool_id
+        job.tool_id = f"{original_tool}-changed"
+        session.commit()
+    try:
+        assert client.get("/api/freshness", headers=auth).json()["revision_id"] is None
+    finally:
+        with Session(engine) as session:
+            job = session.scalar(select(Job).where(Job.source_id == "13"))
+            job.tool_id = original_tool
+            session.commit()
+
+
 def test_snapshot_detects_mutable_job_membership_and_infrastructure_facts(client) -> None:
     auth = headers("admin", True)
     pinned = client.get("/api/summary", headers=auth).json()["revision_id"]

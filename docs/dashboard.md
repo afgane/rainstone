@@ -188,11 +188,20 @@ name opens that run; anywhere else on the row opens the job.
 Every date and time is shown in the report's timezone, not the browser's, so a
 run always appears under the day it is counted in. Report pages end with when
 collection last reached every source ("Collected through", marked stale when
-any source is) and, separately, when costs were calculated. The Galaxy server
-section shows when the server was actually observed, or says that no server
-observations are available; it never presents the selected period as observed
-coverage. An imported snapshot is labelled as such in the masthead, not as demo
-data.
+any source is) and, separately, when costs were calculated.
+
+An open page checks for a newer calculation about once a minute while it is
+visible. Figures a reader is looking at do not change by themselves: when the
+selected view's headline figures would differ, "Newer figures available" and
+an Update button appear beside the page title. The page updates by itself
+only when the reader comes back to a tab that was hidden, or when it shows no
+jobs, and never while a drawer is open or after more rows have been loaded.
+The previous figures stay on screen until the new ones arrive.
+
+The Galaxy server section shows when the server was actually observed, or says
+that no server observations are available; it never presents the selected
+period as observed coverage. An imported snapshot is labelled as such in the
+masthead, not as demo data.
 
 ## Workflow runs
 

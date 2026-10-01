@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  collectionCutoff, DEFAULT_RUN_CONTROLS, loadReport, NO_RUN_FILTERS, queryString, runQueryString,
-  stateFromUrl, urlQuery, withChartBucket, type ReportState,
+  collectionCutoff, DEFAULT_RUN_CONTROLS, figuresDiffer, loadReport, NO_RUN_FILTERS, queryString, runQueryString,
+  stateFromUrl, urlQuery, withChartBucket, type ReportState, type Summary,
 } from "./api";
 
 const SUMMARY = { revision_id: "rev-1", coverage: {}, amount: "0" };
@@ -85,7 +85,7 @@ describe("collection cutoff", () => {
 
   it("is the oldest report source, ignoring the price catalog", () => {
     const result = collectionCutoff({
-      overall_status: "healthy", observation_gaps: [],
+      overall_status: "healthy", observation_gaps: [], revision_id: null,
       sources: [
         source("galaxy_db", "2026-09-23T02:40:16Z"),
         source("gcp_batch", "2026-09-23T02:39:23Z"),
@@ -97,15 +97,33 @@ describe("collection cutoff", () => {
 
   it("is stale when any source is, and unknown when a source never succeeded", () => {
     expect(collectionCutoff({
-      overall_status: "partial", observation_gaps: [],
+      overall_status: "partial", observation_gaps: [], revision_id: null,
       sources: [source("galaxy_db", "2026-09-23T02:40:16Z", "stale")],
     }).stale).toBe(true);
     expect(collectionCutoff({
-      overall_status: "partial", observation_gaps: [], sources: [source("kubernetes", null)],
+      overall_status: "partial", observation_gaps: [], revision_id: null,
+      sources: [source("kubernetes", null)],
     })).toEqual({ cutoff: null, stale: true });
   });
 });
 
+
+describe("newer figures", () => {
+  const shown = {
+    revision_id: "rev-1", as_of: "2026-09-29T12:00:00Z", amount: "1.00", job_count: 2,
+    priced_job_count: 2, unpriced_job_count: 0, known_zero_job_count: 0, failed_spend: "0",
+    failed_job_count: 0, baseline_infrastructure_amount: null, current_launch: null,
+  } as unknown as Summary;
+
+  it("differ when anything the view counts changes", () => {
+    expect(figuresDiffer(shown, { ...shown, amount: "1.50" })).toBe(true);
+    expect(figuresDiffer(shown, { ...shown, unpriced_job_count: 1 })).toBe(true);
+  });
+
+  it("do not differ for a new revision or calculation time alone", () => {
+    expect(figuresDiffer(shown, { ...shown, revision_id: "rev-2", as_of: "2026-09-29T12:01:00Z" })).toBe(false);
+  });
+});
 
 describe("query strings", () => {
   const busy = { ...state("runs"), ...RUN_FIELDS } as ReportState;

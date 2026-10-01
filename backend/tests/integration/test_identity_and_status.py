@@ -127,3 +127,10 @@ def test_freshness_exposes_sources_and_recorded_gaps(workspace_client) -> None:
     freshness = workspace_client.get("/api/freshness").json()
     assert {source["source"] for source in freshness["sources"]} >= {"fixture", "price_catalog"}
     assert isinstance(freshness["observation_gaps"], list)
+
+
+def test_freshness_names_the_revision_a_new_report_would_show(workspace_client) -> None:
+    freshness = workspace_client.get("/api/freshness").json()
+    summary = workspace_client.get("/api/summary").json()
+    assert freshness["revision_id"] is not None
+    assert freshness["revision_id"] == summary["revision_id"]

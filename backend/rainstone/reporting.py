@@ -2259,9 +2259,14 @@ def freshness(session: Session, identity: Identity) -> dict:
     overall = "failed" if "failed" in statuses else (
         "partial" if statuses - {"healthy", "historical_snapshot"} else "healthy"
     )
+    revision = session.get(CostRevision, identity.tenant_id)
+    # A revision whose facts have since changed is about to be replaced, and a
+    # report pinned to it would be refused, so it is not offered as current.
+    current = revision is not None and revision.facts_generation == current_generation(session, identity.tenant_id)
     return {
         "sources": sources,
         "overall_status": overall,
+        "revision_id": str(revision.id) if current else None,
         "observation_gaps": [
             {
                 "source": gap.source, "kind": gap.kind, "detected_at": gap.detected_at,

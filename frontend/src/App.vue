@@ -3,9 +3,9 @@ import { CalendarRange, CircleDollarSign, Filter, RefreshCw } from "@lucide/vue"
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import {
   ADVANCED_FILTERS, ApiError, activeFilters, chartsNeeded, collectionCutoff, DEFAULT_RANKING,
-  DEFAULT_RUN_CONTROLS, downloadExport, get, loadJobCharts, loadJobPage, loadMoreRuns, loadReport,
-  loadRunChart, loadToolRanking, NO_RUN_FILTERS, periodOf, queryString, stateFromUrl, urlQuery,
-  WINDOW_PAGE_SIZE,
+  DEFAULT_RUN_CONTROLS, downloadExport, figuresDiffer, get, loadJobCharts, loadJobPage, loadMoreRuns,
+  loadReport, loadRunChart, loadToolRanking, NO_RUN_FILTERS, periodOf, queryString, stateFromUrl,
+  urlQuery, WINDOW_PAGE_SIZE,
   type AdvancedFilter, type CostTimeline, type DailyItem, type DrawerKind, type Freshness, type GroupItem,
   type Infrastructure, type Invocation, type JobCharts, type JobList, type JobsChart, type Me,
   type ReportState, type RunsView, type RunStatus, type Status, type Summary, type ToolRanking, type View,
@@ -69,6 +69,15 @@ const loadingRanking = ref(false);
 const loadingList = ref(false);
 // A minimum height for the page while a narrower answer would otherwise make it jump; 0 for none.
 const holdHeight = ref(0);
+// A revision with figures that differ from the ones shown, found while the reader stayed on the page.
+const newerFigures = ref(false);
+// A refetch that keeps the previous figures on screen until the new ones arrive.
+const updating = ref(false);
+// Rows added to the page since it loaded, which a refetch would drop.
+let extended = false;
+let checkedRevision = "";
+let checking = false;
+let checkTimer = 0;
 let detailOpener: HTMLElement | null = null;
 let controller: AbortController | null = null;
 let timer = 0;
@@ -158,7 +167,8 @@ const backLabel = computed(() => {
 });
 // Refetching the runs or jobs page keeps the last picture, dimmed, instead of a
 // skeleton, so nothing on the page moves while the answer changes.
-const keepPrevious = computed(() => loading.value && (runsView.value !== null || jobCharts.value !== null));
+const keepPrevious = computed(() => loading.value
+  && (updating.value || runsView.value !== null || jobCharts.value !== null));
 const runSortChoice = computed(() => RUN_SORTS.find(
   choice => choice.sort === state.runSort && choice.direction === state.runDirection,
 )?.id ?? RUN_SORTS[0].id);
@@ -175,10 +185,11 @@ function updateUrl(push = false) {
   history[push ? "pushState" : "replaceState"]({}, "", `${location.pathname}?${query}`);
 }
 
-async function refresh(push = false) {
+async function refresh(push = false, quiet = false) {
   controller?.abort();
   controller = new AbortController();
   const mine = ++generation;
+  updating.value = quiet && summary.value !== null;
   // Refetching the page being read must not move the reader.
   const scrolledTo = renderedView.value === state.view ? window.scrollY : null;
   if (scrolledTo !== null) holdHeight.value = document.getElementById("main")?.offsetHeight ?? 0;
@@ -192,15 +203,56 @@ async function refresh(push = false) {
     summary.value = result.summary; jobs.value = result.jobs;
     freshness.value = result.freshness; me.value = result.me; viewData.value = result.view;
     renderedView.value = state.view;
-    firstLoad = false;
+    firstLoad = false; extended = false; newerFigures.value = false;
     if (scrolledTo !== null) await keepPlace(scrolledTo);
   } catch (reason) {
     if ((reason as Error).name !== "AbortError" && mine === generation) {
       error.value = reason instanceof Error ? reason.message : "Unable to load reporting data";
     }
   } finally {
-    if (mine === generation) loading.value = false;
+    if (mine === generation) { loading.value = false; updating.value = false; }
   }
+}
+
+const CHECK_INTERVAL_MS = 60_000;
+
+/** Whether a refetch would leave everything the reader opened or loaded as it was. */
+function undisturbed(): boolean {
+  return !extended && !detailKind.value && !loadingMore.value && !loadingChart.value
+    && !loadingRanking.value && !loadingList.value;
+}
+
+/**
+ * Look for figures newer than the ones shown. Figures the reader is looking at
+ * are only replaced when they asked or could not have been reading them: on
+ * coming back to a hidden tab, or when the page has no jobs to read.
+ */
+async function checkForNewer(returning = false) {
+  const shown = summary.value;
+  if (checking || loading.value || error.value || !shown || state.view === "status"
+    || document.visibilityState !== "visible") return;
+  checking = true;
+  const mine = generation;
+  try {
+    if (!newerFigures.value) {
+      const latest = (await get<Freshness>("/freshness")).revision_id;
+      if (!latest || latest === shown.revision_id || latest === checkedRevision) return;
+      const candidate = await get<Summary>(`/summary?${queryString(state)}`);
+      if (mine !== generation) return;
+      checkedRevision = latest;
+      newerFigures.value = figuresDiffer(shown, candidate);
+    }
+    if (newerFigures.value && (returning || shown.job_count === 0) && undisturbed()) {
+      void refresh(false, true);
+    }
+  } catch {
+    // A failed check changes nothing on the page; the next one tries again.
+  } finally {
+    checking = false;
+  }
+}
+function onVisibility() {
+  if (document.visibilityState === "visible") void checkForNewer(true);
 }
 
 /**
@@ -309,6 +361,7 @@ async function moreUndated() {
       `/jobs?${queryString(pinned)}&undated_offset=${jobs.value.undated_items.length}`,
     );
     jobs.value = { ...jobs.value, undated_items: [...jobs.value.undated_items, ...next.undated_items] };
+    extended = true;
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : "Unable to load more jobs";
   }
@@ -407,6 +460,7 @@ async function moreRuns() {
     viewData.value = {
       ...current, list: { ...current.list, items: [...current.list.items, ...next.items], total: next.total },
     };
+    extended = true;
   } catch (reason) {
     recoverFrom(reason, mine, "Unable to load more runs");
   } finally {
@@ -685,7 +739,7 @@ function closeDetail(returnFocus = true, updateHistory = true) {
   if (returnFocus && wasOpen) detailOpener?.focus();
   detailOpener = null;
 }
-function refreshLatest() { void refresh(true); }
+function refreshLatest() { void refresh(false, true); }
 async function download() {
   try { await downloadExport(state); }
   catch (reason) { error.value = reason instanceof Error ? reason.message : "Unable to export report"; }
@@ -723,13 +777,17 @@ function onKey(event: KeyboardEvent) {
 onMounted(() => {
   window.addEventListener("popstate", onPopState);
   window.addEventListener("keydown", onKey);
+  document.addEventListener("visibilitychange", onVisibility);
+  checkTimer = window.setInterval(() => void checkForNewer(), CHECK_INTERVAL_MS);
   void refresh();
   detailFromUrl();
 });
 onBeforeUnmount(() => {
   controller?.abort();
+  window.clearInterval(checkTimer);
   window.removeEventListener("popstate", onPopState);
   window.removeEventListener("keydown", onKey);
+  document.removeEventListener("visibilitychange", onVisibility);
 });
 </script>
 
@@ -785,6 +843,12 @@ onBeforeUnmount(() => {
           <CalendarRange :size="16" aria-hidden="true" />
           Show {{ recordedDates }}, when this {{ summary?.imported_snapshot ? "snapshot" : "demonstration" }} was recorded
         </button>
+        <div class="newer-figures">
+          <span aria-live="polite">{{ newerFigures ? "Newer figures available" : "" }}</span>
+          <button v-if="newerFigures" type="button" class="secondary" @click="refreshLatest">
+            <RefreshCw :size="16" aria-hidden="true" /> Update
+          </button>
+        </div>
       </div>
       <div v-if="error" class="error" role="alert">
         <strong>Reporting data unavailable.</strong> {{ error }}

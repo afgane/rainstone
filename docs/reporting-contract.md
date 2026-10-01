@@ -442,3 +442,7 @@ Collector health is reported separately from web health: `/api/freshness`
 carries per-source status, cursors, lag and recorded observation gaps, and
 `/api/status` carries the same read-only self-checks as `rainstone doctor`,
 sanitized for download through the normal authenticated route.
+`/api/freshness` also names the tenant's current `revision_id`, the one a
+report requested now would be pinned to, or null while changed facts await
+recalculation. It is cheap to read, so an open page polls it to learn that
+newer figures exist without asking for the report itself.

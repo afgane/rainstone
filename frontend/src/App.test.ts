@@ -328,3 +328,109 @@ describe("the Daily cost page", () => {
     expect(rows[1]).toContain("$1.25");
   });
 });
+
+describe("newer figures", () => {
+  /** What the server holds now; a test changes it to stand for a later calculation. */
+  const latest = { revision: "rev-1", amount: "1.00", jobs: 1 };
+
+  function stubLatest() {
+    Object.assign(latest, { revision: "rev-1", amount: "1.00", jobs: 1 });
+    return stubFetch(new Set(), path => {
+      if (path.endsWith("/freshness")) {
+        return json({ overall_status: "healthy", sources: [], observation_gaps: [], revision_id: latest.revision });
+      }
+      if (path.endsWith("/summary")) {
+        return json({
+          ...META, revision_id: latest.revision, amount: latest.amount, job_count: latest.jobs,
+          unpriced_job_count: 0, demo: false, imported_snapshot: null, can_view_infrastructure: false,
+        });
+      }
+      if (path.endsWith("/daily")) return json({ items: [], meta: META });
+      return undefined;
+    });
+  }
+
+  async function mountDaily() {
+    history.replaceState({}, "", "/?view=daily&period=custom&from=2026-09-01&to=2026-09-29");
+    const wrapper = mount(App, { attachTo: document.body });
+    apps.push(wrapper);
+    await flushPromises();
+    return wrapper;
+  }
+
+  const notice = (wrapper: ReturnType<typeof mount>) => wrapper.find(".newer-figures").text();
+  const summaries = () => vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/summary")).length;
+
+  function setVisibility(value: DocumentVisibilityState) {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => value });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }
+
+  afterEach(() => { Reflect.deleteProperty(document, "visibilityState"); });
+
+  it("offers newer figures without replacing the ones being read", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
+    stubLatest();
+    const wrapper = await mountDaily();
+    Object.assign(latest, { revision: "rev-2", amount: "2.00" });
+    vi.advanceTimersByTime(60_000);
+    await flushPromises();
+    expect(notice(wrapper)).toContain("Newer figures available");
+    expect(wrapper.find(".snapshot details .mono").text()).toContain("rev-1");
+    const before = summaries();
+    await wrapper.find(".newer-figures button").trigger("click");
+    await flushPromises();
+    expect(summaries()).toBe(before + 1);
+    expect(notice(wrapper)).toBe("");
+    expect(wrapper.find(".snapshot details .mono").text()).toContain("rev-2");
+  });
+
+  it("stays quiet when a newer revision would not change what the page shows", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
+    stubLatest();
+    const wrapper = await mountDaily();
+    latest.revision = "rev-2";
+    vi.advanceTimersByTime(60_000);
+    await flushPromises();
+    expect(notice(wrapper)).toBe("");
+    // The same revision is not asked about twice.
+    const before = summaries();
+    vi.advanceTimersByTime(60_000);
+    await flushPromises();
+    expect(summaries()).toBe(before);
+  });
+
+  it("updates by itself when the page shows no jobs", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
+    stubLatest();
+    latest.jobs = 0;
+    const wrapper = await mountDaily();
+    Object.assign(latest, { revision: "rev-2", jobs: 3 });
+    vi.advanceTimersByTime(60_000);
+    await flushPromises();
+    expect(notice(wrapper)).toBe("");
+    expect(wrapper.find(".snapshot details .mono").text()).toContain("rev-2");
+  });
+
+  it("updates by itself when the reader comes back to the tab", async () => {
+    stubLatest();
+    const wrapper = await mountDaily();
+    setVisibility("hidden");
+    Object.assign(latest, { revision: "rev-2", amount: "2.00" });
+    setVisibility("visible");
+    await flushPromises();
+    expect(notice(wrapper)).toBe("");
+    expect(wrapper.find(".snapshot details .mono").text()).toContain("rev-2");
+  });
+
+  it("does not check while the tab is hidden", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
+    stubLatest();
+    await mountDaily();
+    setVisibility("hidden");
+    const before = vi.mocked(fetch).mock.calls.length;
+    vi.advanceTimersByTime(180_000);
+    await flushPromises();
+    expect(vi.mocked(fetch).mock.calls.length).toBe(before);
+  });
+});

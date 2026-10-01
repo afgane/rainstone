@@ -565,6 +565,8 @@ export interface Freshness {
   overall_status: string;
   sources: Array<{ source: string; status: string; last_success_at: string | null; error: string | null }>;
   observation_gaps: Array<{ source: string; kind: string; detected_at: string; recoverable: boolean; detail: string }>;
+  /** The revision a report requested now would show; null while a recalculation is pending. */
+  revision_id: string | null;
 }
 
 export interface Me {
@@ -972,6 +974,21 @@ export function collectionCutoff(freshness: Freshness | null) {
     .map(source => source.last_success_at as string)
     .reduce((oldest, value) => (new Date(value) < new Date(oldest) ? value : oldest));
   return { cutoff, stale: sources.some(source => source.status !== "healthy") };
+}
+
+/**
+ * Whether a newer summary of the same view would show the reader different
+ * figures. A revision covers the whole tenant, so it changes for work the
+ * reader cannot see; only a change in what this view counts is worth offering.
+ */
+export function figuresDiffer(shown: Summary, latest: Summary): boolean {
+  const figures = (summary: Summary) => [
+    summary.amount, summary.job_count, summary.priced_job_count, summary.unpriced_job_count,
+    summary.known_zero_job_count, summary.failed_spend, summary.failed_job_count,
+    summary.baseline_infrastructure_amount, summary.current_launch?.total_since_launch ?? null,
+  ];
+  const before = figures(shown);
+  return figures(latest).some((value, index) => value !== before[index]);
 }
 
 export function diagnosticsUrl(): string {

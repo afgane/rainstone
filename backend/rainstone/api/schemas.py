@@ -725,6 +725,7 @@ class InfrastructureResponse(APIModel):
 class FreshnessResponse(APIModel):
     sources: list[dict[str, Any]]
     overall_status: str
+    revision_id: str | None
     observation_gaps: list[dict[str, Any]]
 
 
