@@ -8,7 +8,6 @@ import type { JobWindow } from "../jobsView";
 import { describePeriod, exclusiveEnd } from "../periods";
 import OverviewCostChart from "./overview/OverviewCostChart.vue";
 import OverviewFigures from "./overview/OverviewFigures.vue";
-import { undatedNote } from "../vocabulary";
 
 const props = defineProps<{
   state: ReportState;
@@ -20,7 +19,7 @@ const props = defineProps<{
   guideOpen: boolean;
 }>();
 const emit = defineEmits<{
-  view: [view: "tool-runs" | "server"];
+  view: [view: "server"];
   block: [category: CostPiece["kind"], window: JobWindow, opener: HTMLElement];
   explore: [opener: HTMLElement];
   guide: [opener: HTMLElement];
@@ -49,10 +48,6 @@ const axisEnd = computed(() => periodAxisEnd(period.value, props.state.timezone)
     :period-text="describePeriod(period, state.timezone)"
     @server="emit('view', 'server')"
   />
-  <p v-if="summary.undated?.job_count" class="overview-notes">
-    {{ undatedNote(summary.undated.job_count) }}
-    <button class="link-button" type="button" @click="emit('view', 'tool-runs')">See them</button>
-  </p>
 
   <OverviewCostChart
     :timeline="timeline"

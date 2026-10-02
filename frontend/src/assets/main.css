@@ -64,8 +64,6 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   .overview-welcome .icon-close { grid-column: 2; grid-row: 1; align-self: start; }
 }
 .measure-note { margin-left: .5rem; font-weight: 400; color: #58585a; font-size: .85rem; }
-.overview-notes { margin: 1rem 0 0; color: #58585a; }
-.overview-notes p { margin: .25rem 0; max-width: 65ch; }
 .inline-details { margin-top: .7rem; font-size: .9rem; }
 .inline-details summary { cursor: pointer; color: #165b91; }
 .panel > .inline-details { margin: 0; padding: .9rem 1.2rem 1rem; border-top: 1px solid #eef2f6; }

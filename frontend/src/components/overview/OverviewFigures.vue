@@ -2,8 +2,8 @@
 import { computed } from "vue";
 import type { Summary } from "../../api";
 import {
-  ADDITIONAL_SERVER_SENTENCE, formatCost, formatRateInCents, needsCostData, RUN_COMPUTE, SERVER_COMPUTE,
-  serverQualifiers, sinceLaunch,
+  ADDITIONAL_SERVER_SENTENCE, formatCost, formatRateInCents, inProgressNote, RUN_COMPUTE, SERVER_COMPUTE,
+  serverQualifiers, sinceLaunch, unrecordedNote,
 } from "../../vocabulary";
 
 const props = defineProps<{
@@ -42,8 +42,11 @@ const qualifiers = computed(() => serverQualifiers(launch.value, Boolean(props.s
       <p class="figure-line">
         {{ periodText }}<template v-if="recordedSoFar"> · recorded so far</template>
       </p>
-      <p v-if="summary.unpriced_job_count" class="figure-line">
-        {{ needsCostData(summary.unpriced_job_count, "job") }}
+      <p v-if="summary.in_progress_job_count" class="figure-line">
+        {{ inProgressNote(summary.in_progress_job_count) }}
+      </p>
+      <p v-if="summary.unrecorded_job_count" class="figure-line">
+        {{ unrecordedNote(summary.unrecorded_job_count) }}
       </p>
     </section>
     <template v-if="summary.can_view_infrastructure">

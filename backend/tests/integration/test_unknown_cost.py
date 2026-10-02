@@ -44,6 +44,26 @@ def job_on(template: dict, number: int, day: str, machine: str) -> dict:
     return job
 
 
+def running_on(template: dict, number: int, day: str, machine: str) -> dict:
+    job = job_on(template, number, day, machine)
+    job["state"] = "running"
+    attempt = job["attempts"][0]
+    attempt["outcome"] = "running"
+    attempt["tool_finished_at"] = None
+    attempt["lifetimes"][0]["observed_end"] = None
+    return job
+
+
+def without_evidence(template: dict, number: int, day: str, state: str) -> dict:
+    """Galaxy's record alone: no resource was observed, so nothing times its cost."""
+    job = job_on(template, number, day, UNPRICED_MACHINE)
+    job["state"] = state
+    job["attempts"][0]["lifetimes"] = []
+    if state == "new":
+        job["attempts"] = []
+    return job
+
+
 @pytest.fixture(scope="module")
 def tenant_client(tmp_path_factory):
     demo = json.loads(Path("fixtures/runs-demo.json").read_text())
@@ -66,6 +86,9 @@ def tenant_client(tmp_path_factory):
             job_on(template, 1, "2026-06-02", UNPRICED_MACHINE),
             job_on(template, 2, "2026-06-03", UNPRICED_MACHINE),
             job_on(template, 3, "2026-06-03", "n2-standard-2"),
+            running_on(template, 4, "2026-06-05", UNPRICED_MACHINE),
+            without_evidence(template, 5, "2026-06-05", "ok"),
+            without_evidence(template, 6, "2026-06-05", "new"),
         ],
     }
     path = tmp_path_factory.mktemp("fixtures") / "unknown-cost.json"
@@ -118,8 +141,20 @@ def test_the_timeline_says_the_same_about_each_day(tenant_client) -> None:
 
 def test_the_summary_counts_the_unpriced_jobs_rather_than_the_day(tenant_client) -> None:
     summary = get(tenant_client, "summary")
-    assert summary["unpriced_job_count"] == 2
+    assert summary["unpriced_job_count"] == 3
     assert Decimal(summary["amount"]) > 0
+
+
+def test_the_summary_separates_cost_still_to_come_from_cost_never_recorded(tenant_client) -> None:
+    summary = get(tenant_client, "summary")
+    # The running job's cost is still accruing.
+    assert summary["in_progress_job_count"] == 1
+    # Two finished jobs nothing can price, and one whose evidence never
+    # arrived. That one belongs to no period, so every period counts it.
+    assert summary["unrecorded_job_count"] == 3
+    earlier = get(tenant_client, "summary", **{"from": "2026-05-01T00:00:00Z", "to": "2026-05-02T00:00:00Z"})
+    assert earlier["in_progress_job_count"] == 0
+    assert earlier["unrecorded_job_count"] == 1
 
 
 def test_a_chart_axis_is_written_like_its_columns(tenant_client) -> None:

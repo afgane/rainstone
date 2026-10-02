@@ -153,12 +153,21 @@ export function costExplanation(record: {
 
 /** Evidence a dated report leaves out because no period can hold it. */
 export function undatedSentence(count: number): string {
-  return `${pluralize(count, "job")} ${count === 1 ? "has" : "have"} no usable timing, so ${count === 1 ? "it is" : "they are"} left out of every period's totals.`;
+  return `${pluralize(count, "job")} could not be placed in time, so no period includes ${count === 1 ? "it" : "them"}.`;
 }
 
-/** Overview's short form: the jobs are counted nowhere in time, so not in this period either. */
-export function undatedNote(count: number): string {
-  return `${pluralize(count, "job")} without usable timing ${count === 1 ? "is" : "are"} not in this period.`;
+export const UNDATED_LIST_NOTE =
+  "They are listed here so they can still be opened. A job that has not started yet stays here until it runs.";
+
+export const RECORDED_ONLY_NOTE = "Only recorded costs are drawn.";
+
+export function inProgressNote(count: number): string {
+  return `${pluralize(count, "job")} still in progress`;
+}
+
+/** Worded as settled: nothing the reader does will bring the cost back. */
+export function unrecordedNote(count: number): string {
+  return `${pluralize(count, "job")} whose cost was not recorded ${count === 1 ? "is" : "are"} not included`;
 }
 
 export function coverageSentence(jobs: number, incomplete: number): string {

@@ -64,8 +64,8 @@ describe("missing evidence", () => {
   });
 
   it("says undated work is outside the period rather than in it", () => {
-    expect(undatedSentence(1)).toBe("1 job has no usable timing, so it is left out of every period's totals.");
-    expect(undatedSentence(41)).toContain("41 jobs have");
+    expect(undatedSentence(1)).toBe("1 job could not be placed in time, so no period includes it.");
+    expect(undatedSentence(2)).toBe("2 jobs could not be placed in time, so no period includes them.");
   });
 });
 

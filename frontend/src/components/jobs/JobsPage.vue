@@ -71,7 +71,7 @@ const narrowed = computed(() => Boolean(
     :loading-chart="loadingChart" :loading-ranking="loadingRanking" :tool-search="toolSearch"
     :open-key="openKey" :open-window-from="openWindowFrom"
     :period-from="periodFrom" :period-to="periodTo" :axis-end="axisEnd" :period-label="periodLabel"
-    :timezone="state.timezone" :as-of="summary.as_of" :undated-jobs="summary.undated?.job_count ?? 0"
+    :timezone="state.timezone" :as-of="summary.as_of"
     @chart="emit('chart', $event)" @tool="(key, opener) => emit('tool', key, opener)"
     @window="(window, opener) => emit('window', window, opener)"
     @search="emit('search', $event)" @limit="emit('limit', $event)"

@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import type { JobTotals, Summary } from "../../api";
 import {
-  formatCost, JOBS_SCOPE, needsCostData, NO_JOBS, PRIMARY_MEASURE, statusMix, WORKLOAD_EYEBROW,
+  formatCost, inProgressNote, JOBS_SCOPE, NO_JOBS, PRIMARY_MEASURE, statusMix, unrecordedNote, WORKLOAD_EYEBROW,
 } from "../../vocabulary";
 
 const props = defineProps<{
@@ -22,7 +22,8 @@ const amountText = computed(() => (empty.value ? "No jobs" : formatCost(props.su
 const scope = computed(() => props.toolName || (props.narrowed ? "Matching jobs" : "All jobs in this period"));
 const note = computed(() => [
   "Compute only · USD",
-  props.summary.unpriced_job_count ? needsCostData(props.summary.unpriced_job_count, "job") : "",
+  props.summary.in_progress_job_count ? inProgressNote(props.summary.in_progress_job_count) : "",
+  props.summary.unrecorded_job_count ? unrecordedNote(props.summary.unrecorded_job_count) : "",
 ].filter(Boolean).join(" · "));
 const mix = computed(() => (empty.value ? NO_JOBS : statusMix(props.totals?.by_status ?? [])));
 </script>

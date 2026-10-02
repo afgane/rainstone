@@ -104,6 +104,8 @@ class SummaryResponse(ReportMeta):
     priced_job_count: int
     unpriced_job_count: int
     known_zero_job_count: int
+    in_progress_job_count: int
+    unrecorded_job_count: int
     failed_spend: str
     failed_job_count: int
     failed_incomplete_job_count: int

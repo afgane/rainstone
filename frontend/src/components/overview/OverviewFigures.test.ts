@@ -63,9 +63,21 @@ describe("OverviewFigures", () => {
   });
 
   it("says when the run cost leaves out unpriced work", () => {
-    const wrapper = figures({ unpriced_job_count: 4 });
-    expect(wrapper.find(".cost-card").text()).toContain("recorded so far");
-    expect(wrapper.find(".cost-card").text()).toContain("4 jobs still need cost data");
+    const card = figures({ unpriced_job_count: 4, in_progress_job_count: 1, unrecorded_job_count: 3 }).find(".cost-card");
+    expect(card.text()).toContain("recorded so far");
+    expect(card.text()).toContain("1 job still in progress");
+    expect(card.text()).toContain("3 jobs whose cost was not recorded are not included");
+    // Nothing the reader could act on is implied.
+    expect(card.text()).not.toContain("need cost data");
+  });
+
+  it("names only the kinds of missing cost there are", () => {
+    const pending = figures({ unpriced_job_count: 2, in_progress_job_count: 2, unrecorded_job_count: 0 }).find(".cost-card");
+    expect(pending.text()).toContain("2 jobs still in progress");
+    expect(pending.text()).not.toContain("not recorded");
+    const settled = figures({ unpriced_job_count: 0, in_progress_job_count: 0, unrecorded_job_count: 1 }).find(".cost-card");
+    expect(settled.text()).toContain("1 job whose cost was not recorded is not included");
+    expect(settled.text()).not.toContain("in progress");
   });
 
   it("never shows an unavailable cost as zero, and says so when nothing ran", () => {

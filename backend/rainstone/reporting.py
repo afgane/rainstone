@@ -133,6 +133,18 @@ def _evidence_pending(job: Job, as_of: datetime | None) -> bool:
     return bool(as_of and job.updated_at and as_of - job.updated_at < PENDING_ATTEMPT_LIMIT)
 
 
+def _cost_pending(record: dict, as_of: datetime | None) -> bool:
+    """Whether an incomplete cost may still arrive with nobody doing anything.
+
+    Queued, running and unstarted work has more to record, and a finished job's
+    evidence can arrive up to a day after Galaxy marks it finished.
+    """
+    job = record["job"]
+    if job.state in EXECUTING_STATES | UNSTARTED_STATES:
+        return True
+    return record["quality"] in {COLLECTING, Quality.partial.value} and _evidence_pending(job, as_of)
+
+
 def _quality(lines: list[CostLine], state: str | None = None, *, collecting: bool = False) -> str:
     if not lines:
         if state in EXECUTING_STATES:
@@ -766,11 +778,19 @@ def summary(session: Session, identity: Identity, query: ReportQuery) -> dict:
         session, identity, query, revision=revision, snapshot_validated=True
     ) if identity.can_view_infrastructure else None
     launch = infra["current_launch"] if infra else None
+    as_of = revision.created_at if revision else datetime.now(UTC)
+    incomplete = [r for r in records if r["quality"] in INCOMPLETE_QUALITIES]
+    in_progress = sum(_cost_pending(r, as_of) for r in incomplete)
     return {
         **meta, "amount": meta["priced_subtotal"], "job_count": len(records),
         "priced_job_count": meta["coverage"]["priced"],
         "unpriced_job_count": meta["coverage"]["incomplete"],
         "known_zero_job_count": meta["coverage"]["known_zero"],
+        "in_progress_job_count": in_progress,
+        # Work without timing belongs to no period but is left out of this one
+        # too, so it is counted here whatever the period.
+        "unrecorded_job_count": len(incomplete) - in_progress
+        + sum(not _cost_pending(r, as_of) for r in undated),
         **_repeated_work(records),
         "baseline_infrastructure_amount": infra["amount"] if infra else None,
         "baseline_infrastructure_observed": infra["observed_coverage"] if infra else None,

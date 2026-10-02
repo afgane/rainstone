@@ -4,7 +4,7 @@ import { computed } from "vue";
 import type { Job, Meta } from "../../api";
 import {
   capacityLabel, formatDateTime, formatJobDuration, JOB_SORTS, jobAmountText, jobDurationLabel,
-  jobStateKind, jobStateLabel, originLabel, otherRuns, pluralize, qualityLabel, undatedSentence,
+  jobStateKind, jobStateLabel, originLabel, otherRuns, pluralize, qualityLabel, UNDATED_LIST_NOTE, undatedSentence,
 } from "../../vocabulary";
 import JobStateIcon from "../drawer/JobStateIcon.vue";
 
@@ -121,10 +121,7 @@ function context(job: Job): string {
     </nav>
     <details v-if="undated?.job_count" class="inline-details">
       <summary>{{ undatedSentence(undated.job_count) }}</summary>
-      <p>
-        Their cost evidence has no time it can be placed at, so no period can claim them. They are
-        listed here for inspection only and are not part of the totals or the export.
-      </p>
+      <p>{{ UNDATED_LIST_NOTE }}</p>
       <ul class="step-list">
         <li v-for="job in undatedJobs" :key="job.id">
           <button

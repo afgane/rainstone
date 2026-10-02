@@ -137,9 +137,12 @@ In order, the drawer then shows:
 
 The Jobs page reports every job in the period, in a workflow or run on its
 own, so its total is the Overview headline for the same filters. Two cards
-give the period's cost (recorded so far, with how many jobs still need cost
-data) and its workload: jobs by status, and how many tools ran. The sidebar's
-search is "Find a job", searching by tool.
+give the period's cost (recorded so far, with the same "still in progress" and
+"cost was not recorded" counts as Overview) and its workload: jobs by status,
+and how many tools ran. The chart notes that only recorded costs are drawn.
+Jobs that could not be placed in time are listed in a collapsed section under
+the list, so they can still be opened. The sidebar's search is "Find a job",
+searching by tool.
 
 **By tool.** One row per tool, every version of it together: a Tool Shed
 tool's versions share a row, and any other tool keeps its exact identity, so
@@ -342,8 +345,12 @@ filters or figures, and its open state can be restored from the URL.
 the same width and height, with a quiet plus between them and "Run compute is
 additional to the Galaxy server compute." beneath. Run compute is every
 matching job in the selected period, workflow and individual tool jobs alike,
-with "recorded so far" and "N jobs still need cost data" when some cost is
-missing. Galaxy server is the whole server's compute since its current launch,
+with "recorded so far" when some cost is missing. "N jobs still in progress"
+counts missing cost that will arrive on its own, and "N jobs whose cost was
+not recorded are not included" counts cost that will not, including jobs with
+no usable timing, which belong to no period and so are counted in every one.
+Neither line links anywhere: there is nothing for the reader to do about
+either. Galaxy server is the whole server's compute since its current launch,
 idle time included, and never follows the period or filters: its total, a known
 subtotal "recorded so far", or "Not available", with the hourly rate it accrues
 at, to the cent, beside it in smaller type; how long it has run since launch,
@@ -352,8 +359,6 @@ applies; and **Server details**, which opens the Galaxy server page. The exact
 launch time, cutoff, pricing and reasons stay on that page. The two amounts
 have different scopes, so no combined total is shown. A viewer who may not see
 the server gets the run compute card alone, with no server facts or sentence.
-Jobs with no usable timing are noted in one sentence under the cards, with a
-link to them.
 
 **The chart.** "Run compute over time" is dated like the Workflow runs Over
 time chart: one column per hour (one day), day (up to 92 days) or week, every

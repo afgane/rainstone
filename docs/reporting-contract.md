@@ -326,6 +326,12 @@ observations, and `attempt_evidence` says whether the count rests on provider
 observations or on Galaxy's record alone, which cannot show a repeat. In a job
 detail each attempt carries a `role` of `first`, `repeat` or `observation`.
 
+The summary splits the period's incomplete jobs by whether their cost can
+still arrive. `in_progress_job_count` counts those queued, running or not yet
+started, and finished ones whose evidence is still within its day of arriving.
+`unrecorded_job_count` counts the rest, plus the non-pending jobs of
+`meta.undated`, which no period holds and every dated period leaves out.
+
 The summary reports failed work (`failed_spend`, with
 `failed_incomplete_job_count` for failed jobs still missing cost data) and two
 different repeat figures: `repeated_job_spend` is the whole cost of jobs that

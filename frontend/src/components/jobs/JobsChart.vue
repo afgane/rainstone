@@ -4,8 +4,8 @@ import type { JobBreakdown, JobsChart, JobTimeline, JobTotals } from "../../api"
 import { bucketLabel } from "../../chart/layout";
 import { STATUS_ORDER, type JobWindow } from "../../jobsView";
 import {
-  formatCost, JOBS_CHART_HINT, needsCostData, pluralize, STATUS_NOTE, statusLine, statusPieceLabel,
-  undatedSentence, unplacedSentence,
+  formatCost, JOBS_CHART_HINT, pluralize, RECORDED_ONLY_NOTE, STATUS_NOTE, statusLine, statusPieceLabel,
+  unplacedSentence,
 } from "../../vocabulary";
 import { useChartTooltip, type TooltipContent } from "../runs/useChartTooltip";
 import JobTimeBars from "./JobTimeBars.vue";
@@ -29,7 +29,6 @@ const props = defineProps<{
   periodLabel: string;
   timezone: string;
   asOf: string | null;
-  undatedJobs: number;
 }>();
 const emit = defineEmits<{
   chart: [kind: JobsChart];
@@ -147,14 +146,10 @@ function moveTab(event: KeyboardEvent) {
     </div>
     <div class="chart-notes">
       <p>{{ STATUS_NOTE }}</p>
-      <p v-if="totals?.incomplete_job_count">
-        {{ needsCostData(totals.incomplete_job_count, "job") }}. Their missing costs are not in the
-        recorded total.
-      </p>
+      <p v-if="totals?.incomplete_job_count">{{ RECORDED_ONLY_NOTE }}</p>
       <p v-if="chart === 'time' && timeline?.unplaced">
         {{ unplacedSentence(timeline.unplaced.job_count, timeline.unplaced.amount) }}
       </p>
-      <p v-if="undatedJobs">{{ undatedSentence(undatedJobs) }}</p>
     </div>
 
     <details class="inline-details">

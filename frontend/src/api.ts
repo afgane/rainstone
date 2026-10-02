@@ -115,6 +115,10 @@ export interface Summary extends Meta {
   priced_job_count: number;
   unpriced_job_count: number;
   known_zero_job_count: number;
+  /** Incomplete costs that may still arrive: queued, running or just finished. */
+  in_progress_job_count: number;
+  /** Incomplete costs that will not arrive, including work no period holds. */
+  unrecorded_job_count: number;
   failed_spend: string;
   failed_job_count: number;
   failed_incomplete_job_count: number;
