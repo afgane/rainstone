@@ -1,9 +1,14 @@
 import { computed, onBeforeUnmount, onMounted, onUpdated, ref } from "vue";
 
 /**
- * The length a bar at full scale may take: the chart's track less its widest
- * value label, measured rather than assumed, so a label such as "less than
- * $0.01" always fits beside the longest bar.
+ * The length a bar at full scale may take: the chart's track less the label
+ * beside a full-scale bar, measured rather than assumed, so a label such as
+ * "less than $0.01" always fits beside the longest bar.
+ *
+ * The chart marks that label with `data-full-scale`. Measuring whichever labels
+ * happen to be shown instead would let showing more rows, or finding one,
+ * change the room, and with it every bar's length on what is meant to be one
+ * scale. A chart whose full-scale row may be off screen renders a hidden copy.
  */
 export function useBarRoom() {
   const chart = ref<HTMLElement | null>(null);
@@ -13,11 +18,10 @@ export function useBarRoom() {
   function measure() {
     const track = chart.value?.querySelector<HTMLElement>(".track");
     trackWidth.value = track?.clientWidth ?? 0;
-    let widest = 0;
-    for (const label of chart.value?.querySelectorAll<HTMLElement>(".total") ?? []) {
-      widest = Math.max(widest, label.offsetWidth + parseFloat(getComputedStyle(label).marginLeft));
-    }
-    labelWidth.value = Math.ceil(widest);
+    const label = chart.value?.querySelector<HTMLElement>("[data-full-scale]");
+    labelWidth.value = label
+      ? Math.ceil(label.offsetWidth + parseFloat(getComputedStyle(label).marginLeft))
+      : 0;
   }
 
   // Labels change size with their text and when the web font arrives, and
@@ -29,7 +33,8 @@ export function useBarRoom() {
     if (!root) return;
     const track = root.querySelector(".track");
     if (track) observer.observe(track);
-    for (const label of root.querySelectorAll(".total")) observer.observe(label);
+    const label = root.querySelector("[data-full-scale]");
+    if (label) observer.observe(label);
     measure();
   }
   onMounted(observe);

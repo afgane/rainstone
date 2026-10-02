@@ -117,7 +117,7 @@ function leave() {
             />
           </template>
         </div>
-        <span class="total">{{ formatCost(group.amount) }}</span>
+        <span class="total" data-full-scale>{{ formatCost(group.amount) }}</span>
       </div>
       <small class="strip-caption">{{ caption }}</small>
     </div>

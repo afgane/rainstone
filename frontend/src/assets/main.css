@@ -223,6 +223,7 @@ footer { display: flex; gap: .4rem; align-items: center; margin-top: 1.5rem; fon
 .track { display: flex; align-items: center; height: 22px; min-width: 0; border-left: 1px solid #c3ced8; }
 .bar { display: flex; gap: 2px; height: 22px; }
 .total { margin-left: 8px; color: #2c3143; font-weight: 700; white-space: nowrap; }
+.bar-room-probe { position: absolute; visibility: hidden; pointer-events: none; }
 .wf-row.zoom { min-height: 80px; margin: 8px 0 6px; padding: 8px 6px; border-radius: .4rem; background: #f4f8fb; }
 /* After the rules above, so a narrow screen puts each bar under its name. */
 @media (max-width: 760px) { .wf-row { grid-template-columns: 1fr; gap: 2px; } }

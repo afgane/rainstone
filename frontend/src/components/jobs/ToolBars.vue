@@ -106,6 +106,12 @@ const sections = computed(() => [
 
 <template>
   <div ref="chart" class="tool-bars" :aria-busy="loading">
+    <!-- The largest tool may be off screen, or found away, so its label is
+         measured from a copy; any tool's label can carry "Recorded so far". -->
+    <span class="total bar-room-probe" aria-hidden="true" data-full-scale>
+      {{ formatCost(breakdown.scale) }}
+      <small>Recorded so far</small>
+    </span>
     <div class="tool-bars-head">
       <p class="tool-count">
         {{ search.trim()

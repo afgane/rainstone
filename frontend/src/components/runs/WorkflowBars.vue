@@ -81,6 +81,7 @@ watchEffect(() => emit("more", rows.value.some(row => row.segments.some(segment 
 
 <template>
   <div ref="chart" class="workflow-bars">
+    <span class="total bar-room-probe" aria-hidden="true" data-full-scale>{{ formatCost(String(scale)) }}</span>
     <div
       v-for="row in rows"
       :key="row.group.key"
