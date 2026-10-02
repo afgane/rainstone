@@ -8,8 +8,6 @@
  */
 
 export const PRIMARY_MEASURE = "Estimated run compute cost";
-export const SERVER_EXPLANATION =
-  "Your Galaxy server keeps running between jobs. This is the whole server's compute since it was last launched, including idle time, not a share of any run.";
 export const EXISTING_SERVER_SENTENCE =
   "This job used your already-running Galaxy server, so it added no compute charge. The server continues to incur costs.";
 

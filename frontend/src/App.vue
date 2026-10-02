@@ -900,8 +900,8 @@ onBeforeUnmount(() => {
 
   <div class="shell">
     <button class="drawer-toggle" :aria-expanded="drawerOpen" @click="drawerOpen = !drawerOpen">
-      <Filter :size="18" aria-hidden="true" /> Filters
-      <span v-if="filters.length" class="count">{{ filters.length }}</span>
+      <Filter :size="18" aria-hidden="true" /> {{ state.view === 'server' ? 'Navigation' : 'Filters' }}
+      <span v-if="filters.length && state.view !== 'server'" class="count">{{ filters.length }}</span>
     </button>
     <div class="sidebar-wrap" :data-open="drawerOpen">
       <ReportSidebar
@@ -992,7 +992,10 @@ onBeforeUnmount(() => {
           @sort="sortJobs" @page="pageJobs" @export="download" @more-undated="moreUndated"
         />
 
-        <ServerPanel v-else-if="state.view === 'server'" :server="server" :timezone="state.timezone" />
+        <ServerPanel
+          v-else-if="state.view === 'server'" :server="server" :timezone="state.timezone"
+          :imported="Boolean(summary.imported_snapshot)" @refresh="refreshLatest"
+        />
 
         <StatusPanel
           v-else-if="state.view === 'status'"
@@ -1040,7 +1043,7 @@ onBeforeUnmount(() => {
         </section>
 
 
-        <div v-if="state.view !== 'status'" class="snapshot">
+        <div v-if="!['status', 'server'].includes(state.view)" class="snapshot">
           {{ PRIMARY_MEASURE }} · {{ describePeriod(period, state.timezone) }} ·
           <span :class="{ stale: collection.stale }">
             {{ collection.cutoff

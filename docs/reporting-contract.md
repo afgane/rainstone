@@ -452,7 +452,10 @@ type, region, state, `launch_at` and its source, `as_of`, a stale flag and
 reason, `hourly_rate` with its catalog provenance, `total_since_launch`,
 `known_subtotal`, `completeness` (`complete`, `partial` or `unavailable`), an
 unavailable reason, and `calculation_version` with a `calculation_revision`
-digest of its inputs. Amounts are decimal strings.
+digest of its inputs. Amounts are decimal strings. `machine_capacity` holds
+the whole VM's published `vcpu`, `memory_mib`, `gpu` and `source`, with the
+same shape as job resource capacity. It is null for an unknown machine type
+or an unavailable registry; capacities are never guessed from the name.
 
 The total prices `[launch_at, as_of]`, where `as_of` is the last successful
 observation, or the provider's stop time once the session has ended. It is
@@ -468,6 +471,31 @@ snapshot. Report filters, basis, mode and dates never change it; the timezone
 only affects how clients format its timestamps. It is never added to job
 totals, and job baseline occupancy is never added to it. The period-based
 `items`, `amount` and `observed_coverage` fields remain for compatibility.
+
+`GET /api/infrastructure` also carries `activity` for the current server
+session. It is null when its start or cutoff is unknown. Activity ignores
+report dates and filters but always applies tenant and owner authorization.
+Only executions placed on the existing Galaxy host by local or Kubernetes
+runners qualify; Batch executions are excluded. Configured Kubernetes host
+node aliases count as server placement when the node has no provider ID. A
+verified identity for another VM is excluded. The two runner types share one
+presentation and are not exposed as separate activity categories.
+
+Activity carries `from`, `to`, `job_count`, `kind`, `intervals` and `steps`.
+Intervals carry `job_id`, `source_id`, `from`, `to` and `running`. They use tool
+execution times, clipped to the server session, never queue or pod reservation
+time. Missing or invalid timing is omitted. A running execution ends at the
+server's observation cutoff; a completed execution with no finish is omitted.
+Overlapping attempts of a job merge, but waits between retries stay unfilled.
+`job_count` counts distinct jobs with plotted execution evidence.
+
+Steps carry `from`, `to` and the exact concurrent-job `count` on that half-open
+interval, with a simultaneous start and finish applied together. Activity is
+not a utilization measurement or a claim that unfilled time was idle.
+Sessions of up to seven days and at most 500 intervals use `kind=dots` and
+include intervals. Longer or denser sessions use `kind=steps`, with intervals
+omitted. More than 2,000 step segments use `kind=hidden`, retaining the count
+but omitting both plot arrays. The summary does not compute activity.
 
 Raw job metrics are not part of the revision content digest: they reach reports
 only through attempts, lifetimes and job resource hints, which are covered.

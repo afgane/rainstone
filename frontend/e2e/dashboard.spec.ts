@@ -139,6 +139,92 @@ test("status is operational and carries no report controls", async ({ page }) =>
   await expect(page.getByRole("cell", { name: "migration_state" })).toBeVisible();
 });
 
+for (const width of [1280, 390]) {
+  test(`the Galaxy server explains its recorded session without report controls at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto(`${BASE}?view=server&${FIXTURE_PERIOD}&search=RNA-seq&quality=known_zero`);
+    const session = page.getByRole("region", { name: "Galaxy server session" });
+    await expect(session).toBeVisible();
+    await expect(session.locator(".server-configuration")).toContainText("4 vCPUs · 16 GiB memory");
+    await expect(session.locator(".server-duration strong")).toHaveText("3 h");
+    await expect(session.locator(".session-timeline")).toContainText("Recorded through");
+    await expect(page.locator(".snapshot")).toHaveCount(0);
+    if (width < 1000) await page.getByRole("button", { name: "Navigation", exact: true }).click();
+    await expect(page.getByRole("button", { name: "This week", exact: true })).toHaveCount(0);
+    await expect(page.getByPlaceholder("Search your work")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /More filters/ })).toHaveCount(0);
+    if (width < 1000) await page.getByRole("button", { name: "Navigation", exact: true }).click();
+    await expect(session.getByText("t2d-standard-4", { exact: true })).toBeHidden();
+    const technical = session.getByText("Technical details", { exact: true });
+    await technical.focus();
+    await page.keyboard.press("Enter");
+    await expect(session.getByText("t2d-standard-4", { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(results.violations.map(violation => `${violation.id}: ${violation.help}`)).toEqual([]);
+
+    if (width < 1000) await page.getByRole("button", { name: "Navigation", exact: true }).click();
+    await page.getByRole("button", { name: "Overview", exact: true }).click();
+    await expect(page).toHaveURL(/view=overview/);
+    await expect(page).toHaveURL(/search=RNA-seq/);
+    await expect(page).toHaveURL(/quality=known_zero/);
+    if (width < 1000) await page.getByRole("button", { name: /Filters/ }).click();
+    await expect(page.getByPlaceholder("Search your work")).toHaveValue("RNA-seq");
+    await expect(page.getByRole("button", { name: "Custom dates", exact: true })).toHaveAttribute("aria-pressed", "true");
+  });
+}
+
+for (const width of [1280, 390]) {
+  test(`server duration marks and their table work at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.route("**/api/infrastructure**", async route => {
+      const response = await route.fetch();
+      const body = await response.json();
+      const start = Date.parse(body.current_launch.launch_at), end = Date.parse(body.current_launch.as_of);
+      const instant = (offset: number) => new Date(start + offset).toISOString();
+      const from = new Date(start).toISOString(), to = new Date(end).toISOString();
+      await route.fulfill({ response, json: { ...body, activity: {
+        from, to, kind: "dots", job_count: 2,
+        intervals: [
+          { job_id: "one", source_id: "1", from: instant(600000), to: instant(626000), running: false },
+          { job_id: "two", source_id: "2", from: instant(600000), to: instant(720000), running: false },
+        ],
+        steps: [
+          { from, to: instant(600000), count: 0 },
+          { from: instant(600000), to: instant(626000), count: 2 },
+          { from: instant(626000), to: instant(720000), count: 1 },
+          { from: instant(720000), to, count: 0 },
+        ],
+      } } });
+    });
+    await page.goto(`${BASE}?view=server&${FIXTURE_PERIOD}`);
+    const plot = page.locator(".server-activity");
+    await expect(plot).toHaveAttribute("data-kind", "dots");
+    await expect(plot.locator(".activity-dot")).toHaveCount(2);
+    await expect(plot.locator(".activity-caption")).toContainText("2 recorded jobs");
+    const layout = await plot.evaluate(element => {
+      const svg = element.querySelector("svg")!.getBoundingClientRect();
+      const duration = element.querySelector(".server-duration")!.getBoundingClientRect();
+      const endpoints = element.querySelectorAll(".session-timeline li");
+      return { height: svg.height, under: duration.top >= svg.bottom,
+        between: duration.left >= endpoints[0].getBoundingClientRect().right
+          && duration.right <= endpoints[2].getBoundingClientRect().left };
+    });
+    expect(layout.height).toBeLessThanOrEqual(140);
+    expect(layout.under).toBe(true);
+    expect(layout.between).toBe(true);
+    const sizes = await plot.locator(".activity-dot").evaluateAll(nodes => nodes.map(node => Number(node.getAttribute("width"))));
+    expect(sizes[1]).toBeGreaterThan(sizes[0]);
+    await plot.getByText("Show job activity as a table", { exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await expect(plot.getByRole("cell", { name: "26 sec", exact: true })).toBeVisible();
+    await expect(plot.getByRole("cell", { name: "Job 2", exact: true })).toBeVisible();
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(results.violations.map(violation => `${violation.id}: ${violation.help}`)).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+}
+
 test("the report works behind a proxy prefix and on a narrow screen", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${PREFIX}?${FIXTURE_PERIOD}`);

@@ -46,6 +46,7 @@ from rainstone.models import (
     Tenant,
 )
 from rainstone.report_query import ReportQuery, RunReportQuery, as_run_query
+from rainstone.server_activity import activity as server_activity
 
 ZERO = Decimal("0")
 SORT_FIELDS = {"created_at", "source_id", "tool_id", "state", "runner", "owner", "amount"}
@@ -2056,6 +2057,7 @@ def infrastructure(
     query: ReportQuery,
     revision: CostRevision | None = None,
     snapshot_validated: bool = False,
+    include_activity: bool = False,
 ) -> dict:
     if not identity.can_view_infrastructure:
         raise HTTPException(403, "Infrastructure reporting is not authorized for this scope")
@@ -2081,6 +2083,7 @@ def infrastructure(
                 "amount": _money(row.amount * Decimal(str(fraction))),
                 "currency": row.currency, "quality": row.quality.value,
             })
+    launch = current_launch(session, identity)
     return {
         "items": items,
         "amount": _money(sum((Decimal(item["amount"]) for item in items), ZERO)) if items else None,
@@ -2102,7 +2105,8 @@ def infrastructure(
             "from": min(start for start, _ in covered).isoformat(),
             "to": max(end for _, end in covered).isoformat(),
         } if covered else None,
-        "current_launch": current_launch(session, identity),
+        "current_launch": launch,
+        "activity": server_activity(session, identity, launch) if include_activity else None,
     }
 
 
@@ -2172,7 +2176,8 @@ def current_launch(session: Session, identity: Identity, *, now: datetime | None
             reason += f" The last attempt failed: {collection.error}"
         return {
             **base, "resource_uid": None, "name": None, "project": None, "zone": None,
-            "region": None, "machine_type": None, "purchase_model": None, "state": None,
+            "region": None, "machine_type": None, "machine_capacity": None,
+            "purchase_model": None, "state": None,
             "descriptor_source": None, "launch_at": None, "launch_source": None,
             "first_observed_at": None, "observed_at": None, "ended_at": None, "as_of": None,
             "stale": False, "stale_reason": None, "hourly_rate": None,
@@ -2199,6 +2204,7 @@ def current_launch(session: Session, identity: Identity, *, now: datetime | None
         **base,
         "resource_uid": server.resource_uid, "name": server.name, "project": server.project,
         "zone": server.zone, "region": server.region, "machine_type": server.machine_type,
+        "machine_capacity": machine_capacity(server.provider, server.machine_type),
         "purchase_model": server.purchase_model, "state": server.state,
         "currency": rate.currency if rate else "USD",
         "descriptor_source": server.descriptor_source,

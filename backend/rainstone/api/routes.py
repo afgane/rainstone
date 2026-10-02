@@ -320,7 +320,7 @@ def get_infrastructure(
     session: Session = Depends(get_session),
     identity: Identity = Depends(current_identity),
 ) -> dict:
-    return infrastructure(session, identity, query)
+    return infrastructure(session, identity, query, include_activity=True)
 
 
 @router.get("/export/jobs.csv")

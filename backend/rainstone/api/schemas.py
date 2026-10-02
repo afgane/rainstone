@@ -73,6 +73,7 @@ class CurrentLaunch(APIModel):
     zone: str | None
     region: str | None
     machine_type: str | None
+    machine_capacity: dict[str, Any] | None = None
     purchase_model: str | None
     state: str | None
     descriptor_source: str | None
@@ -762,6 +763,29 @@ class UserListResponse(APIModel):
     meta: ReportMeta
 
 
+class ServerJobInterval(APIModel):
+    job_id: str
+    source_id: str
+    from_: datetime = Field(alias="from")
+    to: datetime
+    running: bool
+
+
+class ServerJobStep(APIModel):
+    from_: datetime = Field(alias="from")
+    to: datetime
+    count: int
+
+
+class ServerActivity(APIModel):
+    from_: datetime = Field(alias="from")
+    to: datetime
+    kind: Literal["dots", "steps", "hidden"]
+    job_count: int
+    intervals: list[ServerJobInterval]
+    steps: list[ServerJobStep]
+
+
 class InfrastructureResponse(APIModel):
     items: list[dict[str, Any]]
     amount: str | None
@@ -774,6 +798,7 @@ class InfrastructureResponse(APIModel):
     revision_id: str | None
     as_of: datetime | None
     current_launch: CurrentLaunch
+    activity: ServerActivity | None = None
 
 
 class FreshnessResponse(APIModel):

@@ -203,6 +203,39 @@ that no server observations are available; it never presents the selected
 period as observed coverage. An imported snapshot is labelled as such in the
 masthead, not as demo data.
 
+The Galaxy server page leads with its current session's estimated total,
+recorded running time and hourly rate rounded to cents. The whole server's
+CPU and memory configuration stays visible. A session timeline shows its
+start and the cutoff of the estimate in the report timezone; neither end
+represents a job or a measure of how busy the server was. State is qualified
+as the last observation, and imported snapshots use a quiet Snapshot label.
+Live collection delays still show a visible notice, as do incomplete or
+unavailable costs. Unknown server configurations say Not available.
+
+The explanation states that time between jobs counts and server compute is
+additional to run compute. Estimate exclusions and technical provenance are
+collapsed below it. The server page hides report period, search and job
+filters without clearing them; returning to a report restores those choices.
+Its footer identifies compute estimates in USD and offers Refresh, without
+report dates or run-compute freshness. On narrow screens, Navigation opens
+the sidebar. The session axis stays horizontal to support its activity plot.
+
+Duration sits below the axis, between its timestamps, labelled "Time running"
+at the same text size as the timestamps. Local and Kubernetes server
+jobs share rounded duration marks above it; Batch jobs are excluded. Marks
+use recorded execution time and are clipped to the session's start and last
+observation. Overlapping marks stack without hiding one another. Very short
+executions retain a small visible mark; their exact recorded times and
+duration remain available in the expandable activity table. Blank stretches
+are not annotated or labelled idle.
+
+Sessions longer than seven days or with more than 500 execution intervals
+switch to a stepped concurrent-job graph. More than ten rows of overlapping
+marks also switch to steps, depending on the viewport width. This counts
+jobs, not CPU or memory usage, and overlapping attempts of the same job count
+once. An extremely dense session retains its duration and job count without
+plotting workload. The table is a text alternative for either plotted view.
+
 ## Workflow runs
 
 The page answers "what did my workflow runs cost?" with two figures, one chart

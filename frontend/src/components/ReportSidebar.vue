@@ -43,8 +43,8 @@ const searchLabel = computed(() =>
   props.state.view === "runs" ? "Find a workflow run"
     : props.state.view === "tool-runs" ? "Find a job"
       : "Search your work");
-// Status is operational: report controls do not belong there.
-const showControls = computed(() => props.state.view !== "status");
+// Server sessions and deployment status do not use report dates or job filters.
+const showControls = computed(() => !["server", "status"].includes(props.state.view));
 </script>
 
 <template>

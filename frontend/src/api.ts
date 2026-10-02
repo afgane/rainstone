@@ -82,6 +82,8 @@ export interface CurrentLaunch {
   resource_uid: string | null;
   name: string | null;
   machine_type: string | null;
+  /** The whole server's published capacity; null when its shape is not known. */
+  machine_capacity: MachineCapacity | null;
   region: string | null;
   zone: string | null;
   purchase_model: string | null;
@@ -171,6 +173,18 @@ export interface Infrastructure {
   allocation_reason: string; observation_window: Record<string, string>;
   observed_coverage: { from: string; to: string } | null;
   current_launch: CurrentLaunch;
+  activity: ServerActivity | null;
+}
+
+export interface ServerJobInterval {
+  job_id: string; source_id: string; from: string; to: string; running: boolean;
+}
+
+export interface ServerJobStep { from: string; to: string; count: number }
+
+export interface ServerActivity {
+  from: string; to: string; kind: "dots" | "steps" | "hidden"; job_count: number;
+  intervals: ServerJobInterval[]; steps: ServerJobStep[];
 }
 
 export interface Invocation {

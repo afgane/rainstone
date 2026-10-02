@@ -126,6 +126,8 @@ def test_three_hours_after_launch_costs_sixty_cents_without_jobs(server_tenant) 
     assert result["as_of"] == (LAUNCH + timedelta(hours=3)).isoformat()
     assert result["stale"] is False
     assert result["price"]["catalog_id"] == "galaxy-server-test"
+    # This test-only shape has no published capacity; do not infer it from its name.
+    assert result["machine_capacity"] is None
 
 
 def test_repeated_polls_and_restarts_neither_reset_nor_double_count(server_tenant) -> None:
@@ -246,6 +248,9 @@ def test_report_filters_and_timezone_leave_the_server_figures_unchanged(client) 
     assert Decimal(demo["elapsed_seconds"]) == Decimal("10800")
     assert demo["completeness"] == "complete"
     assert demo["machine_type"] == "t2d-standard-4"
+    assert demo["machine_capacity"] == {
+        "vcpu": "4", "memory_mib": "16384", "gpu": None, "source": "published_machine_shape",
+    }
     assert demo["stale"] is True
 
 
