@@ -32,7 +32,8 @@ restoration all work.
 Period buttons are calendar periods in the reporting timezone, not rolling
 windows: yesterday is the preceding calendar day, last week the previous Monday
 to Sunday, last month the previous calendar month. "This week" and "this month"
-run from their start to now. The resolved dates are always
+run from their start to now. A link without a period opens on today, because
+Galaxy VMs are usually run a day at a time. The resolved dates are always
 printed under the buttons, so a label is never ambiguous.
 
 Users pick an inclusive last day; the API boundary is exclusive and the

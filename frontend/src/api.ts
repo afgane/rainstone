@@ -779,7 +779,8 @@ export function stateFromUrl(search: string): ReportState {
   const timezone = params.get("timezone") || "";
   return {
     view: VIEWS.includes(view) ? view : "overview",
-    period: PERIOD_ORDER.includes(period) ? period : "this-month",
+    // Galaxy VMs are usually run a day at a time, so today is the period most readers want.
+    period: PERIOD_ORDER.includes(period) ? period : "today",
     mode: "accrued",
     fromTime: params.get("from") || "",
     toTime: params.get("to") || "",
