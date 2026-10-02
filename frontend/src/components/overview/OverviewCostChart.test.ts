@@ -163,10 +163,11 @@ describe("OverviewCostChart", () => {
     expect(wrapper.find("table").text()).not.toContain("Day\nDay");
   });
 
-  it("shows the dates and says so when nothing cost anything", () => {
+  it("says so when nothing cost anything, without an empty axis", () => {
     const wrapper = chart(timeline([]));
-    expect(wrapper.find(".plot-empty").text()).toBe("No cost was recorded in this period.");
-    expect(wrapper.findAll(".xaxis .xl")).toHaveLength(4);
+    expect(wrapper.find(".chart-empty").text()).toBe("No cost was recorded in this period.");
+    // Like the Workflow runs and Jobs charts: no dollar ticks or grid lines over nothing.
+    expect(wrapper.find(".tplot").exists()).toBe(false);
   });
 
   it("draws the coming days of an open week, muted", () => {

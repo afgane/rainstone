@@ -152,11 +152,9 @@ watch(() => props.timeline, leave);
       aria-describedby="cost-chart-hint"
     >
       <div class="chart-region">
-        <div class="time-bars">
-          <TimeFrame
-            :slots="slots" :unit="unit" :timezone="timezone" :as-of="asOf" :scale="scale"
-            :empty="hasCost ? '' : 'No cost was recorded in this period.'"
-          >
+        <div v-if="!hasCost" class="chart-empty">No cost was recorded in this period.</div>
+        <div v-else class="time-bars">
+          <TimeFrame :slots="slots" :unit="unit" :timezone="timezone" :as-of="asOf" :scale="scale">
             <div
               v-for="column in columns"
               :key="column.slot.from"

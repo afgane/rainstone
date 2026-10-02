@@ -199,6 +199,7 @@ function moveTab(event: KeyboardEvent) {
         />
       </div>
       <WorkflowStrip
+        v-if="totals.run_count"
         :group="chosenGroup"
         :open-run-id="openRunId"
         :hover-run-id="hoverRunId"

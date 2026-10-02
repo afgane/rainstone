@@ -117,6 +117,25 @@ describe("the Workflow runs page", () => {
     expect(rowName(wrapper)).toBe("Alpha workflow");
   });
 
+  it("leaves out the run strip when the period has no runs", async () => {
+    stubFetch(new Set(), path => {
+      if (path.endsWith("/invocations/breakdown")) return new Response(JSON.stringify({ groups: [], meta: META }));
+      if (!path.endsWith("/invocations")) return undefined;
+      return new Response(JSON.stringify({
+        items: [], total: 0, limit: 20, offset: 0,
+        totals: {
+          amount: null, incomplete_run_count: 0, shared_job_count: 0, run_count: 0,
+          by_status: {}, workflow_count: 0, unfiltered_run_count: 0,
+        },
+        filter_options: { by_status: {}, workflows: [] },
+        meta: META,
+      }));
+    });
+    const wrapper = await mountRuns();
+    expect(wrapper.text()).toContain("No cost was recorded for these runs.");
+    expect(wrapper.find(".zoom-label").exists()).toBe(false);
+  });
+
   it("keeps the old picture until the new figures, chart and list arrive together", async () => {
     const pending = stubFetch(new Set(["beta"]));
     const wrapper = await mountRuns();
