@@ -672,6 +672,60 @@ class WindowDetailResponse(APIModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
 
+class OverviewRunItem(APIModel):
+    """A workflow run behind an Overview figure, with the cost counted under it there."""
+
+    id: str
+    workflow_name: str
+    run_status: str | None
+    started_at: datetime
+    # Only the jobs Overview draws under this run, in the drawer's scope.
+    amount: str | None
+    job_count: int
+    incomplete_job_count: int
+    shared_job_count: int
+    run_total: str | None
+    run_total_complete: bool
+
+
+class OverviewToolItem(APIModel):
+    key: str
+    name: str
+    tool_ids: list[str]
+    versions: list[ToolVersion]
+    amount: str | None
+    job_count: int
+
+
+class OverviewRanking(APIModel):
+    eligible_count: int
+    excluded_count: int
+    zero_count: int
+    limit: int
+
+
+class OverviewDetailResponse(APIModel):
+    scope: Literal["period", "interval"]
+    kind: Literal["runs", "individual", "tools"]
+    from_: datetime | None = Field(alias="from")
+    to: datetime | None
+    amount: str | None
+    job_count: int
+    incomplete_job_count: int
+    provisional: bool
+    shared_job_count: int
+    run_count: int | None
+    tool_count: int | None
+    ranking: OverviewRanking | None
+    items: list[OverviewRunItem] | list[OverviewToolItem] | list[ScopedJob]
+    total: int
+    limit: int
+    offset: int
+    meta: ReportMeta
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+
 class DailyItem(APIModel):
     date: str
     # Null when no job of the day has a known cost; an observed zero is "0".

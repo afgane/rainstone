@@ -8,8 +8,6 @@
  */
 
 export const PRIMARY_MEASURE = "Estimated run compute cost";
-export const PRIMARY_EXPLANATION =
-  "Compute started for your jobs and workflow runs. Your already-running Galaxy server is shown separately.";
 export const SERVER_EXPLANATION =
   "Your Galaxy server keeps running between jobs. This is the whole server's compute since it was last launched, including idle time, not a share of any run.";
 export const EXISTING_SERVER_SENTENCE =
@@ -56,6 +54,13 @@ export function formatRate(rate: string | null | undefined): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 4,
   })}/hour while running`;
+}
+
+/** The rate to the cent, for a summary card; the server page keeps the precise one. */
+export function formatRateInCents(rate: string | null | undefined): string {
+  const value = Number(rate);
+  if (rate === null || rate === undefined || rate === "" || !Number.isFinite(value)) return "Not available";
+  return `${formatCost(rate)}/hour while running`;
 }
 
 const RUN_STATUS: Record<string, string> = {
@@ -151,6 +156,11 @@ export function costExplanation(record: {
 /** Evidence a dated report leaves out because no period can hold it. */
 export function undatedSentence(count: number): string {
   return `${pluralize(count, "job")} ${count === 1 ? "has" : "have"} no usable timing, so ${count === 1 ? "it is" : "they are"} left out of every period's totals.`;
+}
+
+/** Overview's short form: the jobs are counted nowhere in time, so not in this period either. */
+export function undatedNote(count: number): string {
+  return `${pluralize(count, "job")} without usable timing ${count === 1 ? "is" : "are"} not in this period.`;
 }
 
 export function coverageSentence(jobs: number, incomplete: number): string {
@@ -284,16 +294,58 @@ export function groupedChipLabel(workflowName: string): string {
   return `Smaller runs in ${workflowName}`;
 }
 
-/* The Overview's workload card and cost chart. */
+/* The Overview's cost cards and cost chart. */
 export const WORKLOAD_EYEBROW = "Workload";
 export const NO_JOBS = "No jobs in this period.";
-export const OVERVIEW_CHART_HINT =
-  "Pointer-only shortcut. The table under this chart holds the same information for "
-  + "keyboard and screen reader use.";
+export const RUN_COMPUTE = "Run compute";
+export const SERVER_COMPUTE = "Galaxy server";
+export const ADDITIONAL_SERVER_SENTENCE = "Run compute is additional to the Galaxy server compute.";
+export const OVERVIEW_CHART_TITLE = "Run compute over time";
+export const OVERVIEW_CHART_SCOPE = "Galaxy server shown separately";
+export const OVERVIEW_CHART_HINT = "Select a block to see what ran.";
+export const EXPLORE_PERIOD = "Explore this period";
+export const WORKFLOW_BLOCK = "Workflow runs";
+export const INDIVIDUAL_BLOCK = "Jobs outside workflows";
 
-/** A chart's title, named for its columns: hours, days or weeks. */
-export function costChartTitle(unit: "hour" | "day" | "week"): string {
-  return unit === "hour" ? "Hourly cost" : unit === "week" ? "Weekly cost" : "Daily cost";
+/** How long the server has been up: "5 h 12 min", or "28 days 4 h" once it has run a day. */
+export function sinceLaunch(seconds: number | null): string {
+  if (seconds === null || !Number.isFinite(seconds)) return "Time since launch unavailable";
+  const days = Math.floor(seconds / 86400);
+  if (!days) return `${formatDuration(seconds)} since launch`;
+  const hours = Math.floor((seconds % 86400) / 3600);
+  return `${pluralize(days, "day")}${hours ? ` ${hours} h` : ""} since launch`;
+}
+
+/**
+ * Short words for how far the server card's figure can be taken at face
+ * value. Why, and the exact cutoff, are on the Galaxy server page.
+ */
+export function serverQualifiers(
+  launch: { ended_at: string | null; stale: boolean } | null, imported: boolean,
+): string[] {
+  if (!launch) return [];
+  return [
+    ...(launch.ended_at ? ["Stopped"] : []),
+    ...(launch.stale ? [imported ? "Snapshot" : "Stale"] : []),
+  ];
+}
+
+/* What lies behind an Overview figure, in its drawer. */
+export const COUNTED_HERE = "Counted here";
+export const PERIOD_OVERLAP_NOTE =
+  "Workflow runs and tools are two views of the same work, so their amounts overlap.";
+
+export function sharedJobsNote(count: number): string {
+  return `${pluralize(count, "job")} ${count === 1 ? "belongs" : "belong"} to more than one run; `
+    + `${count === 1 ? "it is" : "each is"} counted once, under one run, as on the chart.`;
+}
+
+export function excludedContributors(count: number, noun: "run" | "tool"): string {
+  return `${pluralize(count, noun)} with incomplete cost data ${count === 1 ? "is" : "are"} not ranked.`;
+}
+
+export function topContributors(count: number, noun: "workflow run" | "tool"): string {
+  return count === 1 ? `Top ${noun}` : `Top ${count} ${noun}s`;
 }
 
 /** What a block holds: "2 runs · 9 jobs", or just the jobs for work outside a workflow. */

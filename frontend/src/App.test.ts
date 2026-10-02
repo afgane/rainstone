@@ -434,3 +434,167 @@ describe("newer figures", () => {
     expect(vi.mocked(fetch).mock.calls.length).toBe(before);
   });
 });
+
+
+/* Overview: details open over the page, scoped exactly to what was pressed. */
+const BLOCK = { from: "2026-09-02T00:00:00+00:00", to: "2026-09-03T00:00:00+00:00" };
+const OVERVIEW_TIMELINE = {
+  bucket: "day", axis: { from: "2026-09-01T00:00:00+00:00", to: "2026-09-04T00:00:00+00:00" },
+  buckets: [{
+    ...BLOCK, amount: "8", job_count: 13, run_count: 3, failed_job_count: 0, running_job_count: 0,
+    incomplete_job_count: 0, provisional: false, pieces: [
+      { key: "runs", kind: "runs", name: "Workflow runs", amount: "6", job_count: 9, run_count: 3, failed: 0, running: 0 },
+      { key: "individual", kind: "individual", name: "Individual jobs", amount: "2", job_count: 4, run_count: 0, failed: 0, running: 0 },
+    ],
+  }],
+  totals: { amount: "8", job_count: 13, by_outcome: {}, run_count: 3, workflow_count: 1, individual_job_count: 4 },
+  label: "Cost accrued", unplaced: null, meta: META,
+};
+const RUN_ROW = {
+  id: "r1", workflow_name: "Alpha workflow", run_status: "completed", started_at: "2026-09-02T10:00:00Z",
+  amount: "6", job_count: 9, incomplete_job_count: 0, shared_job_count: 0, run_total: "9", run_total_complete: true,
+};
+function overviewDetail(query: URLSearchParams) {
+  const kind = query.get("kind");
+  const items = kind === "tools"
+    ? [{ key: "tools/bwa", name: "bwa", tool_ids: ["tools/bwa"], versions: [], amount: "5", job_count: 4 }]
+    : kind === "runs" ? [RUN_ROW] : [];
+  return {
+    scope: query.get("scope"), kind, from: query.get("window_from"), to: query.get("window_to"),
+    amount: kind === "tools" ? "8" : "6", job_count: kind === "tools" ? 13 : 9, incomplete_job_count: 0,
+    provisional: false, shared_job_count: 0, run_count: kind === "runs" ? 1 : null,
+    tool_count: kind === "tools" ? 1 : null,
+    ranking: query.get("scope") === "period" ? { eligible_count: 1, excluded_count: 0, zero_count: 0, limit: 5 } : null,
+    items, total: items.length, limit: 20, offset: 0, meta: META,
+  };
+}
+
+function stubOverview() {
+  const asked: string[] = [];
+  vi.stubGlobal("fetch", vi.fn((url: string) => {
+    asked.push(url);
+    const [path, search] = url.split("?");
+    const query = new URLSearchParams(search ?? "");
+    let body: unknown = {};
+    if (path.endsWith("/summary")) {
+      body = {
+        ...META, amount: "8", job_count: 13, unpriced_job_count: 0, demo: false, imported_snapshot: null,
+        can_view_infrastructure: false, current_launch: null, undated: null,
+      };
+    } else if (path.endsWith("/freshness")) body = { overall_status: "healthy", sources: [], observation_gaps: [] };
+    else if (path.endsWith("/me")) body = { source_id: "a", label: "A", is_admin: true, auth_mode: "development", attribution: "", capabilities: { infrastructure: false, users: false } };
+    else if (path.endsWith("/timeline")) body = OVERVIEW_TIMELINE;
+    else if (path.endsWith("/overview/details")) body = overviewDetail(query);
+    else if (path.endsWith("/invocations/r1")) body = { ...drawerRun("r1", "Alpha workflow"), amount: "6" };
+    return Promise.resolve(json(body));
+  }));
+  return asked;
+}
+
+async function openOverviewPage(search = "") {
+  history.replaceState({}, "", `/?view=overview&period=custom&from=2026-09-01&to=2026-09-03${search}`);
+  const wrapper = mount(App, { attachTo: document.body });
+  apps.push(wrapper);
+  await flushPromises();
+  return wrapper;
+}
+
+const asking = (asked: string[], path: string) => asked
+  .filter(url => url.split("?")[0].endsWith(path))
+  .map(url => new URLSearchParams(url.split("?")[1]));
+
+describe("Overview's details", () => {
+  beforeEach(() => { runs.clear(); resetJobs(); });
+
+  it("loads the chart alone; nothing ranks tools or runs until asked", async () => {
+    const asked = stubOverview();
+    await openOverviewPage();
+    expect(asked.some(url => url.includes("/tools") || url.includes("/invocations"))).toBe(false);
+  });
+
+  it("opens a block's exact interval and category over the page, pinned to its revision", async () => {
+    const asked = stubOverview();
+    const wrapper = await openOverviewPage();
+    const figures = wrapper.find(".cost-cards").html();
+    await wrapper.find('.blk[data-kind="runs"]').trigger("click");
+    await flushPromises();
+    const [query] = asking(asked, "/overview/details");
+    expect(query.get("scope")).toBe("interval");
+    expect(query.get("kind")).toBe("runs");
+    expect(query.get("window_from")).toBe("2026-09-02T00:00:00.000Z");
+    expect(query.get("window_to")).toBe("2026-09-03T00:00:00.000Z");
+    expect(query.get("revision")).toBe("rev-1");
+    expect(query.has("workflow_key") || query.has("run_status")).toBe(false);
+    expect(wrapper.find("#detail-title").text()).toBe("Workflow runs · Sep 2");
+    expect(wrapper.find(".drawer").text()).toContain("Counted here");
+    expect(new URLSearchParams(location.search).get("detail_kind")).toBe("overview");
+    // The page under the drawer stays as it was.
+    expect(new URLSearchParams(location.search).get("view")).toBe("overview");
+    expect(wrapper.find(".cost-cards").html()).toBe(figures);
+    expect(wrapper.find('.blk[data-kind="runs"]').attributes("aria-current")).toBe("true");
+  });
+
+  it("opens a run with its share of that interval, and goes back to the interval", async () => {
+    const asked = stubOverview();
+    const wrapper = await openOverviewPage();
+    await wrapper.find('.blk[data-kind="runs"]').trigger("click");
+    await flushPromises();
+    await wrapper.find('.drawer [data-run-id="r1"]').trigger("click");
+    await flushPromises();
+    const [run] = asking(asked, "/invocations/r1");
+    expect(run.get("from")).toBe("2026-09-02T00:00:00.000Z");
+    expect(run.get("to")).toBe("2026-09-03T00:00:00.000Z");
+    expect(wrapper.find(".drawer").text()).toContain("Inside Sep 2: $6.00 of this run's cost.");
+    expect(wrapper.find(".drawer-back").text()).toContain("Back to selected day");
+    expect(new URLSearchParams(location.search).get("detail_parent_kind")).toBe("overview");
+
+    // A reload of that address keeps the way back.
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    await flushPromises();
+    expect(wrapper.find(".drawer-back").text()).toContain("Back to selected day");
+    await wrapper.find(".drawer-back").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("#detail-title").text()).toBe("Workflow runs · Sep 2");
+    expect(document.activeElement?.getAttribute("data-run-id")).toBe("r1");
+  });
+
+  it("explores the whole period in two tabs that replace each other in place", async () => {
+    const asked = stubOverview();
+    const wrapper = await openOverviewPage();
+    await wrapper.find(".chart-panel .panel-heading button").trigger("click");
+    await flushPromises();
+    expect(asking(asked, "/overview/details").at(-1)?.get("kind")).toBe("runs");
+    expect(wrapper.find('[role="tab"][aria-selected="true"]').text()).toBe("Workflow runs");
+    const before = history.length;
+    await wrapper.find('[role="tab"][data-tab="tools"]').trigger("click");
+    await flushPromises();
+    const query = asking(asked, "/overview/details").at(-1)!;
+    expect(query.get("scope")).toBe("period");
+    expect(query.get("kind")).toBe("tools");
+    expect(query.has("window_from")).toBe(false);
+    expect(history.length).toBe(before);
+    expect(wrapper.find('[role="tab"][aria-selected="true"]').text()).toBe("Tools");
+    expect(wrapper.find(".drawer").text()).toContain("bwa");
+    expect(document.activeElement?.getAttribute("data-tab")).toBe("tools");
+  });
+
+  it("closes the drawer when the report's dates change", async () => {
+    stubOverview();
+    const wrapper = await openOverviewPage();
+    await wrapper.find('.blk[data-kind="individual"]').trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".drawer").attributes("data-open")).toBe("true");
+    await wrapper.findAll(".sidebar button").find(button => button.text() === "Last week")!.trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".drawer").attributes("data-open")).toBe("false");
+    expect(new URLSearchParams(location.search).has("detail_kind")).toBe(false);
+  });
+
+  it("dismisses an address that names no Overview scope, without an error", async () => {
+    const asked = stubOverview();
+    const wrapper = await openOverviewPage("&detail_kind=overview&detail_id=interval%7Cruns%7Cfortnight%7Cx%7Cy");
+    expect(wrapper.find(".drawer").attributes("data-open")).toBe("false");
+    expect(new URLSearchParams(location.search).has("detail_kind")).toBe(false);
+    expect(asking(asked, "/overview/details")).toHaveLength(0);
+  });
+});

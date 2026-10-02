@@ -11,8 +11,8 @@ test("a first-time user gets a scoped answer without typing dates", async ({ pag
   await page.goto(BASE);
   await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
   const headline = page.locator(".figure.featured");
-  await expect(headline.getByText("Estimated run compute cost")).toBeVisible();
-  await expect(headline.getByText("Compute started for your jobs and workflow runs")).toBeVisible();
+  await expect(headline.getByText("Run compute", { exact: true })).toBeVisible();
+  await expect(page.getByText("Run compute is additional to the Galaxy server compute.")).toBeVisible();
 
   for (const period of ["Yesterday", "Last week", "Last month"]) {
     await page.getByRole("button", { name: period, exact: true }).click();
@@ -185,13 +185,27 @@ test("the total is the period's, and paging never changes it", async ({ page, re
   await expect(page.getByText(`Showing ${listing.totals.run_count} of ${listing.totals.run_count}`)).toBeVisible();
 });
 
-test("Overview lists the period's four most expensive runs", async ({ page, request }) => {
-  const top = await api(request, "invocations", { run_sort: "amount", direction: "desc", limit: "4" });
+test("exploring the period ranks its top workflow runs and tools on the server", async ({ page, request }) => {
+  const runs = await api(request, "overview/details", { scope: "period", kind: "runs" });
+  const tools = await api(request, "overview/details", { scope: "period", kind: "tools" });
   await page.goto(`${BASE}?${RUNS_PERIOD}`);
-  const rows = page.locator(".rank-row", { has: page.locator("small", { hasText: /Completed|Failed|Running/ }) });
-  await expect(rows.first()).toBeVisible();
-  const shown = await rows.locator(".rank-amount").allInnerTexts();
-  expect(shown.slice(0, 4)).toEqual(top.items.map((run: { amount: string }) => dollars(run.amount)));
+  await page.getByRole("button", { name: "Explore this period" }).click();
+  const drawer = page.getByRole("dialog");
+  await expect(drawer.getByRole("tab", { name: "Workflow runs" })).toHaveAttribute("aria-selected", "true");
+  const amounts = drawer.locator(".rank-row .rank-amount");
+  await expect(amounts).toHaveCount(runs.items.length);
+  expect(await amounts.allInnerTexts()).toEqual(runs.items.map((run: { amount: string }) => dollars(run.amount)));
+  await drawer.getByRole("tab", { name: "Tools" }).click();
+  await expect(drawer.getByRole("tab", { name: "Tools" })).toHaveAttribute("aria-selected", "true");
+  await expect(amounts).toHaveCount(tools.items.length);
+  expect(await amounts.allInnerTexts()).toEqual(tools.items.map((tool: { amount: string }) => dollars(tool.amount)));
+  // Opening a tool and coming back keeps the tab.
+  await drawer.locator("[data-tool-key]").first().click();
+  await drawer.getByRole("button", { name: "Back to this period" }).click();
+  await expect(drawer.getByRole("tab", { name: "Tools" })).toHaveAttribute("aria-selected", "true");
+  await drawer.getByRole("button", { name: "See all tools" }).click();
+  await expect(page).toHaveURL(/view=tool-runs/);
+  await expect(page.getByRole("tab", { name: "By tool" })).toHaveAttribute("aria-selected", "true");
 });
 
 test("choosing an outcome narrows the figures, the chart and the list together", async ({ page, request }) => {
@@ -576,33 +590,37 @@ test("choosing a workflow on a tall window does not throw the page towards the t
 /* The Overview page. */
 async function openOverview(page: Page, extra = "") {
   await page.goto(`${BASE}?${RUNS_PERIOD}${extra}`);
-  await expect(page.locator(".figures")).toBeVisible();
+  await expect(page.locator(".cost-cards")).toBeVisible();
   await expect(page.locator(".chart-panel .blk").first()).toBeVisible();
 }
 
-test("Overview pairs a cost summary with a workload summary", async ({ page, request }) => {
+test("Overview puts run compute and the Galaxy server side by side, never summed", async ({ page, request }) => {
   const summary = await api(request, "summary");
-  const runs = (await api(request, "invocations", { limit: "1" })).totals;
   await openOverview(page);
-  const [cost, workload] = await page.locator(".figure").all();
-  await expect(cost).toContainText("Estimated run compute cost");
-  await expect(cost).toContainText(dollars(summary.amount));
-  await expect(cost).toContainText("Compute only · USD");
-  await expect(workload).toContainText("Workload");
-  // Jobs and workflow runs each have a shaded block; the job count covers every job, in a workflow or not.
-  const [jobsBlock, runsBlock] = await workload.locator(".workload-group").all();
-  await expect(jobsBlock.locator(".figure-amount")).toHaveText(String(summary.job_count));
-  await expect(runsBlock.locator(".figure-amount")).toHaveText(String(runs.run_count));
-  await expect(jobsBlock).toContainText(/\d+ completed/);
-  await expect(runsBlock).toContainText(`Across ${runs.workflow_count} workflows`);
-  // The two cards are the same height, with no room left over in the taller.
-  const heights = await page.locator(".figure").evaluateAll(cards => cards.map(card => card.getBoundingClientRect().height));
-  expect(Math.abs(heights[0] - heights[1])).toBeLessThanOrEqual(1);
+  const [run, server] = await page.locator(".cost-card").all();
+  await expect(run.locator(".eyebrow")).toHaveText("Run compute");
+  await expect(run.locator(".figure-amount")).toHaveText(dollars(summary.amount));
+  await expect(server.locator(".eyebrow")).toHaveText("Galaxy server");
+  await expect(page.locator(".cost-relation")).toHaveText("Run compute is additional to the Galaxy server compute.");
+  await expect(server.locator(".figure-qualifier")).toHaveText(/\/hour while running$/);
+  await expect(server).toContainText("since launch");
+  // Peers: the same width and height.
+  const boxes = await page.locator(".cost-card").evaluateAll(cards => cards.map(card => {
+    const box = card.getBoundingClientRect();
+    return [box.width, box.height];
+  }));
+  expect(Math.abs(boxes[0][0] - boxes[1][0])).toBeLessThanOrEqual(1);
+  expect(Math.abs(boxes[0][1] - boxes[1][1])).toBeLessThanOrEqual(1);
+  // No workload card, and the server is not repeated further down.
+  await expect(page.getByText("Workload")).toHaveCount(0);
+  await expect(page.getByText("Galaxy server compute cost")).toHaveCount(0);
+  await server.getByRole("button", { name: "Server details" }).click();
+  await expect(page).toHaveURL(/view=server/);
 });
 
 test("Overview's cost chart is dated, groups the runs, and has no table beneath it", async ({ page }) => {
   await openOverview(page);
-  await expect(page.getByRole("heading", { name: "Daily cost" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Run compute over time" })).toBeVisible();
   const labels = await page.locator(".chart-panel .xaxis .xl span").allInnerTexts();
   expect(labels.length).toBeGreaterThan(3);
   for (const label of labels) expect(label).toMatch(/^[A-Z][a-z]{2} \d+$/);
@@ -637,38 +655,73 @@ test("a block on Overview explains itself", async ({ page }) => {
   await expect(tip).toContainText("Select to see the jobs");
 });
 
-test("the workflow runs block opens the Workflow runs page for that day", async ({ page }) => {
+test("a workflow runs block opens that interval's runs over the page, without moving it", async ({ page }) => {
   await openOverview(page);
-  await page.locator(".chart-panel .blk[data-kind='runs']").last().click();
-  await expect(page).toHaveURL(/view=runs/);
-  await expect(page).toHaveURL(/period=custom/);
-  // Not one workflow: the runs of them all, as the top level page shows them.
-  await expect(page).not.toHaveURL(/workflow=/);
-  await expect(page.getByRole("heading", { name: "Workflow runs" }).first()).toBeVisible();
-  await expect(page.locator(".run-card").first()).toBeVisible();
-  await expect(page.locator(".page-filters select")).toHaveValue("");
+  const chart = await page.locator(".chart-panel").boundingBox();
+  const block = page.locator(".chart-panel .blk[data-kind='runs']").last();
+  const amount = (await block.getAttribute("aria-label"))!.match(/\$[\d,]*\.\d{2}|less than \$0\.01/)![0];
+  await block.click();
+  const drawer = page.getByRole("dialog");
+  await expect(drawer.getByRole("heading", { name: /^Workflow runs · / })).toBeFocused();
+  await expect(drawer.locator(".dialog-amount strong")).toHaveText(amount);
+  await expect(drawer.getByText("Counted here")).toBeVisible();
+  await expect(page).toHaveURL(/view=overview/);
+  await expect(page).toHaveURL(/detail_kind=overview/);
+  expect(await page.locator(".chart-panel").boundingBox()).toEqual(chart);
+  // The drawer covers the window's full height, at its right edge (beside any page scrollbar).
+  const viewport = page.viewportSize()!;
+  await expect.poll(async () => {
+    const box = (await drawer.boundingBox())!;
+    return box.x + box.width;
+  }).toBeGreaterThanOrEqual(viewport.width - 16);
+  const box = (await drawer.boundingBox())!;
+  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+  expect(box.y).toBe(0);
+  expect(Math.round(box.height)).toBe(viewport.height);
+
+  await drawer.locator(".rank-row").first().click();
+  await expect(drawer).toContainText(/Inside .+ of this run's cost/);
+  await page.reload();
+  await drawer.getByRole("button", { name: /Back to selected (day|hour|week)/ }).click();
+  await expect(drawer.getByText("Counted here")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(drawer).toBeHidden();
 });
 
-test("the individual jobs' block opens the jobs for that day", async ({ page }) => {
+test("an individual jobs block opens only jobs outside workflows", async ({ page }) => {
   await openOverview(page);
-  await page.locator(".chart-panel .blk[data-kind='individual']").last().click();
-  await expect(page).toHaveURL(/view=tool-runs/);
-  await expect(page).toHaveURL(/period=custom/);
-  await expect(page.locator(".job-cards")).toBeVisible();
+  const block = page.locator(".chart-panel .blk[data-kind='individual']").last();
+  await block.focus();
+  await page.keyboard.press("Enter");
+  const drawer = page.getByRole("dialog");
+  await expect(drawer.getByRole("heading", { name: /^Jobs outside workflows · / })).toBeVisible();
+  await expect(drawer.locator(".job-row").first()).toBeVisible();
+  await expect(block).toHaveAttribute("aria-current", "true");
+  // A press outside dismisses it.
+  await page.locator(".page-title").click();
+  await expect(drawer).toBeHidden();
+});
+
+test("Overview's drawer has no accessibility violations", async ({ page }) => {
+  await openOverview(page);
+  await page.getByRole("button", { name: "Explore this period" }).click();
+  await expect(page.getByRole("dialog").getByRole("tab", { name: "Tools" })).toBeVisible();
+  const results = await new AxeBuilder({ page }).include(".drawer").analyze();
+  expect(results.violations.map(violation => `${violation.id}: ${violation.help}`)).toEqual([]);
 });
 
 test("pressing a column, not a block, on Overview does nothing", async ({ page }) => {
   await openOverview(page);
   await page.locator(".chart-panel .overview-col:not(.empty)").first().click({ position: { x: 1, y: 1 } });
-  await expect(page).not.toHaveURL(/view=runs|view=tool-runs/);
+  await expect(page).not.toHaveURL(/view=runs|view=tool-runs|detail_kind/);
 });
 
 test("the Overview chart's table opens what its blocks open", async ({ page }) => {
   await openOverview(page);
   await page.getByText("Show this chart as a table").click();
   await page.locator(".chart-panel table").getByRole("button", { name: "See runs" }).first().click();
-  await expect(page).toHaveURL(/view=runs/);
-  await expect(page).not.toHaveURL(/workflow=/);
+  await expect(page.getByRole("dialog").getByRole("heading", { name: /^Workflow runs · / })).toBeVisible();
+  await expect(page).toHaveURL(/view=overview/);
 });
 
 test("Overview has no accessibility violations", async ({ page }) => {
@@ -700,21 +753,12 @@ test("the masthead spans the same width as the page below it", async ({ page }) 
     const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
     return {
       brandLeft: box(".brand").left, sidebarLeft: box(".nav-item").left,
-      badgeRight: box(".demo-badge").right, contentRight: box(".figures").right,
+      badgeRight: box(".demo-badge").right, contentRight: box(".cost-cards").right,
     };
   });
   expect(Math.abs(edges.brandLeft - edges.sidebarLeft)).toBeLessThanOrEqual(1);
   expect(Math.abs(edges.badgeRight - edges.contentRight)).toBeLessThanOrEqual(1);
 });
-
-test("the workload card's blocks stay in line when a label wraps", async ({ page }) => {
-  await page.setViewportSize({ width: 800, height: 700 });
-  await openOverview(page);
-  const tops = await page.locator(".workload-group .figure-amount").evaluateAll(
-    nodes => nodes.map(node => node.getBoundingClientRect().top));
-  expect(Math.abs(tops[0] - tops[1])).toBeLessThanOrEqual(1);
-});
-
 
 /* The run drawer's cost breakdown and job list, on a run with real cost. */
 async function openCostlyRun(page: Page) {

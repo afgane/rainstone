@@ -303,3 +303,55 @@ describe("DetailDrawer for a workflow run's cost and jobs", () => {
     expect(wrapper.findAll(".job-groups .job-row")).toHaveLength(detail.jobs.length);
   });
 });
+
+describe("DetailDrawer for an Overview figure", () => {
+  const WINDOW = { unit: "day", from: "2026-09-02T00:00:00.000Z", to: "2026-09-03T00:00:00.000Z" } as const;
+  const base = {
+    scope: "interval", from: WINDOW.from, to: WINDOW.to, amount: "6", job_count: 9, incomplete_job_count: 2,
+    provisional: false, shared_job_count: 0, run_count: null, tool_count: null, ranking: null,
+    total: 1, limit: 20, offset: 0, meta: {},
+  };
+  const runs = {
+    ...base, kind: "runs", run_count: 1, shared_job_count: 3,
+    items: [{
+      id: "r1", workflow_name: "A workflow whose name is long enough to wrap onto a second line in the drawer",
+      run_status: "completed", started_at: "2026-09-02T10:00:00Z", amount: "6", job_count: 9,
+      incomplete_job_count: 2, shared_job_count: 3, run_total: "40", run_total_complete: true,
+    }],
+  };
+
+  it("leads with the block's cost, then each run's counted share, never its whole total", () => {
+    const wrapper = mounted({
+      kind: "overview", detail: runs, overview: { scope: "interval", category: "runs", window: WINDOW },
+      windowTitle: "Workflow runs · Sep 2", windowNoun: "this day",
+    });
+    expect(wrapper.find("#detail-title").text()).toBe("Workflow runs · Sep 2");
+    expect(wrapper.find(".dialog-amount").text()).toContain("$6.00");
+    expect(wrapper.find(".dialog-amount").text()).toContain("recorded so far");
+    expect(wrapper.text()).toContain("Counted here");
+    expect(wrapper.text()).toContain("3 jobs belong to more than one run");
+    expect(wrapper.text()).not.toContain("$40.00");
+  });
+
+  it("never shows another category's answer under this drawer's title", () => {
+    const wrapper = mounted({
+      kind: "overview", detail: runs, overview: { scope: "interval", category: "individual", window: WINDOW },
+      windowTitle: "Jobs outside workflows · Sep 2", windowNoun: "this day",
+    });
+    expect(wrapper.find("#detail-title").exists()).toBe(false);
+  });
+
+  it("explains an empty ranking instead of claiming nothing ran", () => {
+    const wrapper = mounted({
+      kind: "overview",
+      detail: {
+        ...base, scope: "period", kind: "tools", tool_count: 3, items: [], total: 0, limit: 5,
+        ranking: { eligible_count: 0, excluded_count: 3, zero_count: 0, limit: 5 },
+      },
+      overview: { scope: "period", category: "tools" }, windowTitle: "This month",
+    });
+    expect(wrapper.find('[role="tab"][aria-selected="true"]').text()).toBe("Tools");
+    expect(wrapper.text()).toContain("None has complete cost data yet");
+    expect(wrapper.text()).toContain("See all tools");
+  });
+});

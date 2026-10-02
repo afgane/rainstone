@@ -5,9 +5,10 @@ import { periodSlots, type AxisSlot } from "../../chart/axis";
 import { bucketLabel, MINIMUM_VERTICAL, niceScale, PLOT_HEIGHT } from "../../chart/layout";
 import TimeFrame from "../chart/TimeFrame.vue";
 import { useChartTooltip, type TooltipContent } from "../runs/useChartTooltip";
+import type { JobWindow } from "../../jobsView";
 import {
-  costChartTitle, formatCost, jobOutcomes, OVERVIEW_CHART_HINT, pieceCounts,
-  unplacedSentence,
+  EXPLORE_PERIOD, formatCost, INDIVIDUAL_BLOCK, jobOutcomes, OVERVIEW_CHART_HINT, OVERVIEW_CHART_SCOPE,
+  OVERVIEW_CHART_TITLE, pieceCounts, unplacedSentence, WORKFLOW_BLOCK,
 } from "../../vocabulary";
 
 const props = defineProps<{
@@ -17,11 +18,13 @@ const props = defineProps<{
   periodFrom: string;
   periodTo: string;
   axisEnd: string;
+  /** The block whose drawer is open, as `<interval start>|<category>`; empty for none. */
+  openBlock?: string;
 }>();
 const emit = defineEmits<{
-  runs: [target: { from: string; to: string }];
-  jobs: [target: { from: string; to: string }];
-  daily: [];
+  // One block's exact interval, clipped to the period, and the category it draws.
+  block: [category: CostPiece["kind"], window: JobWindow, opener: HTMLElement];
+  explore: [opener: HTMLElement];
 }>();
 
 const tooltipElement = ref<HTMLElement | null>(null);
@@ -54,19 +57,33 @@ function pieceOf(bucket: CostBucket, key: string): CostPiece | undefined {
   return bucket.pieces.find(piece => piece.key === key);
 }
 
-function pieceTip(event: MouseEvent, bucket: CostBucket, key: string, label: string) {
-  const piece = pieceOf(bucket, key);
-  if (!piece) return;
+const BLOCK_NAMES: Record<CostPiece["kind"], string> = { runs: WORKFLOW_BLOCK, individual: INDIVIDUAL_BLOCK };
+
+function pieceContent(piece: CostPiece, label: string): TooltipContent {
   const named = jobOutcomes(piece.failed, piece.running);
-  const content: TooltipContent = {
+  return {
     value: formatCost(piece.amount),
     lines: [
-      piece.name, label, pieceCounts(piece.run_count, piece.job_count),
+      BLOCK_NAMES[piece.kind], label, pieceCounts(piece.run_count, piece.job_count),
       ...(named ? [named] : []),
       piece.kind === "runs" ? "Select to see the runs" : "Select to see the jobs",
     ],
   };
-  void tooltip.show(content, event.clientX, event.clientY);
+}
+
+function pieceTip(event: MouseEvent, bucket: CostBucket, key: string, label: string) {
+  const piece = pieceOf(bucket, key);
+  if (piece) void tooltip.show(pieceContent(piece, label), event.clientX, event.clientY);
+}
+
+function focusPiece(event: FocusEvent, piece: CostPiece, label: string) {
+  const box = (event.target as HTMLElement).getBoundingClientRect();
+  void tooltip.show(pieceContent(piece, label), box.left, box.bottom);
+}
+
+function pieceLabel(piece: CostPiece, label: string): string {
+  return `${BLOCK_NAMES[piece.kind]}, ${label}: ${formatCost(piece.amount)}, `
+    + `${pieceCounts(piece.run_count, piece.job_count)}. Select to see what ran.`;
 }
 
 function columnTip(event: MouseEvent, column: (typeof columns.value)[number]) {
@@ -81,10 +98,23 @@ function columnTip(event: MouseEvent, column: (typeof columns.value)[number]) {
   }, event.clientX, event.clientY);
 }
 
-function open(bucket: CostBucket, piece: CostPiece) {
-  const target = { from: bucket.from, to: bucket.to };
-  if (piece.kind === "runs") emit("runs", target);
-  else emit("jobs", target);
+/** A block's interval, kept inside the period so a partial first or last bucket is exact. */
+function windowOf(bucket: CostBucket): JobWindow {
+  return {
+    unit: unit.value,
+    from: new Date(Math.max(Date.parse(bucket.from), Date.parse(props.periodFrom))).toISOString(),
+    to: new Date(Math.min(Date.parse(bucket.to), Date.parse(props.periodTo))).toISOString(),
+  };
+}
+
+function open(event: MouseEvent, bucket: CostBucket, piece: CostPiece) {
+  emit("block", piece.kind, windowOf(bucket), event.currentTarget as HTMLElement);
+}
+
+function isOpen(bucket: CostBucket, piece: CostPiece): boolean {
+  if (!props.openBlock) return false;
+  const [from, category] = props.openBlock.split("|");
+  return category === piece.kind && Date.parse(from) === Date.parse(windowOf(bucket).from);
 }
 
 const rows = computed(() => props.timeline.buckets.flatMap(bucket => {
@@ -106,20 +136,14 @@ watch(() => props.timeline, leave);
   >
     <div class="panel-heading">
       <div>
-        <h2 id="cost-chart-title">
-          {{ costChartTitle(unit) }}
-        </h2>
-        <p>
-          Each block is all the workflow runs together, or the jobs outside any; the taller, the
-          more it cost.
-        </p>
+        <h2 id="cost-chart-title">{{ OVERVIEW_CHART_TITLE }}</h2>
+        <p>{{ OVERVIEW_CHART_SCOPE }}</p>
       </div>
       <button
-        class="link-button"
-        type="button"
-        @click="emit('daily')"
+        class="secondary" type="button" data-detail-trigger
+        @click="emit('explore', $event.currentTarget as HTMLElement)"
       >
-        View daily details
+        {{ EXPLORE_PERIOD }}
       </button>
     </div>
 
@@ -142,15 +166,20 @@ watch(() => props.timeline, leave);
               @pointerleave="leave"
             >
               <span class="stack">
-                <span
+                <button
                   v-for="block in column.blocks"
                   :key="block.piece.key"
+                  type="button"
                   class="blk"
-                  aria-hidden="true"
+                  data-detail-trigger
                   :data-kind="block.piece.kind"
+                  :aria-label="pieceLabel(block.piece, column.label)"
+                  :aria-current="column.bucket && isOpen(column.bucket, block.piece) ? 'true' : undefined"
                   :style="{ height: `${block.size}px` }"
-                  @click="column.bucket && open(column.bucket, block.piece)"
+                  @click="column.bucket && open($event, column.bucket, block.piece)"
                   @pointermove.stop="column.bucket && pieceTip($event, column.bucket, block.piece.key, column.label)"
+                  @focus="focusPiece($event, block.piece, column.label)"
+                  @blur="leave"
                 />
               </span>
             </div>
@@ -158,26 +187,10 @@ watch(() => props.timeline, leave);
         </div>
       </div>
     </div>
-    <p
-      id="cost-chart-hint"
-      class="sr-only"
-    >
-      {{ OVERVIEW_CHART_HINT }}
-    </p>
-
     <div class="chart-foot">
-      <span class="key"><i
-        class="sw"
-        data-kind="runs"
-      />Workflow runs</span>
-      <span
-        v-if="anyIndividual"
-        class="key"
-      ><i
-        class="sw"
-        data-kind="individual"
-      />Jobs outside any workflow</span>
-      <span>Select a block to see what ran.</span>
+      <span class="key"><i class="sw" data-kind="runs" />{{ WORKFLOW_BLOCK }}</span>
+      <span v-if="anyIndividual" class="key"><i class="sw" data-kind="individual" />{{ INDIVIDUAL_BLOCK }}</span>
+      <span id="cost-chart-hint">{{ OVERVIEW_CHART_HINT }}</span>
     </div>
     <div
       v-if="timeline.unplaced"
@@ -216,7 +229,7 @@ watch(() => props.timeline, leave);
               :key="`${row.bucket.from}-${row.piece.key}`"
             >
               <td>{{ row.label }}</td>
-              <td>{{ row.piece.name }}</td>
+              <td>{{ BLOCK_NAMES[row.piece.kind] }}</td>
               <td class="num">
                 {{ formatCost(row.piece.amount) }}
               </td>
@@ -231,7 +244,8 @@ watch(() => props.timeline, leave);
                 <button
                   class="link-button"
                   type="button"
-                  @click="open(row.bucket, row.piece)"
+                  data-detail-trigger
+                  @click="open($event, row.bucket, row.piece)"
                 >
                   {{ row.piece.kind === "runs" ? "See runs" : "See jobs" }}
                 </button>

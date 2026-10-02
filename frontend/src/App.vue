@@ -6,8 +6,8 @@ import {
   DEFAULT_RUN_CONTROLS, downloadExport, figuresDiffer, get, loadJobCharts, loadJobPage, loadMoreRuns,
   loadReport, loadRunChart, loadToolRanking, NO_RUN_FILTERS, periodOf, queryString, stateFromUrl,
   urlQuery, WINDOW_PAGE_SIZE,
-  type AdvancedFilter, type CostTimeline, type DailyItem, type DrawerKind, type Freshness, type GroupItem,
-  type Infrastructure, type Invocation, type JobCharts, type JobList, type JobsChart, type Me,
+  type AdvancedFilter, type CostPiece, type CostTimeline, type DailyItem, type DrawerKind, type Freshness,
+  type GroupItem, type Infrastructure, type JobCharts, type JobList, type JobsChart, type Me,
   type ReportState, type RunsView, type RunStatus, type Status, type Summary, type ToolRanking, type View,
 } from "./api";
 import DetailDrawer from "./components/DetailDrawer.vue";
@@ -18,9 +18,11 @@ import PageFilters from "./components/runs/PageFilters.vue";
 import RunsPage from "./components/runs/RunsPage.vue";
 import ServerPanel from "./components/ServerPanel.vue";
 import StatusPanel from "./components/StatusPanel.vue";
-import { localDate } from "./chart/axis";
 import { parseWindowId, windowId, windowLabel, type JobWindow } from "./jobsView";
-import { describePeriod, PERIOD_LABELS, todayIn, type PeriodId } from "./periods";
+import {
+  intervalNoun, intervalTitle, overviewId, overviewParams, parseOverviewId,
+} from "./overviewDetail";
+import { describePeriod, PERIOD_LABELS, periodRange, todayIn, type PeriodId } from "./periods";
 import { formatCost, formatDate, formatDateTime, PRIMARY_MEASURE, RUN_SORTS } from "./vocabulary";
 
 const TITLES: Record<View, string> = {
@@ -99,9 +101,9 @@ const DETAIL_PARAMS = [
   "detail_kind", "detail_id", "detail_part", "detail_member", "detail_offset",
   "detail_parent_kind", "detail_parent_id", "detail_parent_offset",
 ] as const;
-const DRAWER_KINDS: DrawerKind[] = ["runs", "tool-runs", "tool", "window"];
+const DRAWER_KINDS: DrawerKind[] = ["runs", "tool-runs", "tool", "window", "overview"];
 const BACK_LABELS: Record<DrawerKind, string> = {
-  runs: "Back to workflow run", "tool-runs": "Back to job", tool: "Back to tool", window: "",
+  runs: "Back to workflow run", "tool-runs": "Back to job", tool: "Back to tool", window: "", overview: "",
 };
 
 const period = computed(() => periodOf(state));
@@ -117,21 +119,13 @@ const recordedDates = computed(() => {
   const to = formatDate(window.to, state.timezone);
   return from === to ? from : `${from} – ${to}`;
 });
-const overviewParts = computed(() => (Array.isArray(viewData.value)
-  ? viewData.value as Array<{ items?: unknown[] }>
-  : []));
 const days = computed(() => (state.view === "daily"
   ? ((viewData.value as { items?: DailyItem[] } | null)?.items || [])
   : []));
-const costTimeline = computed(() => (state.view === "overview"
-  ? (overviewParts.value[0] as unknown as CostTimeline | undefined) ?? null
-  : null));
-const tools = computed(() => (state.view === "overview"
-  ? (overviewParts.value[1]?.items || []) as GroupItem[]
-  : ((viewData.value as { items?: GroupItem[] } | null)?.items || [])));
-const runs = computed(() => (state.view === "overview"
-  ? (overviewParts.value[2]?.items || []) as Invocation[]
-  : []));
+const costTimeline = computed(() => (
+  state.view === "overview" && renderedView.value === "overview" && viewData.value
+    ? viewData.value as CostTimeline : null));
+const accounts = computed(() => ((viewData.value as { items?: GroupItem[] } | null)?.items || []));
 const runsView = computed(() => (state.view === "runs" && renderedView.value === "runs" && viewData.value
   ? viewData.value as RunsView : null));
 const jobCharts = computed(() => (
@@ -152,18 +146,43 @@ function openOrParent(kind: DrawerKind): string {
 const openToolKey = computed(() => openOrParent("tool"));
 const openWindowFrom = computed(() => parseWindowId(openOrParent("window"))?.from ?? "");
 const openJobId = computed(() => (detailKind.value === "tool-runs" && !detailTrail.value.length ? detailId.value : ""));
-// A job opened from an interval describes its share of that interval, not of the period.
+/** The chart interval a drawer stop describes: a Jobs chart column, or an Overview block. */
+function stopWindow(stop: Pick<TrailStop, "kind" | "id"> | undefined): JobWindow | null {
+  if (stop?.kind === "window") return parseWindowId(stop.id);
+  const descriptor = stop?.kind === "overview" ? parseOverviewId(stop.id) : null;
+  return descriptor?.scope === "interval" ? descriptor.window : null;
+}
+// A job or run opened from an interval describes its share of that interval, not of the period.
 const parentWindow = computed<JobWindow | null>(() => {
   const parent = detailTrail.value[detailTrail.value.length - 1];
-  return detailKind.value === "tool-runs" && parent?.kind === "window" ? parseWindowId(parent.id) : null;
+  return detailKind.value === "tool-runs" || detailKind.value === "runs" ? stopWindow(parent) : null;
 });
 const openWindow = computed(() => (detailKind.value === "window" ? parseWindowId(detailId.value) : null));
+const openOverview = computed(() => (detailKind.value === "overview" ? parseOverviewId(detailId.value) : null));
+// The Overview block whose drawer is open, or that the open run or job came from.
+const openBlock = computed(() => {
+  const descriptor = parseOverviewId(openOrParent("overview"));
+  return descriptor?.scope === "interval" ? `${descriptor.window.from}|${descriptor.category}` : "";
+});
 const drawerPeriodLabel = computed(() => (parentWindow.value
   ? windowLabel(parentWindow.value, state.timezone) : periodLabel.value));
+const drawerTitle = computed(() => {
+  if (openWindow.value) return windowLabel(openWindow.value, state.timezone);
+  const descriptor = openOverview.value;
+  if (!descriptor) return "";
+  if (descriptor.scope === "interval") return intervalTitle(descriptor, state.timezone);
+  return state.period === "custom" ? periodRange(period.value) : PERIOD_LABELS[state.period];
+});
+const drawerNoun = computed(() => {
+  if (openWindow.value) return `this ${openWindow.value.unit}`;
+  return openOverview.value?.scope === "interval" ? intervalNoun(openOverview.value) : "";
+});
 const backLabel = computed(() => {
   const parent = detailTrail.value[detailTrail.value.length - 1];
   if (!parent) return "";
-  return parent.kind === "window" ? `Back to selected ${parseWindowId(parent.id)?.unit ?? "interval"}` : BACK_LABELS[parent.kind];
+  if (parent.kind === "overview" && parseOverviewId(parent.id)?.scope === "period") return "Back to this period";
+  const window = stopWindow(parent);
+  return window ? `Back to selected ${window.unit}` : BACK_LABELS[parent.kind];
 });
 // Refetching the runs or jobs page keeps the last picture, dimmed, instead of a
 // skeleton, so nothing on the page moves while the answer changes.
@@ -295,7 +314,20 @@ function changeView(view: View) {
   state.view = view; state.offset = 0; drawerOpen.value = false; closeDetail(false, false);
   void refresh(true);
 }
+/**
+ * An Overview drawer explains the report it was opened from, so a change to
+ * the report's dates or filters closes it rather than leave it describing
+ * another report. The entry it was open in is rewritten without it.
+ */
+function closeReportDetail() {
+  if (detailKind.value !== "overview" && !detailTrail.value.some(stop => stop.kind === "overview")) return;
+  closeDetail(false, false);
+  const params = new URLSearchParams(location.search);
+  for (const name of DETAIL_PARAMS) params.delete(name);
+  history.replaceState({}, "", `${location.pathname}?${params}`);
+}
 function changePeriod(id: PeriodId) {
+  closeReportDetail();
   state.period = id; state.offset = 0;
   // A focus window and a grouped selection belong to the period they were made in.
   state.focusFrom = ""; state.focusTo = ""; clearGrouped();
@@ -305,6 +337,7 @@ function changePeriod(id: PeriodId) {
   void refresh(true);
 }
 function setField(key: string, value: string) {
+  closeReportDetail();
   (state as unknown as Record<string, unknown>)[key] = value;
   clearGrouped();
   changeFilters();
@@ -316,34 +349,34 @@ function changeFilters() {
   timer = window.setTimeout(() => void refresh(true), 300);
 }
 function clearFilter(key: AdvancedFilter) {
+  closeReportDetail();
   (state as unknown as Record<string, unknown>)[key] = "";
   clearGrouped();
   void refresh(true);
 }
 function clearFilters() {
+  closeReportDetail();
   for (const key of ADVANCED_FILTERS) (state as unknown as Record<string, unknown>)[key] = "";
   state.search = "";
   clearGrouped();
   void refresh(true);
 }
-/** The calendar dates a chart block's column covers, kept inside the selected period. */
-function columnDates(target: { from: string; to: string }) {
-  const first = localDate(target.from, state.timezone);
-  const last = localDate(new Date(Date.parse(target.to) - 1).toISOString(), state.timezone);
-  const { fromDate, toDate } = period.value;
-  return { from: first < fromDate ? fromDate : first, to: last > toDate ? toDate : last };
+/** A block of the Overview chart opens what ran in its exact interval, over the page. */
+function openBlockDrawer(category: CostPiece["kind"], window: JobWindow, opener: HTMLElement) {
+  void showDetail("overview", overviewId({ scope: "interval", category, window }), true, opener);
 }
-/** The runs block on the Overview chart opens the Workflow runs page for the column's dates. */
-function openRunsWindow(target: { from: string; to: string }) {
-  const dates = columnDates(target);
-  Object.assign(state, { period: "custom", fromTime: dates.from, toTime: dates.to });
-  changeView("runs");
+function explorePeriod(opener: HTMLElement) {
+  void showDetail("overview", overviewId({ scope: "period", category: "runs" }), true, opener);
 }
-/** The individual jobs' block opens the Jobs page for the column's dates. */
-function openJobsWindow(target: { from: string; to: string }) {
-  const dates = columnDates(target);
-  Object.assign(state, { period: "custom", fromTime: dates.from, toTime: dates.to });
-  changeView("tool-runs");
+/** The period drawer's tabs replace each other in place; neither is a step in the history. */
+function switchOverviewTab(category: "runs" | "tools") {
+  void showDetail("overview", overviewId({ scope: "period", category }), true, null, "keep",
+    { part: "", member: "" }, { scrollTop: 0, focusId: category });
+}
+/** The explicit way from a period ranking to the page that lists every run or tool. */
+function seeAll(category: "runs" | "tools") {
+  if (category === "tools") openTools();
+  else changeView("runs");
 }
 function showDemoPeriod() {
   const window = summary.value?.demo_period;
@@ -567,12 +600,19 @@ function sortJobs(sort: string, direction: "asc" | "desc") {
 function openWindowDrawer(window: JobWindow, opener: HTMLElement) {
   void showDetail("window", windowId(window), true, opener);
 }
-/** The tool drawer's one action that changes the report: list that tool's jobs on the page. */
+/** The tool drawer's one action that changes the report: list that tool's jobs on the Jobs page. */
 function showToolJobs(key: string) {
   closeDetail(false);
   state.toolKey = key; state.offset = 0;
   clearGrouped();
-  void refresh(true).then(() => document.getElementById("job-list-title")?.scrollIntoView({ block: "start" }));
+  const listed = () => document.getElementById("job-list-title")?.scrollIntoView({ block: "start" });
+  if (state.view === "tool-runs") void refresh(true).then(listed);
+  else {
+    resetRunPage();
+    toolRanking.value = { ...DEFAULT_RANKING };
+    state.view = "tool-runs"; state.jobsChart = "tool"; drawerOpen.value = false;
+    void refresh(true).then(listed);
+  }
 }
 
 /** The drawer's place in the address: what is open, which part of it, and what it was opened from. */
@@ -594,21 +634,28 @@ function detailParams(
 /** Where a drawer's details come from, under the page's filters at its pinned revision. */
 function detailPath(kind: DrawerKind, id: string, offset: number, parent: TrailStop | undefined): string | null {
   const query = new URLSearchParams(queryString(pinned()));
+  // A run or job opened from an interval is asked for that interval, so its share there is exact.
+  const window = stopWindow(parent);
+  if (window && (kind === "runs" || kind === "tool-runs")) {
+    query.set("from", window.from); query.set("to", window.to);
+  }
   if (kind === "runs") return `/invocations/${encodeURIComponent(id)}?${query}`;
   if (kind === "tool") {
     query.set("tool_key", id);
     return `/jobs/tool-detail?${query}`;
   }
   if (kind === "window") {
-    const window = parseWindowId(id);
-    if (!window) return null;
-    query.set("window_from", window.from); query.set("window_to", window.to);
+    const interval = parseWindowId(id);
+    if (!interval) return null;
+    query.set("window_from", interval.from); query.set("window_to", interval.to);
     query.set("limit", String(WINDOW_PAGE_SIZE)); query.set("offset", String(offset));
     return `/jobs/window-detail?${query}`;
   }
-  const window = parent?.kind === "window" ? parseWindowId(parent.id) : null;
-  if (window) {
-    query.set("from", window.from); query.set("to", window.to);
+  if (kind === "overview") {
+    const descriptor = parseOverviewId(id);
+    if (!descriptor) return null;
+    for (const [name, value] of overviewParams(descriptor, offset, WINDOW_PAGE_SIZE)) query.set(name, value);
+    return `/overview/details?${query}`;
   }
   return `/jobs/${encodeURIComponent(id)}?${query}`;
 }
@@ -668,12 +715,13 @@ async function showDetail(
     if (mine === detailToken) detailLoading.value = false;
   }
 }
-/** Another page of an interval's jobs, inside its drawer; its totals and the page stay as they are. */
+/** Another page of an interval's jobs or runs, inside its drawer; its totals and the page stay as they are. */
 async function pageWindow(offset: number, scrollTop: number) {
-  if (detailKind.value !== "window") return;
+  const kind = detailKind.value;
+  if (kind !== "window" && kind !== "overview") return;
   const mine = detailToken;
   const parent = detailTrail.value[detailTrail.value.length - 1];
-  const path = detailPath("window", detailId.value, offset, parent);
+  const path = detailPath(kind, detailId.value, offset, parent);
   if (!path) return;
   detailPaging.value = true;
   try {
@@ -683,9 +731,7 @@ async function pageWindow(offset: number, scrollTop: number) {
     detailRestore.value = { scrollTop, focusId: result.items[0]?.id ?? "" };
     detail.value = result as unknown as Record<string, unknown>;
     const params = new URLSearchParams(location.search);
-    detailParams(params, {
-      kind: "window", id: detailId.value, part: "", member: "", offset,
-    }, parent);
+    detailParams(params, { kind, id: detailId.value, part: "", member: "", offset }, parent);
     history.replaceState({}, "", `${location.pathname}?${params}`);
   } catch (reason) {
     if (mine === detailToken) detailError.value = reason instanceof Error ? reason.message : "Unable to load these jobs";
@@ -693,8 +739,8 @@ async function pageWindow(offset: number, scrollTop: number) {
     if (mine === detailToken) detailPaging.value = false;
   }
 }
-/** A run or job opened from inside the drawer, remembering where the reader was. */
-function openFromDrawer(kind: "runs" | "tool-runs", id: string, scrollTop: number) {
+/** A run, job or tool opened from inside the drawer, remembering where the reader was. */
+function openFromDrawer(kind: "runs" | "tool-runs" | "tool", id: string, scrollTop: number) {
   leaving = { scrollTop, focusId: id };
   void showDetail(kind, id, true, null, "push");
 }
@@ -748,15 +794,26 @@ async function download() {
  * The drawer an address describes. A drawer opened from another keeps that one
  * as the place its back button returns to, so a reloaded link still leads back.
  */
+/** Whether an address's drawer can be shown on this page; a malformed Overview scope never is. */
+function usableStop(kind: DrawerKind | null, id: string | null): kind is DrawerKind {
+  if (!kind || !DRAWER_KINDS.includes(kind) || !id) return false;
+  return kind !== "overview" || (state.view === "overview" && parseOverviewId(id) !== null);
+}
 function detailFromUrl(): boolean {
   const params = new URLSearchParams(location.search);
   const kind = params.get("detail_kind") as DrawerKind | null;
   const id = params.get("detail_id");
-  if (!kind || !DRAWER_KINDS.includes(kind) || !id) return false;
+  if (!usableStop(kind, id) || !id) {
+    if (kind) {
+      for (const name of DETAIL_PARAMS) params.delete(name);
+      history.replaceState({}, "", `${location.pathname}?${params}`);
+    }
+    return false;
+  }
   const parentKind = params.get("detail_parent_kind") as DrawerKind | null;
   const parentId = params.get("detail_parent_id");
   detailKind.value = null;
-  detailTrail.value = parentKind && DRAWER_KINDS.includes(parentKind) && parentId ? [{
+  detailTrail.value = usableStop(parentKind, parentId) && parentId ? [{
     kind: parentKind, id: parentId, part: "", member: "",
     offset: Number(params.get("detail_parent_offset")) || 0, scrollTop: 0, focusId: id,
   }] : [];
@@ -863,9 +920,8 @@ onBeforeUnmount(() => {
       >
         <OverviewPanel
           v-if="state.view === 'overview' && costTimeline"
-          :state="state" :summary="summary" :timeline="costTimeline" :tools="tools" :runs="runs"
-          @view="changeView" @tools="openTools" @run="(id, opener) => showDetail('runs', id, true, opener)"
-          @runs="openRunsWindow" @jobs="openJobsWindow"
+          :state="state" :summary="summary" :timeline="costTimeline" :open-block="openBlock"
+          @view="changeView" @block="openBlockDrawer" @explore="explorePeriod"
         />
 
         <RunsPage
@@ -930,7 +986,7 @@ onBeforeUnmount(() => {
             <table>
               <thead><tr><th>Account</th><th>Jobs</th><th>Cost</th></tr></thead>
               <tbody>
-                <tr v-for="group in tools" :key="group.owner_id">
+                <tr v-for="group in accounts" :key="group.owner_id">
                   <td>{{ group.label }}</td><td>{{ group.job_count }}</td>
                   <td>{{ formatCost(group.amount) }}</td>
                 </tr>
@@ -973,10 +1029,10 @@ onBeforeUnmount(() => {
     :kind="detailKind" :detail="detail" :loading="detailLoading" :period-label="drawerPeriodLabel"
     :timezone="state.timezone" :back-label="backLabel"
     :part="detailPart" :member="detailMember" :restore="detailRestore" :error="detailError"
-    :window-title="openWindow ? windowLabel(openWindow, state.timezone) : ''"
-    :window-noun="openWindow ? `this ${openWindow.unit}` : ''" :paging="detailPaging"
+    :window-title="drawerTitle" :window-noun="drawerNoun" :paging="detailPaging"
+    :overview="openOverview" :interval-share="detailKind === 'runs' && parentWindow !== null"
     @close="closeDetail(true)" @dismiss="closeDetail(false)" @back="detailBack"
     @open="openFromDrawer" @select="selectPart" @restored="detailRestore = null" @retry="retryDetail"
-    @show-jobs="showToolJobs" @page="pageWindow"
+    @show-jobs="showToolJobs" @page="pageWindow" @tab="switchOverviewTab" @all="seeAll"
   />
 </template>

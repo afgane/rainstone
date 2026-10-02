@@ -44,9 +44,9 @@ total substituted for "what did I spend yesterday".
 
 | Internal value | What the user reads |
 | --- | --- |
-| `additional` basis | Estimated run compute cost, with "Compute started for your tool and workflow runs. Your already-running Galaxy server is shown separately." |
+| `additional` basis | Run compute on Overview, "Estimated run compute cost" elsewhere; the Galaxy server is shown separately |
 | `allocated` basis | Not offered in the UI. It differs from run compute cost only for work on the Galaxy server, where it is unavailable by design; the API still accepts it |
-| `current_launch` | Galaxy server compute cost: $X/hour while running and total since launched, with launch time and cutoff, in a quieter section |
+| `current_launch` | Galaxy server: total since launch, $X/hour while running and time since launch on Overview; launch time and cutoff on the Galaxy server page |
 | `known_zero` | $0 extra compute · Used your Galaxy server |
 | `partial` / `unpriced` | Cost incomplete / Price unavailable, each with a reason |
 | `in_progress` | Still running, only for queued or running work |
@@ -292,25 +292,58 @@ no cost column. Repeated tools stay separate rows.
 
 ## Overview
 
-Two cards sit at the top, the same shape as on Workflow runs. The left is the
-cost summary: the period's estimated compute cost, "recorded so far" when some
-jobs still need cost data, and what the measure covers. The right is the
-workload, in two shaded blocks side by side: the jobs that ran, with their
-outcomes (completed, failed, running), and the workflow runs, with how many
-workflows they belong to. The job count covers every job, whether it ran in a
-workflow or on its own. Notices that need a word or an action (jobs with no
-usable timing) sit under the cards.
+Overview answers, in order, what the compute cost was, when it occurred and
+what contributed to it.
 
-The cost chart below is dated like the Workflow runs Over time chart: one
-column per hour (one day), day (up to 92 days) or week, every day of the period
-named with its month, and a week or month still in progress drawn whole with
-its coming days empty. Each column has at most two blocks: one for all the
-workflow runs together, and one dotted block for jobs that ran outside any
-workflow. Grouping the runs keeps a busy period readable; the Workflow runs page
-splits them by workflow. The columns add up to the total on the left. Hovering
-a block or a column says what it holds: cost, runs and jobs, and how many jobs
-failed or are still running. Selecting the runs block opens the Workflow runs
-page for that column's dates; selecting the individual jobs' block opens the
-Jobs page for those dates. The columns themselves do nothing when pressed. The
-chart's table alternative, collapsed under it, lists the same blocks with a
-button to open each, and "View daily details" still leads to the per-day table.
+**Two cost cards.** Run compute and Galaxy server sit side by side as peers,
+the same width and height, with a quiet plus between them and "Run compute is
+additional to the Galaxy server compute." beneath. Run compute is every
+matching job in the selected period, workflow and individual tool jobs alike,
+with "recorded so far" and "N jobs still need cost data" when some cost is
+missing. Galaxy server is the whole server's compute since its current launch,
+idle time included, and never follows the period or filters: its total, a known
+subtotal "recorded so far", or "Not available", with the hourly rate it accrues
+at, to the cent, beside it in smaller type; how long it has run since launch,
+or "Launch time unavailable"; a quiet "Stopped", "Stale" or "Snapshot" when it
+applies; and **Server details**, which opens the Galaxy server page. The exact
+launch time, cutoff, pricing and reasons stay on that page. The two amounts
+have different scopes, so no combined total is shown. A viewer who may not see
+the server gets the run compute card alone, with no server facts or sentence.
+Jobs with no usable timing are noted in one sentence under the cards, with a
+link to them.
+
+**The chart.** "Run compute over time" is dated like the Workflow runs Over
+time chart: one column per hour (one day), day (up to 92 days) or week, every
+day of the period named with its month, and a week or month still in progress
+drawn whole with its coming days empty. Each column has at most two blocks: one
+for all the workflow runs together, and one dotted block for jobs outside
+workflows. The columns add up to the run compute card. Each block is a button;
+hovering or focusing it says what it holds. Pressing it opens the drawer for
+that block's exact interval and category; the columns themselves do nothing.
+The table alternative, collapsed under the chart, lists the same blocks with a
+button that opens the same drawer. **Explore this period**, in the chart's
+heading, opens the whole period's top contributors, so they are found without
+knowing that blocks can be pressed.
+
+**The drawer.** Every Overview detail opens in the shared drawer over the page,
+which keeps its figures, chart, filters and scroll position. A changed period
+or filter closes it.
+
+- A workflow runs block lists the runs that ran in its interval, highest first,
+  each with its outcome and the cost **counted here**: only the jobs the chart
+  draws under that run, so the rows add up to the block. A job shared by
+  several runs is counted under one of them, as on the chart, and the drawer
+  says so when that applies. A run opens its usual details, whose headline is
+  still the whole run, with its share of the interval beside it.
+- A jobs outside workflows block lists those jobs, highest cost first, then
+  those without a known cost, with their cost inside the interval and their
+  whole duration. A job opens its details.
+- Explore this period has two tabs, Workflow runs and Tools, which replace each
+  other in place. Each lists the top five with a complete, positive cost over
+  the whole period, says how many incomplete estimates were left out, and links
+  to the Workflow runs page or the Jobs page's By tool chart. Workflow runs
+  cover only jobs inside workflows; tools cover every matching job. They are
+  two views of the same work and are never added together.
+
+Every list pages inside the drawer, its totals unchanged. Back returns to the
+list, its page and the row that was opened, and a reloaded link restores both.

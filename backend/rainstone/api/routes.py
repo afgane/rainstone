@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 
-from rainstone import jobs_report
+from rainstone import jobs_report, overview_details
 from rainstone.api.schemas import (
     BreakdownResponse,
     CatalogResponse,
@@ -21,6 +21,7 @@ from rainstone.api.schemas import (
     JobListResponse,
     JobTimelineResponse,
     MeResponse,
+    OverviewDetailResponse,
     StatusResponse,
     SummaryResponse,
     TimelineResponse,
@@ -275,6 +276,24 @@ def get_cost_timeline(
     identity: Identity = Depends(current_identity),
 ) -> dict:
     return cost_timeline(session, identity, query)
+
+
+@router.get("/overview/details", response_model=OverviewDetailResponse)
+def get_overview_details(
+    scope: overview_details.Scope,
+    kind: overview_details.Kind,
+    window_from: datetime | None = None,
+    window_to: datetime | None = None,
+    query: ReportQuery = Depends(report_query),
+    session: Session = Depends(get_session),
+    identity: Identity = Depends(current_identity),
+) -> dict:
+    for label, value in (("window_from", window_from), ("window_to", window_to)):
+        if value is not None and value.utcoffset() is None:
+            raise HTTPException(422, f"{label} must include an explicit UTC offset")
+    if window_from and window_to and window_from >= window_to:
+        raise HTTPException(422, "The interval must satisfy window_from < window_to")
+    return overview_details.details(session, identity, query, scope, kind, window_from, window_to)
 
 
 @router.get("/daily", response_model=DailyResponse)

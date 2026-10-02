@@ -155,12 +155,15 @@ function readable(date: string): string {
 }
 
 /** The resolved dates, so a period label is never ambiguous. */
+/** "Sep 1, 2026 – Sep 29, 2026", or one date for a single day. */
+export function periodRange(period: Period): string {
+  return period.fromDate === period.toDate
+    ? readable(period.fromDate)
+    : `${readable(period.fromDate)} – ${readable(period.toDate)}`;
+}
+
 export function describePeriod(period: Period, timezone: string): string {
-  const range =
-    period.fromDate === period.toDate
-      ? readable(period.fromDate)
-      : `${readable(period.fromDate)} – ${readable(period.toDate)}`;
-  return `${range} · ${timezone}`;
+  return `${periodRange(period)} · ${timezone}`;
 }
 
 /** The API boundary is exclusive; users never type "to, exclusive". */

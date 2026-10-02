@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ArrowLeft, RefreshCw, X } from "@lucide/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import type { DrawerKind, InvocationDetail, JobDetail, ToolDetail, WindowDetail } from "../api";
+import type { DrawerKind, InvocationDetail, JobDetail, OverviewDetail, ToolDetail, WindowDetail } from "../api";
+import type { OverviewScope } from "../overviewDetail";
 import { byAttribute } from "../dom";
 import {
   durationText, formatCost, formatDateTime, JOBS_HEADING, jobStateKind, jobStateLabel, needsCostData,
@@ -10,6 +11,7 @@ import {
 import JobDetails from "./drawer/JobDetails.vue";
 import JobStateIcon from "./drawer/JobStateIcon.vue";
 import JobWindowDetails from "./drawer/JobWindowDetails.vue";
+import OverviewDetails from "./drawer/OverviewDetails.vue";
 import RunCostBreakdown from "./drawer/RunCostBreakdown.vue";
 import RuntimeJobList from "./drawer/RuntimeJobList.vue";
 import ToolDetails from "./drawer/ToolDetails.vue";
@@ -29,18 +31,22 @@ const props = defineProps<{
   restore?: { scrollTop: number; focusId: string } | null;
   /** Why the details could not be loaded; the drawer then offers to try again. */
   error?: string;
-  /** An interval drawer's title, such as "Sep 28", and how its sentences name it. */
+  /** An interval or Overview drawer's title, such as "Sep 28", and how its sentences name it. */
   windowTitle?: string;
   windowNoun?: string;
   /** True while another page of an interval's jobs is being fetched. */
   paging?: boolean;
+  /** What an Overview drawer explains; null for every other kind. */
+  overview?: OverviewScope | null;
+  /** True when a run was opened from an interval, so its share of that interval is named. */
+  intervalShare?: boolean;
 }>();
 const emit = defineEmits<{
   // Escape and the close button; focus goes back to whatever opened the drawer.
   close: [];
   // A press outside dismisses the drawer, and focus stays where the press put it.
   dismiss: [];
-  open: [kind: "runs" | "tool-runs", id: string, scrollTop: number];
+  open: [kind: "runs" | "tool-runs" | "tool", id: string, scrollTop: number];
   // A tool's jobs, listed on the page itself under that tool's filter.
   "show-jobs": [key: string];
   page: [offset: number, scrollTop: number];
@@ -48,6 +54,9 @@ const emit = defineEmits<{
   select: [part: string, member: string];
   restored: [];
   retry: [];
+  // An Overview period drawer's other tab, and the page that lists all of its kind.
+  tab: [category: "runs" | "tools"];
+  all: [category: "runs" | "tools"];
 }>();
 
 const drawer = ref<HTMLElement | null>(null);
@@ -63,9 +72,8 @@ watch(() => props.detail, async detail => {
   if (back && drawer.value) {
     // Returning to a run puts the reader back on the row that opened the other one.
     drawer.value.scrollTop = back.scrollTop;
-    const row = drawer.value.querySelector<HTMLElement>(
-      `${byAttribute("data-job-id", back.focusId)}, ${byAttribute("data-run-id", back.focusId)}`,
-    );
+    const row = drawer.value.querySelector<HTMLElement>(["data-job-id", "data-run-id", "data-tool-key", "data-tab"]
+      .map(name => byAttribute(name, back.focusId)).join(", "));
     (row ?? title.value)?.focus({ preventScroll: true });
     emit("restored");
     return;
@@ -73,7 +81,7 @@ watch(() => props.detail, async detail => {
   title.value?.focus({ preventScroll: true });
 });
 
-function openFrom(kind: "runs" | "tool-runs", id: string) {
+function openFrom(kind: "runs" | "tool-runs" | "tool", id: string) {
   emit("open", kind, id, drawer.value?.scrollTop ?? 0);
 }
 
@@ -119,9 +127,18 @@ const children = computed(() => list("children"));
 const job = computed(() => (props.kind === "tool-runs" ? props.detail as unknown as JobDetail : null));
 const tool = computed(() => (props.kind === "tool" ? props.detail as unknown as ToolDetail : null));
 const interval = computed(() => (props.kind === "window" ? props.detail as unknown as WindowDetail : null));
+// A response for another kind of Overview drawer is never shown under this one's title.
+const aggregate = computed(() => {
+  const value = props.kind === "overview" ? props.detail as unknown as OverviewDetail : null;
+  return value && props.overview && value.kind === props.overview.category ? value : null;
+});
 const EYEBROWS: Record<DrawerKind, string> = {
-  runs: "Workflow run", "tool-runs": "Job", tool: "Tool", window: "Jobs in this interval",
+  runs: "Workflow run", "tool-runs": "Job", tool: "Tool", window: "Jobs in this interval", overview: "",
 };
+const eyebrow = computed(() => {
+  if (props.kind !== "overview") return props.kind ? EYEBROWS[props.kind] : "";
+  return props.overview?.scope === "period" ? "Explore this period" : "What ran";
+});
 </script>
 
 <template>
@@ -138,7 +155,7 @@ const EYEBROWS: Record<DrawerKind, string> = {
   >
     <div class="drawer-head">
       <p class="eyebrow">
-        {{ kind ? EYEBROWS[kind] : "" }}
+        {{ eyebrow }}
       </p>
       <button
         class="icon-close"
@@ -197,6 +214,9 @@ const EYEBROWS: Record<DrawerKind, string> = {
           <dd>{{ durationText(detail.duration_seconds as number | null, String(detail.run_status)) }}</dd>
           <dt>{{ WORKFLOW_JOBS }}</dt><dd>{{ detail.run_job_count }}</dd>
         </dl>
+        <p v-if="intervalShare" class="dialog-meta">
+          Inside {{ periodLabel }}: {{ formatCost(text("amount")) }} of this run's cost.
+        </p>
         <p
           v-if="Number(detail.run_unpriced_job_count)"
           class="dialog-meta"
@@ -291,6 +311,16 @@ const EYEBROWS: Record<DrawerKind, string> = {
         <JobWindowDetails
           :detail="interval" :noun="windowNoun ?? ''" :paging="Boolean(paging)"
           @open="id => openFrom('tool-runs', id)" @page="emit('page', $event, drawer?.scrollTop ?? 0)"
+        />
+      </template>
+
+      <template v-else-if="aggregate && overview">
+        <h2 id="detail-title" ref="title" tabindex="-1">{{ windowTitle }}</h2>
+        <OverviewDetails
+          :detail="aggregate" :descriptor="overview" :period-label="periodLabel" :noun="windowNoun ?? ''"
+          :paging="Boolean(paging)"
+          @open="openFrom" @page="emit('page', $event, drawer?.scrollTop ?? 0)"
+          @tab="emit('tab', $event)" @all="emit('all', $event)"
         />
       </template>
     </template>

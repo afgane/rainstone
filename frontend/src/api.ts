@@ -48,8 +48,11 @@ export interface ReportState {
 
 export type JobsChart = "tool" | "time";
 
-/** What the detail drawer can show: a run, a job, a tool's jobs or a chart interval's jobs. */
-export type DrawerKind = "runs" | "tool-runs" | "tool" | "window";
+/**
+ * What the detail drawer can show: a run, a job, a tool's jobs, a Jobs chart
+ * interval's jobs, or what lies behind an Overview figure.
+ */
+export type DrawerKind = "runs" | "tool-runs" | "tool" | "window" | "overview";
 
 export type RunStatus = "completed" | "failed" | "running" | "cancelled";
 export type RunSort = "started_at" | "amount" | "run_total" | "duration";
@@ -85,6 +88,10 @@ export interface CurrentLaunch {
   state: string | null;
   launch_at: string | null;
   launch_source: string | null;
+  /** When the recorded session stopped; null while it runs. */
+  ended_at: string | null;
+  /** Seconds from launch to `as_of`, where the total stops. */
+  elapsed_seconds: string | null;
   /** Where the figures stop: the last successful observation, or the stop time. */
   as_of: string | null;
   stale: boolean;
@@ -538,6 +545,39 @@ export interface WindowDetail {
   items: ScopedJob[]; total: number; limit: number; offset: number; meta: Meta;
 }
 
+/** A workflow run behind an Overview figure. `amount` is only what Overview counts under it there. */
+export interface OverviewRunItem {
+  id: string; workflow_name: string; run_status: string | null; started_at: string;
+  amount: string | null; job_count: number; incomplete_job_count: number; shared_job_count: number;
+  run_total: string | null; run_total_complete: boolean;
+}
+
+export interface OverviewToolItem {
+  key: string; name: string; tool_ids: string[];
+  versions: Array<{ version: string | null; job_count: number }>;
+  amount: string | null; job_count: number;
+}
+
+/** How a period ranking chose its top contributors from every candidate. */
+export interface OverviewRanking {
+  eligible_count: number; excluded_count: number; zero_count: number; limit: number;
+}
+
+interface OverviewDetailBase {
+  scope: "period" | "interval";
+  from: string | null; to: string | null;
+  amount: string | null; job_count: number; incomplete_job_count: number;
+  provisional: boolean; shared_job_count: number;
+  run_count: number | null; tool_count: number | null; ranking: OverviewRanking | null;
+  total: number; limit: number; offset: number; meta: Meta;
+}
+
+/** `/overview/details`: totals describe the whole scoped set, whatever page of items is returned. */
+export type OverviewDetail =
+  | (OverviewDetailBase & { kind: "runs"; items: OverviewRunItem[] })
+  | (OverviewDetailBase & { kind: "individual"; items: ScopedJob[] })
+  | (OverviewDetailBase & { kind: "tools"; items: OverviewToolItem[] });
+
 /** The Jobs page's charts, from the revision the rest of the page shows; one may not be loaded yet. */
 export interface JobCharts { breakdown: JobBreakdown | null; timeline: JobTimeline | null }
 
@@ -852,7 +892,6 @@ export async function loadReport(
 
 /** Runs listed per page, and how many more each "Show more" appends. */
 export const RUN_PAGE_SIZE = 20;
-const TOP_RUNS = 4;
 
 /** The charts a runs view needs: the active tab's, and the strip's when a workflow is chosen. */
 export function chartsNeeded(state: ReportState): { breakdown: boolean; timeline: boolean; strip: boolean } {
@@ -892,14 +931,6 @@ export function loadRunChart(state: ReportState, kind: "breakdown" | "timeline",
   return loadRunCharts(state, { [kind]: true }, signal);
 }
 
-/** Overview lists the period's most expensive runs, on the server, whatever the runs page filters. */
-function topRunsQuery(state: ReportState): string {
-  return runQueryString(
-    { ...state, ...NO_RUN_FILTERS, runSort: "amount", runDirection: "desc", search: "" },
-    { limit: TOP_RUNS },
-  );
-}
-
 /** The tool ranking a Jobs page shows. Its size and search are presentation, never report filters. */
 export function loadToolRanking(state: ReportState, ranking: ToolRanking, signal?: AbortSignal) {
   const query = new URLSearchParams(queryString(state));
@@ -932,12 +963,9 @@ async function loadPinnedReport(state: ReportState, signal?: AbortSignal, rankin
     ? get<JobList>(`/jobs?${query}`, signal)
     : Promise.resolve<JobList>({ items: [], undated_items: [], total: 0, limit: 50, offset: 0, meta: summary });
   const common = [jobs, get<Freshness>("/freshness", signal), get<Me>("/me", signal)] as const;
+  // Overview's rankings load when they are asked for, in the drawer.
   const viewRequest = state.view === "overview"
-    ? Promise.all([
-        get<CostTimeline>(`/timeline?${withChartBucket(query, state)}`, signal),
-        get<{ items: GroupItem[]; meta: Meta }>(`/tools?${query}`, signal),
-        get<InvocationList>(`/invocations?${topRunsQuery(snapshotState)}`, signal),
-      ])
+    ? get<CostTimeline>(`/timeline?${withChartBucket(query, state)}`, signal)
     : state.view === "tool-runs" ? loadJobCharts(snapshotState, state.jobsChart, ranking, signal)
     : state.view === "runs" ? loadRunsView(snapshotState, signal)
     : state.view === "daily" ? get<{ items: DailyItem[]; meta: Meta }>(`/daily?${query}`, signal)

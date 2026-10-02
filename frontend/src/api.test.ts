@@ -287,17 +287,12 @@ describe("what each view requests", () => {
     expect(strip.get("boundary_run_id")).toBe("9f0c0000-0000-4000-8000-000000000001");
   });
 
-  it("asks Overview for the period's four most expensive runs, whatever the runs page filters", async () => {
+  it("loads only Overview's chart up front; its rankings wait for the drawer", async () => {
     const paths: string[] = [];
     vi.stubGlobal("fetch", record(paths));
     await loadReport({ ...state("overview"), ...RUN_FIELDS, search: "rna" } as ReportState);
-    const top = new URLSearchParams(paths.find(path => path.includes("/invocations?"))!.split("?")[1]);
-    expect(top.get("run_sort")).toBe("amount");
-    expect(top.get("direction")).toBe("desc");
-    expect(top.get("limit")).toBe("4");
-    expect(top.has("workflow_key")).toBe(false);
-    expect(top.has("run_status")).toBe(false);
-    expect(top.has("search")).toBe(false);
+    expect(paths.some(path => path.includes("/timeline?"))).toBe(true);
+    expect(paths.some(path => path.includes("/invocations") || path.includes("/tools"))).toBe(false);
   });
 });
 

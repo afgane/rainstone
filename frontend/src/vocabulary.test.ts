@@ -3,8 +3,9 @@ import {
   environmentLabel, formatCompactCost, formatJobDuration, formatShare, groupCoverage, groupHeading,
   jobCostLabel, jobDurationLabel, jobStateKind, jobStateLabel, shareBasis,
   acrossWorkflows, capacityLabel, coverageSentence, costExplanation, durationText, focusChipLabel,
-  formatAxisCost, formatCost, formatDate, formatDuration, formatRate, outcomeMix, outOfRuns,
-  costChartTitle, jobOutcomes, pieceCounts, qualityLabel, rangeCaption, showingOf, showMore,
+  formatAxisCost, formatCost, formatDate, formatDuration, formatRate, formatRateInCents, outcomeMix, outOfRuns,
+  jobOutcomes, pieceCounts, qualityLabel, rangeCaption, serverQualifiers, sharedJobsNote, showingOf, sinceLaunch,
+  showMore, topContributors,
   undatedSentence, unplacedSentence,
 } from "./vocabulary";
 
@@ -20,6 +21,9 @@ describe("money", () => {
     expect(formatRate("0.2")).toBe("$0.20/hour while running");
     expect(formatRate("0.168984")).toBe("$0.169/hour while running");
     expect(formatRate(null)).toBe("Not available");
+    expect(formatRateInCents("0.3806")).toBe("$0.38/hour while running");
+    expect(formatRateInCents("0.004")).toBe("less than $0.01/hour while running");
+    expect(formatRateInCents(null)).toBe("Not available");
   });
 });
 
@@ -122,10 +126,25 @@ describe("the Workflow runs vocabulary", () => {
 });
 
 describe("the Overview vocabulary", () => {
-  it("titles the chart for its columns", () => {
-    expect(costChartTitle("day")).toBe("Daily cost");
-    expect(costChartTitle("hour")).toBe("Hourly cost");
-    expect(costChartTitle("week")).toBe("Weekly cost");
+  it("qualifies the server's figure in a word, not a paragraph", () => {
+    expect(serverQualifiers(null, false)).toEqual([]);
+    expect(serverQualifiers({ ended_at: null, stale: false }, false)).toEqual([]);
+    expect(serverQualifiers({ ended_at: "2026-09-29T00:00:00Z", stale: false }, false)).toEqual(["Stopped"]);
+    expect(serverQualifiers({ ended_at: null, stale: true }, false)).toEqual(["Stale"]);
+    expect(serverQualifiers({ ended_at: null, stale: true }, true)).toEqual(["Snapshot"]);
+  });
+
+  it("says how long the server has been up in days once it has run a day", () => {
+    expect(sinceLaunch(18720)).toBe("5 h 12 min since launch");
+    expect(sinceLaunch(86400)).toBe("1 day since launch");
+    expect(sinceLaunch(2347200)).toBe("27 days 4 h since launch");
+    expect(sinceLaunch(null)).toBe("Time since launch unavailable");
+  });
+
+  it("names a ranking as its top contributors, not a complete breakdown", () => {
+    expect(topContributors(5, "workflow run")).toBe("Top 5 workflow runs");
+    expect(topContributors(1, "tool")).toBe("Top tool");
+    expect(sharedJobsNote(1)).toContain("1 job belongs to more than one run; it is counted once");
   });
 
   it("says what a block holds, leaving out runs for work outside a workflow", () => {

@@ -194,9 +194,9 @@ two reconcile.
 
 ## Overview cost over time
 
-`/api/timeline` answers the Overview chart and its workload card from the shared
-filters and an optional `bucket` (`auto`, `hour`, `day` or `week`, resolved as
-for the workflow run timeline). Every job in the period is drawn in the column
+`/api/timeline` answers the Overview chart from the shared filters and an
+optional `bucket` (`auto`, `hour`, `day` or `week`, resolved as for the
+workflow run timeline). Every job in the period is drawn in the column
 it accrued in, in one of two pieces: `runs` when a workflow run contains it, and
 `individual` when it ran on its own. Runs are not split by workflow, so a column
 never has more than two pieces however many workflows there are. A job in
@@ -214,6 +214,40 @@ the daily report and in the timelines alike, with its incomplete count beside
 it; only an observed zero is `0`. As elsewhere, an unbounded report keeps cost
 with no usable timing in `unplaced` beside the columns, and a dated one leaves
 it out.
+
+## Overview details
+
+`/api/overview/details` explains an Overview figure. It takes the shared
+filters, normalized as for `/api/timeline` (no workflow runs page filter
+applies), plus `scope` and `kind`:
+
+- `scope=interval` with `kind=runs` or `kind=individual` is one chart block.
+  `window_from` and `window_to` are required, carry an offset, and are
+  intersected with the period; an interval outside it is a 422. Its jobs are
+  the block's, with the chart's own accrual chunks, so `amount` and
+  `job_count` equal the block's.
+- `scope=period` with `kind=runs` (jobs inside workflow runs) or `kind=tools`
+  (every matching job) is the whole period.
+
+Any other combination is a 422. As on the chart, a job belongs to the runs
+when an authorized root run holds it through an ownership-consistent
+membership, nested runs included, and is counted under the lowest-UUID such
+root; every other job is individual.
+
+The response carries the effective `scope`, `kind`, `from` and `to`, then
+`amount`, `job_count`, `incomplete_job_count`, `provisional` and
+`shared_job_count` (scoped jobs held by more than one root), all over the whole
+scoped set; `run_count` for runs and `tool_count` for tools; `items`, `total`,
+`limit`, `offset` and `meta`. A run item's `amount` is only the cost counted
+under it in the scope, beside its `run_total` and `run_status`; a tool item is
+a `tool_key` family. Individual jobs are `ScopedJob` rows. Interval items are
+ordered by known amount, largest first, then those with no known amount, ties
+by ID, and page with `limit` and `offset`.
+
+A period's `ranking` lists at most five items: those with a complete, positive
+amount, largest first, ties by ID, over every candidate. `eligible_count`,
+`excluded_count` (incomplete, so not comparable) and `zero_count` account for
+every run or tool; the excluded ones' known cost stays in `amount`.
 
 ## Jobs page
 
