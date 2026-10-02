@@ -343,8 +343,11 @@ link beside the Overview title reopens the guide. The guide changes no report
 filters or figures, and its open state can be restored from the URL.
 
 **Two cost cards.** Run compute and Galaxy server sit side by side as peers,
-the same width and height, with a quiet plus between them and "Run compute is
-additional to the Galaxy server compute." beneath. Run compute is every
+the same width and height, with a quiet plus between them. One sentence
+beneath them says the compute cost has two parts: run compute for the machines
+started to run jobs, and the Galaxy server, which runs whether or not jobs do.
+The quick guide adds that amounts leave out data storage and data transfer out
+of the cloud (egress). Run compute is every
 matching job in the selected period, workflow and individual tool jobs alike,
 with "recorded so far" when some cost is missing. "N jobs still in progress"
 counts missing cost that will arrive on its own, and "N jobs whose cost was

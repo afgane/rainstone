@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import type { Summary } from "../../api";
 import {
-  ADDITIONAL_SERVER_SENTENCE, formatCost, formatRateInCents, inProgressNote, RUN_COMPUTE, SERVER_COMPUTE,
+  COST_PARTS_SENTENCE, formatCost, formatRateInCents, inProgressNote, RUN_COMPUTE, SERVER_COMPUTE,
   serverQualifiers, sinceLaunch, unrecordedNote,
 } from "../../vocabulary";
 
@@ -66,5 +66,5 @@ const qualifiers = computed(() => serverQualifiers(launch.value, Boolean(props.s
       </section>
     </template>
   </div>
-  <p v-if="summary.can_view_infrastructure" class="cost-relation">{{ ADDITIONAL_SERVER_SENTENCE }}</p>
+  <p v-if="summary.can_view_infrastructure" class="cost-relation">{{ COST_PARTS_SENTENCE }}</p>
 </template>

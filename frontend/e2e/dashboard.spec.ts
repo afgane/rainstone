@@ -12,7 +12,7 @@ test("a first-time user gets a scoped answer without typing dates", async ({ pag
   await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
   const headline = page.locator(".figure.featured");
   await expect(headline.getByText("Run compute", { exact: true })).toBeVisible();
-  await expect(page.getByText("Run compute is additional to the Galaxy server compute.")).toBeVisible();
+  await expect(page.getByText(/Your compute cost has two parts/)).toBeVisible();
 
   for (const period of ["Yesterday", "Last week", "Last month"]) {
     await page.getByRole("button", { name: period, exact: true }).click();
@@ -724,7 +724,7 @@ test("Overview puts run compute and the Galaxy server side by side, never summed
   await expect(run.locator(".eyebrow")).toHaveText("Run compute");
   await expect(run.locator(".figure-amount")).toHaveText(dollars(summary.amount));
   await expect(server.locator(".eyebrow")).toHaveText("Galaxy server");
-  await expect(page.locator(".cost-relation")).toHaveText("Run compute is additional to the Galaxy server compute.");
+  await expect(page.locator(".cost-relation")).toContainText("Your compute cost has two parts");
   await expect(server.locator(".figure-qualifier")).toHaveText(/\/hour while running$/);
   await expect(server).toContainText("since launch");
   // Peers: the same width and height.

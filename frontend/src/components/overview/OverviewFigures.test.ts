@@ -38,7 +38,10 @@ describe("OverviewFigures", () => {
     expect(cards[1].find(".figure-qualifier").text()).toBe("$0.38/hour while running");
     expect(cards[1].text()).toContain("27 days 4 h since launch");
     // Two separately scoped costs: said to be additional, never summed.
-    expect(wrapper.find(".cost-relation").text()).toBe("Run compute is additional to the Galaxy server compute.");
+    expect(wrapper.find(".cost-relation").text()).toBe(
+      "Your compute cost has two parts: run compute, for the machines started to run your jobs, and the Galaxy "
+      + "server, which runs whether or not jobs do.",
+    );
     expect(wrapper.text()).not.toContain("$414");
     expect(wrapper.text()).not.toContain("=");
   });

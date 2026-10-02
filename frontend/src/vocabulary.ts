@@ -306,7 +306,10 @@ export const WORKLOAD_EYEBROW = "Workload";
 export const NO_JOBS = "No jobs in this period.";
 export const RUN_COMPUTE = "Run compute";
 export const SERVER_COMPUTE = "Galaxy server";
-export const ADDITIONAL_SERVER_SENTENCE = "Run compute is additional to the Galaxy server compute.";
+// Two parts of one cost, never a sum: the cards cover different spans of time.
+export const COST_PARTS_SENTENCE =
+  "Your compute cost has two parts: run compute, for the machines started to run your jobs, "
+  + "and the Galaxy server, which runs whether or not jobs do.";
 export const OVERVIEW_CHART_TITLE = "Run compute over time";
 export const OVERVIEW_CHART_SCOPE = "Galaxy server shown separately";
 export const OVERVIEW_CHART_HINT = "Select a block to see what ran.";
