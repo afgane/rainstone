@@ -469,7 +469,7 @@ function overviewDetail(query: URLSearchParams) {
   };
 }
 
-function stubOverview() {
+function stubOverview({ sourceId = "a", canViewServer = false } = {}) {
   const asked: string[] = [];
   vi.stubGlobal("fetch", vi.fn((url: string) => {
     asked.push(url);
@@ -479,10 +479,10 @@ function stubOverview() {
     if (path.endsWith("/summary")) {
       body = {
         ...META, amount: "8", job_count: 13, unpriced_job_count: 0, demo: false, imported_snapshot: null,
-        can_view_infrastructure: false, current_launch: null, undated: null,
+        can_view_infrastructure: canViewServer, current_launch: null, undated: null,
       };
     } else if (path.endsWith("/freshness")) body = { overall_status: "healthy", sources: [], observation_gaps: [] };
-    else if (path.endsWith("/me")) body = { source_id: "a", label: "A", is_admin: true, auth_mode: "development", attribution: "", capabilities: { infrastructure: false, users: false } };
+    else if (path.endsWith("/me")) body = { source_id: sourceId, label: "A", is_admin: true, auth_mode: "development", attribution: "", capabilities: { infrastructure: canViewServer, users: false } };
     else if (path.endsWith("/timeline")) body = OVERVIEW_TIMELINE;
     else if (path.endsWith("/overview/details")) body = overviewDetail(query);
     else if (path.endsWith("/invocations/r1")) body = { ...drawerRun("r1", "Alpha workflow"), amount: "6" };
@@ -502,6 +502,96 @@ async function openOverviewPage(search = "") {
 const asking = (asked: string[], path: string) => asked
   .filter(url => url.split("?")[0].endsWith(path))
   .map(url => new URLSearchParams(url.split("?")[1]));
+
+describe("Overview's welcome and guide", () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
+
+  it("opens guidance without a request or a report change, and leaves dismissal to the user", async () => {
+    const asked = stubOverview({ canViewServer: true });
+    const wrapper = await openOverviewPage();
+    const figures = wrapper.find(".cost-cards").html();
+    const before = asked.length;
+    const quickGuide = wrapper.find(".overview-welcome .link-button");
+    await quickGuide.trigger("click");
+    await flushPromises();
+    expect(asked).toHaveLength(before);
+    expect(wrapper.find(".drawer").text()).toContain("including idle time");
+    expect(wrapper.find(".cost-cards").html()).toBe(figures);
+    expect(document.activeElement).toBe(wrapper.find("#detail-title").element);
+    expect(new URLSearchParams(location.search).get("detail_kind")).toBe("guide");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    await flushPromises();
+    expect(wrapper.find(".drawer").attributes("data-open")).toBe("false");
+    expect(document.activeElement).toBe(quickGuide.element);
+    expect(wrapper.find(".overview-welcome").exists()).toBe(true);
+    expect(localStorage.length).toBe(0);
+  });
+
+  it("remembers explicit dismissal across reloads, keeps help accessible, and separates accounts", async () => {
+    stubOverview();
+    const first = await openOverviewPage();
+    await first.find('[aria-label="Dismiss welcome"]').trigger("click");
+    await flushPromises();
+    expect(first.find(".overview-welcome").exists()).toBe(false);
+    expect(document.activeElement).toBe(first.find(".overview-help").element);
+    apps.pop()!.unmount();
+
+    const returning = await openOverviewPage();
+    expect(returning.find(".overview-welcome").exists()).toBe(false);
+    await returning.find(".overview-help").trigger("click");
+    await flushPromises();
+    expect(returning.find("#detail-title").text()).toBe("How to read this page");
+    expect(returning.find(".drawer").text()).not.toContain("Galaxy server");
+    apps.pop()!.unmount();
+
+    stubOverview({ sourceId: "another-account" });
+    const another = await openOverviewPage();
+    expect(another.find(".overview-welcome").exists()).toBe(true);
+  });
+
+  it("can dismiss the strip when browser storage is blocked", async () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("Blocked"); });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("Blocked"); });
+    stubOverview();
+    const wrapper = await openOverviewPage();
+    expect(wrapper.find(".overview-welcome").exists()).toBe(true);
+    await wrapper.find('[aria-label="Dismiss welcome"]').trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".overview-welcome").exists()).toBe(false);
+    expect(wrapper.find(".error").exists()).toBe(false);
+  });
+
+  it("restores guide links and lets report details replace the guide", async () => {
+    const asked = stubOverview();
+    const wrapper = await openOverviewPage("&detail_kind=guide&detail_id=overview");
+    expect(wrapper.find("#detail-title").text()).toBe("How to read this page");
+    expect(asked.some(url => url.includes("/jobs/overview"))).toBe(false);
+    await wrapper.find('.blk[data-kind="runs"]').trigger("click");
+    await flushPromises();
+    expect(wrapper.find("#detail-title").text()).toBe("Workflow runs · Sep 2");
+    expect(wrapper.find(".overview-guide").exists()).toBe(false);
+  });
+
+  it("clears guide state when navigating away, and rejects guide links on other pages", async () => {
+    stubOverview();
+    const wrapper = await openOverviewPage("&detail_kind=guide&detail_id=overview");
+    await wrapper.findAll(".nav-item").find(button => button.text() === "Status")!.trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".drawer").attributes("data-open")).toBe("false");
+    expect(new URLSearchParams(location.search).has("detail_kind")).toBe(false);
+    expect(wrapper.find(".overview-help").exists()).toBe(false);
+    apps.pop()!.unmount();
+
+    stubFetch();
+    history.replaceState({}, "", "/?view=runs&detail_kind=guide&detail_id=overview");
+    const other = mount(App, { attachTo: document.body });
+    apps.push(other);
+    await flushPromises();
+    expect(other.find(".drawer").attributes("data-open")).toBe("false");
+    expect(new URLSearchParams(location.search).has("detail_kind")).toBe(false);
+  });
+});
 
 describe("Overview's details", () => {
   beforeEach(() => { runs.clear(); resetJobs(); });

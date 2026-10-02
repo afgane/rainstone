@@ -23,6 +23,43 @@ test("a first-time user gets a scoped answer without typing dates", async ({ pag
   await expect(page.locator(".resolved")).toContainText("UTC");
 });
 
+test("the welcome guide leaves the report in place and dismissal survives a reload", async ({ page }) => {
+  await page.goto(`${BASE}?${FIXTURE_PERIOD}`);
+  const welcome = page.getByRole("region", { name: "Welcome to Rainstone" });
+  const help = page.getByRole("button", { name: "How to read this page", exact: true });
+  await expect(welcome).toBeVisible();
+  const chart = page.locator(".chart-panel");
+  const before = await chart.boundingBox();
+  await welcome.getByRole("button", { name: "Quick guide", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "How to read this page" });
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByRole("heading", { name: "How to read this page" })).toBeFocused();
+  await expect(drawer).toContainText("including idle time");
+  const after = await chart.boundingBox();
+  expect(after).toEqual(before);
+  const bounds = await drawer.boundingBox();
+  expect(bounds!.y).toBe(0);
+  expect(bounds!.height).toBe(page.viewportSize()!.height);
+  await page.keyboard.press("Escape");
+  await expect(drawer).toBeHidden();
+  await expect(welcome.getByRole("button", { name: "Quick guide", exact: true })).toBeFocused();
+  await expect(welcome).toBeVisible();
+
+  await welcome.getByRole("button", { name: "Dismiss welcome" }).click();
+  await expect(welcome).toBeHidden();
+  await expect(help).toBeFocused();
+  await page.reload();
+  await expect(chart).toBeVisible();
+  await expect(welcome).toBeHidden();
+  await help.click();
+  await expect(drawer).toBeVisible();
+  await expect(page).toHaveURL(/detail_kind=guide/);
+  await page.reload();
+  await expect(drawer).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(help).toBeFocused();
+});
+
 test("a workflow run shows its whole cost and its share of the period", async ({ page }) => {
   await page.goto(`${BASE}?view=runs&${FIXTURE_PERIOD}`);
   await page.getByPlaceholder("Find a workflow run").fill("RNA-seq");
@@ -657,8 +694,10 @@ test("a block on Overview explains itself", async ({ page }) => {
 
 test("a workflow runs block opens that interval's runs over the page, without moving it", async ({ page }) => {
   await openOverview(page);
-  const chart = await page.locator(".chart-panel").boundingBox();
   const block = page.locator(".chart-panel .blk[data-kind='runs']").last();
+  // Bring the target into view before measuring: click's scrolling is not drawer reflow.
+  await block.scrollIntoViewIfNeeded();
+  const chart = await page.locator(".chart-panel").boundingBox();
   const amount = (await block.getAttribute("aria-label"))!.match(/\$[\d,]*\.\d{2}|less than \$0\.01/)![0];
   await block.click();
   const drawer = page.getByRole("dialog");

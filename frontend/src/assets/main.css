@@ -46,8 +46,23 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .drawer-toggle { display: none; }
 .page-title { margin: 0; font-size: 1.6rem; }
 .page-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1.25rem; margin: 0 0 1rem; }
+.overview-title-row { align-items: baseline; }
 .newer-figures { display: flex; align-items: center; gap: .6rem; margin-left: auto; color: #2c3143; font-weight: 600; }
 .recorded-dates { white-space: normal; text-align: left; }
+.overview-help { font-size: .9rem; }
+.overview-welcome { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: .75rem; margin-bottom: 1rem; padding: .75rem 1rem; border: 1px solid #c8d4df; border-radius: .5rem; background: #e2edf6; }
+.overview-welcome p { margin: 0; }
+.overview-welcome .link-button { white-space: nowrap; }
+.overview-guide { margin: 1.25rem 0; padding-left: 1.5rem; }
+.overview-guide li { padding-left: .3rem; margin-bottom: 1.5rem; }
+.drawer .overview-guide h3 { margin: 0 0 .5rem; }
+.overview-guide p { margin: .5rem 0; }
+@media (max-width: 600px) {
+  .overview-welcome { grid-template-columns: minmax(0, 1fr) auto; }
+  .overview-welcome p { grid-column: 1; }
+  .overview-welcome .link-button { grid-column: 1; justify-self: start; }
+  .overview-welcome .icon-close { grid-column: 2; grid-row: 1; align-self: start; }
+}
 .measure-note { margin-left: .5rem; font-weight: 400; color: #58585a; font-size: .85rem; }
 .overview-notes { margin: 1rem 0 0; color: #58585a; }
 .overview-notes p { margin: .25rem 0; max-width: 65ch; }

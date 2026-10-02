@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { X } from "@lucide/vue";
 import { computed } from "vue";
 import type { CostPiece, CostTimeline, Summary } from "../api";
 import { offsetBoundary, periodOf, type ReportState } from "../api";
@@ -15,11 +16,15 @@ const props = defineProps<{
   timeline: CostTimeline;
   /** The chart block whose drawer is open, as `<interval start>|<category>`. */
   openBlock: string;
+  welcome: boolean;
+  guideOpen: boolean;
 }>();
 const emit = defineEmits<{
   view: [view: "tool-runs" | "server"];
   block: [category: CostPiece["kind"], window: JobWindow, opener: HTMLElement];
   explore: [opener: HTMLElement];
+  guide: [opener: HTMLElement];
+  "dismiss-welcome": [];
 }>();
 
 const period = computed(() => periodOf(props.state));
@@ -29,6 +34,16 @@ const axisEnd = computed(() => periodAxisEnd(period.value, props.state.timezone)
 </script>
 
 <template>
+  <section v-if="welcome" class="overview-welcome" aria-label="Welcome to Rainstone">
+    <p><strong>New to Rainstone?</strong> See what your analyses cost, then explore what contributed.</p>
+    <button
+      type="button" class="link-button" data-detail-trigger :aria-expanded="guideOpen"
+      aria-controls="detail-drawer" @click="emit('guide', $event.currentTarget as HTMLElement)"
+    >Quick guide</button>
+    <button type="button" class="icon-close" aria-label="Dismiss welcome" @click="emit('dismiss-welcome')">
+      <X :size="18" aria-hidden="true" />
+    </button>
+  </section>
   <OverviewFigures
     :summary="summary"
     :period-text="describePeriod(period, state.timezone)"

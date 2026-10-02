@@ -295,6 +295,16 @@ no cost column. Repeated tools stay separate rows.
 Overview answers, in order, what the compute cost was, when it occurred and
 what contributed to it.
 
+**Getting oriented.** A small welcome strip below the title offers a Quick
+guide. It opens in the same full-height drawer as report details, explaining
+the cost scopes, period choices, and chart exploration. Server guidance appears
+only for viewers who can see server costs. Opening or closing the guide does
+not dismiss the strip; its dismiss button remembers that choice for the Galaxy
+account in this browser and instance path. If browser storage is unavailable,
+dismissal still works for the current visit. A permanent How to read this page
+link beside the Overview title reopens the guide. The guide changes no report
+filters or figures, and its open state can be restored from the URL.
+
 **Two cost cards.** Run compute and Galaxy server sit side by side as peers,
 the same width and height, with a quiet plus between them and "Run compute is
 additional to the Galaxy server compute." beneath. Run compute is every

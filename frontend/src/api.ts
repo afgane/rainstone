@@ -52,7 +52,7 @@ export type JobsChart = "tool" | "time";
  * What the detail drawer can show: a run, a job, a tool's jobs, a Jobs chart
  * interval's jobs, or what lies behind an Overview figure.
  */
-export type DrawerKind = "runs" | "tool-runs" | "tool" | "window" | "overview";
+export type DrawerKind = "runs" | "tool-runs" | "tool" | "window" | "overview" | "guide";
 
 export type RunStatus = "completed" | "failed" | "running" | "cancelled";
 export type RunSort = "started_at" | "amount" | "run_total" | "duration";

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { CalendarRange, CircleDollarSign, Filter, RefreshCw } from "@lucide/vue";
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import {
   ADVANCED_FILTERS, ApiError, activeFilters, chartsNeeded, collectionCutoff, DEFAULT_RANKING,
   DEFAULT_RUN_CONTROLS, downloadExport, figuresDiffer, get, loadJobCharts, loadJobPage, loadMoreRuns,
@@ -42,6 +42,15 @@ const jobs = ref<Pick<JobList, "items" | "undated_items" | "total" | "limit">>({
 });
 const freshness = ref<Freshness | null>(null);
 const me = ref<Me | null>(null);
+const welcomeDismissed = ref(false);
+const overviewHelp = ref<HTMLButtonElement | null>(null);
+const welcomeKey = computed(() => me.value?.source_id
+  ? `rainstone:overview-welcome:v1:${encodeURIComponent(location.pathname)}:${encodeURIComponent(me.value.source_id)}`
+  : null);
+watch(welcomeKey, key => {
+  try { welcomeDismissed.value = Boolean(key && localStorage.getItem(key) === "dismissed"); }
+  catch { welcomeDismissed.value = false; }
+});
 const viewData = ref<unknown>(null);
 // The view the page last drew, so a refetch of the same view can keep it on screen.
 const renderedView = ref<View | null>(null);
@@ -101,9 +110,9 @@ const DETAIL_PARAMS = [
   "detail_kind", "detail_id", "detail_part", "detail_member", "detail_offset",
   "detail_parent_kind", "detail_parent_id", "detail_parent_offset",
 ] as const;
-const DRAWER_KINDS: DrawerKind[] = ["runs", "tool-runs", "tool", "window", "overview"];
+const DRAWER_KINDS: DrawerKind[] = ["runs", "tool-runs", "tool", "window", "overview", "guide"];
 const BACK_LABELS: Record<DrawerKind, string> = {
-  runs: "Back to workflow run", "tool-runs": "Back to job", tool: "Back to tool", window: "", overview: "",
+  runs: "Back to workflow run", "tool-runs": "Back to job", tool: "Back to tool", window: "", overview: "", guide: "",
 };
 
 const period = computed(() => periodOf(state));
@@ -307,6 +316,12 @@ function clearGrouped() {
   state.maxRunAmount = ""; state.boundaryRunId = "";
 }
 function changeView(view: View) {
+  if (detailKind.value === "guide") {
+    closeDetail(false, false);
+    const params = new URLSearchParams(location.search);
+    for (const name of DETAIL_PARAMS) params.delete(name);
+    history.replaceState({}, "", `${location.pathname}?${params}`);
+  }
   if (state.view !== view) {
     resetRunPage();
     toolRanking.value = { ...DEFAULT_RANKING };
@@ -633,6 +648,7 @@ function detailParams(
 }
 /** Where a drawer's details come from, under the page's filters at its pinned revision. */
 function detailPath(kind: DrawerKind, id: string, offset: number, parent: TrailStop | undefined): string | null {
+  if (kind === "guide") return null;
   const query = new URLSearchParams(queryString(pinned()));
   // A run or job opened from an interval is asked for that interval, so its share there is exact.
   const window = stopWindow(parent);
@@ -680,7 +696,8 @@ async function showDetail(
     }];
   }
   // Focus goes back to whatever the person last used to open a run.
-  if (!swapping || opener) detailOpener = opener ?? (document.activeElement as HTMLElement | null);
+  if (!swapping || opener) detailOpener = opener ?? (kind === "guide"
+    ? overviewHelp.value : document.activeElement as HTMLElement | null);
   const mine = ++detailToken;
   detailKind.value = kind;
   detailId.value = id;
@@ -696,6 +713,11 @@ async function showDetail(
     history[swapping ? "replaceState" : "pushState"]({}, "", `${location.pathname}?${params}`);
   }
   detailLoading.value = true;
+  if (kind === "guide") {
+    detail.value = { guide: true };
+    detailLoading.value = false;
+    return;
+  }
   const path = detailPath(kind, id, offset, parent);
   try {
     if (!path) throw new Error("This link does not name an interval of the chart.");
@@ -782,8 +804,21 @@ function closeDetail(returnFocus = true, updateHistory = true) {
   }
   // A press outside moves focus where the person pointed, so only Escape and
   // the close button send it back to the opener.
-  if (returnFocus && wasOpen) detailOpener?.focus();
+  if (returnFocus && wasOpen) {
+    if (detailOpener?.isConnected) detailOpener.focus();
+    else overviewHelp.value?.focus();
+  }
   detailOpener = null;
+}
+function openOverviewGuide(opener: HTMLElement) {
+  void showDetail("guide", "overview", true, opener);
+}
+async function dismissOverviewWelcome() {
+  welcomeDismissed.value = true;
+  try { if (welcomeKey.value) localStorage.setItem(welcomeKey.value, "dismissed"); }
+  catch { /* The strip can still be dismissed for this visit when storage is unavailable. */ }
+  await nextTick();
+  overviewHelp.value?.focus();
 }
 function refreshLatest() { void refresh(false, true); }
 async function download() {
@@ -797,6 +832,7 @@ async function download() {
 /** Whether an address's drawer can be shown on this page; a malformed Overview scope never is. */
 function usableStop(kind: DrawerKind | null, id: string | null): kind is DrawerKind {
   if (!kind || !DRAWER_KINDS.includes(kind) || !id) return false;
+  if (kind === "guide") return state.view === "overview" && id === "overview";
   return kind !== "overview" || (state.view === "overview" && parseOverviewId(id) !== null);
 }
 function detailFromUrl(): boolean {
@@ -891,8 +927,14 @@ onBeforeUnmount(() => {
     </div>
 
     <main id="main" class="page" :style="{ minHeight: holdHeight ? `${holdHeight}px` : undefined }">
-      <div class="page-title-row">
+      <div class="page-title-row" :class="{ 'overview-title-row': state.view === 'overview' }">
         <h1 class="page-title">{{ TITLES[state.view] }}</h1>
+        <button
+          v-if="state.view === 'overview'" ref="overviewHelp" type="button"
+          class="link-button overview-help" data-detail-trigger
+          :aria-expanded="detailKind === 'guide'" aria-controls="detail-drawer"
+          @click="openOverviewGuide($event.currentTarget as HTMLElement)"
+        >How to read this page</button>
         <button
           v-if="recordedDates" type="button" class="secondary recorded-dates"
           @click="showDemoPeriod"
@@ -921,7 +963,9 @@ onBeforeUnmount(() => {
         <OverviewPanel
           v-if="state.view === 'overview' && costTimeline"
           :state="state" :summary="summary" :timeline="costTimeline" :open-block="openBlock"
+          :welcome="Boolean(welcomeKey) && !welcomeDismissed" :guide-open="detailKind === 'guide'"
           @view="changeView" @block="openBlockDrawer" @explore="explorePeriod"
+          @guide="openOverviewGuide" @dismiss-welcome="dismissOverviewWelcome"
         />
 
         <RunsPage
@@ -1031,6 +1075,7 @@ onBeforeUnmount(() => {
     :part="detailPart" :member="detailMember" :restore="detailRestore" :error="detailError"
     :window-title="drawerTitle" :window-noun="drawerNoun" :paging="detailPaging"
     :overview="openOverview" :interval-share="detailKind === 'runs' && parentWindow !== null"
+    :can-view-server="Boolean(summary?.can_view_infrastructure)"
     @close="closeDetail(true)" @dismiss="closeDetail(false)" @back="detailBack"
     @open="openFromDrawer" @select="selectPart" @restored="detailRestore = null" @retry="retryDetail"
     @show-jobs="showToolJobs" @page="pageWindow" @tab="switchOverviewTab" @all="seeAll"

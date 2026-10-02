@@ -12,6 +12,7 @@ import JobDetails from "./drawer/JobDetails.vue";
 import JobStateIcon from "./drawer/JobStateIcon.vue";
 import JobWindowDetails from "./drawer/JobWindowDetails.vue";
 import OverviewDetails from "./drawer/OverviewDetails.vue";
+import OverviewGuide from "./drawer/OverviewGuide.vue";
 import RunCostBreakdown from "./drawer/RunCostBreakdown.vue";
 import RuntimeJobList from "./drawer/RuntimeJobList.vue";
 import ToolDetails from "./drawer/ToolDetails.vue";
@@ -40,6 +41,7 @@ const props = defineProps<{
   overview?: OverviewScope | null;
   /** True when a run was opened from an interval, so its share of that interval is named. */
   intervalShare?: boolean;
+  canViewServer?: boolean;
 }>();
 const emit = defineEmits<{
   // Escape and the close button; focus goes back to whatever opened the drawer.
@@ -133,7 +135,7 @@ const aggregate = computed(() => {
   return value && props.overview && value.kind === props.overview.category ? value : null;
 });
 const EYEBROWS: Record<DrawerKind, string> = {
-  runs: "Workflow run", "tool-runs": "Job", tool: "Tool", window: "Jobs in this interval", overview: "",
+  runs: "Workflow run", "tool-runs": "Job", tool: "Tool", window: "Jobs in this interval", overview: "", guide: "Quick guide",
 };
 const eyebrow = computed(() => {
   if (props.kind !== "overview") return props.kind ? EYEBROWS[props.kind] : "";
@@ -144,6 +146,7 @@ const eyebrow = computed(() => {
 <template>
   <div
     ref="drawer"
+    id="detail-drawer"
     class="drawer"
     role="dialog"
     aria-modal="false"
@@ -193,7 +196,11 @@ const eyebrow = computed(() => {
       </button>
     </div>
     <template v-else-if="detail">
-      <template v-if="isRun">
+      <template v-if="kind === 'guide'">
+        <h2 id="detail-title" ref="title" tabindex="-1">How to read this page</h2>
+        <OverviewGuide :can-view-server="Boolean(canViewServer)" />
+      </template>
+      <template v-else-if="isRun">
         <h2
           id="detail-title"
           ref="title"
