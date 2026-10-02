@@ -894,7 +894,6 @@ onBeforeUnmount(() => {
           ? ` · captured ${formatDateTime(summary.imported_snapshot.captured_at, state.timezone)}`
           : "" }}
       </span>
-      <span v-else-if="me?.attribution" class="demo-badge">{{ me.attribution }}</span>
     </div>
   </header>
 

@@ -29,8 +29,8 @@ the served page reports development mode.
 
 Workspace viewers may read that account's job reports and, when enabled, the
 separately scoped infrastructure view. These are reporting capabilities, not
-Galaxy administrator privileges. The UI states that attribution is to the shared
-Galaxy account, not to individual workspace members.
+Galaxy administrator privileges. Reports describe the shared Galaxy account's
+work, not individual workspace members'; the UI does not call this out.
 
 Human-level attribution and hosted multi-user authentication remain separate
 future work. This mode relies on the platform's external admission boundary; a
