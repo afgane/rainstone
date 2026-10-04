@@ -146,9 +146,9 @@ td small { display: block; max-width: 320px; color: #58585a; margin-top: .2rem; 
 .server-panel { margin-top: 0; }
 .server-summary { padding: 1.5rem 1.5rem 1.25rem; }
 .server-total { color: #2c3143; font-size: clamp(2rem, 4vw, 3rem); font-weight: 700; margin: .35rem 0 0; }
-.server-cost-label { margin: .25rem 0 1.25rem; }
+.server-cost-label { margin: .25rem 0 .35rem; }
 .server-metrics { display: flex; flex-wrap: wrap; gap: .35rem 1.25rem; color: #2c3143; font-weight: 700; }
-.server-configuration { margin: .75rem 0 0; }
+.server-configuration { margin: 1.25rem 0 0; }
 .server-configuration strong { color: #2c3143; }
 .server-session { padding: 1.25rem 1.5rem; border-top: 1px solid #e3e9ee; }
 .server-duration { display: flex; flex-direction: column; gap: .25rem; text-align: center; font-size: inherit; font-weight: 400; color: #58585a; margin: 0; }
