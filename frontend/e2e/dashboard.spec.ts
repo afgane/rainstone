@@ -613,10 +613,13 @@ test("the time axis names every day of the period, month included", async ({ pag
   expect(labels).toEqual(["Sep 14", "Sep 15", "Sep 16", "Sep 17", "Sep 18", "Sep 19", "Sep 20"]);
 });
 
-test("the time axis is drawn even when nothing cost anything", async ({ page }) => {
+test("a chart with nothing to plot shows only a placeholder", async ({ page }) => {
   await page.goto(`${BASE}?view=runs&period=custom&from=2026-01-05&to=2026-01-11&chart=time`);
-  await expect(page.locator(".plot-empty")).toBeVisible();
-  expect(await page.locator(".xaxis .xl span").count()).toBe(7);
+  await expect(page.locator(".chart-empty")).toHaveText("No cost was recorded for these runs.");
+  // No empty axes, key or table for a plot with nothing in it.
+  await expect(page.locator(".tplot")).toHaveCount(0);
+  await expect(page.locator(".chart-foot")).toHaveCount(0);
+  await expect(page.getByText("Show this chart as a table")).toHaveCount(0);
 });
 
 test("a job's back button sits under its heading", async ({ page }) => {
