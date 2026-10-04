@@ -19,7 +19,7 @@ const emit = defineEmits<{
 
 const counts = computed(() => props.options?.by_status ?? {});
 const workflows = computed(() => props.options?.workflows ?? []);
-// Cancelled runs are rare, so the choice appears only when there are some.
+// Canceled runs are rare, so the choice appears only when there are some.
 const outcomes = computed(() => OUTCOMES.filter(
   outcome => outcome.id !== "cancelled" || counts.value.cancelled > 0 || props.state.runStatus === "cancelled",
 ));

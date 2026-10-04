@@ -739,7 +739,7 @@ class TestContract:
             {"workflow_key": "w", "max_run_amount": "-1", "boundary_run_id": str(uuid.uuid4())},
             {"workflow_key": "w", "max_run_amount": "1", "boundary_run_id": "not-a-uuid"},
             {"run_status": "paused"},
-            {"run_sort": "colour"},
+            {"run_sort": "color"},
             {"bucket": "fortnight"},
             {"limit": 201},
         ):

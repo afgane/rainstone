@@ -20,7 +20,7 @@
 /* A small diamond in the space between tools, so the gap reads as a mark and not a missing square. */
 .fp-gap { display: grid; place-items: center; aspect-ratio: 1; }
 .fp-gap::before { content: ""; width: 50%; aspect-ratio: 1; border-radius: 2px; background: #c9d9e8; transform: rotate(45deg); }
-/* Colour belongs to where the work ran; several places take a pattern, never a colour of their own. */
+/* Color belongs to where the work ran; several places take a pattern, never a color of their own. */
 .fp-cell[data-environment="elastic_shared"] { --fill: #c6b6d8; --strong: #7a5c99; }
 .fp-cell[data-environment="unknown"] { --fill: #c6c6c8; --strong: #6b6b6d; }
 .fp-cell[data-environment="multiple"] {

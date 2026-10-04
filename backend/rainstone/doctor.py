@@ -229,7 +229,7 @@ def _kubernetes(settings: Settings) -> list[Check]:
             "Pods and nodes are listable in the configured namespace.",
             {
                 "namespace": settings.kubernetes_namespace,
-                "labelled_pods": len(pods.get("items", [])),
+                "labeled_pods": len(pods.get("items", [])),
                 "nodes": len(nodes.get("items", [])),
                 "nodes_with_provider_id": len(described),
                 "note": (

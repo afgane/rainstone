@@ -192,7 +192,7 @@ before trusting it, imports prices and activates the version in one transaction,
 and on failure keeps the last known good catalog. Each refresh from the feed is
 recorded as the `price_feed` source: a failure is logged, marks that source
 degraded, and turns the `price_catalog` self-check into a warning that names
-the error, so a feed that stops answering does not pass for an ageing catalog.
+the error, so a feed that stops answering does not pass for an aging catalog.
 Without a configured feed the active catalog is a pinned historical snapshot,
 and the status report says so.
 

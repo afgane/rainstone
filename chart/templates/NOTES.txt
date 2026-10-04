@@ -23,7 +23,7 @@ Reads use the provisioned role, whose column-level grants the database
 enforces.
 {{- else }}
 Reads use the existing credential in `{{ .Values.source.existingSecret }}`, which retains
-Galaxy's own privileges: the read-only behaviour around it is enforced by
+Galaxy's own privileges: the read-only behavior around it is enforced by
 Rainstone, not by the database. The status report states this.
 {{- end }}
 {{- else }}

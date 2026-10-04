@@ -232,7 +232,7 @@ describe("choosing a part", () => {
     expect(wrapper.emitted("select")).toEqual([["", ""]]);
   });
 
-  it("clears with a labelled round icon button, and lists no version", async () => {
+  it("clears with a labeled round icon button, and lists no version", async () => {
     const wrapper = breakdown(example(), { selected: keyOf("tool 0") });
     const clear = wrapper.find("#part-detail .detail-clear");
     expect(clear.attributes("aria-label")).toBe("Clear selection");

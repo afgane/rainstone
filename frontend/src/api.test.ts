@@ -203,7 +203,7 @@ describe("the URL of a runs view", () => {
   });
 
   it("falls back to defaults for values it does not know", () => {
-    const restored = stateFromUrl("?view=runs&period=last-90-days&timezone=Not/AZone&outcome=paused&run_sort=colour&chart=bars&run_dir=up");
+    const restored = stateFromUrl("?view=runs&period=last-90-days&timezone=Not/AZone&outcome=paused&run_sort=color&chart=bars&run_dir=up");
     expect(restored.period).toBe("today");
     expect(restored.timezone).toBe("UTC");
     expect(restored.runStatus).toBe("");
@@ -280,7 +280,7 @@ describe("what each view requests", () => {
     expect(asks).toHaveLength(2);
     const chart = asks.find(query => !query.has("workflow_key"))!;
     const strip = asks.find(query => query.has("workflow_key"))!;
-    // The chart still honours every other filter.
+    // The chart still honors every other filter.
     expect(chart.get("run_status")).toBe("failed");
     expect(chart.has("boundary_run_id")).toBe(false);
     expect(strip.get("workflow_key")).toBe("family-7");

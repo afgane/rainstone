@@ -42,7 +42,7 @@
 .compute-used { color: #58585a; font-size: .9rem; }
 
 /* Average CPU and peak memory, each a flat bar against what was requested. The request is the
-   pale track; use above it stretches the track and marks the request. No colour judges the use. */
+   pale track; use above it stretches the track and marks the request. No color judges the use. */
 .use-row { position: relative; margin: .9rem 0 0; padding: 0; }
 .use-caption { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .1rem .8rem; }
 .use-name { font-weight: 700; }

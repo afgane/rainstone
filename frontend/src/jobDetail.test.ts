@@ -159,7 +159,7 @@ describe("buildTimeline", () => {
     expect(timeline.note).toContain("finish was not recorded");
   });
 
-  it("summarises several executions in order without drawing continuous activity", () => {
+  it("summarizes several executions in order without drawing continuous activity", () => {
     const timeline = buildTimeline(job({
       attempts: [execution(), execution({ id: "a2", role: "repeat", attempt_ordinal: 2 })],
     }));

@@ -65,7 +65,7 @@ const RUN_STATUS: Record<string, string> = {
   completed: "Completed",
   failed: "Failed",
   running: "Running",
-  cancelled: "Cancelled",
+  cancelled: "Canceled",
   "no runs recorded": "No runs recorded",
 };
 
@@ -83,7 +83,7 @@ const JOB_STATE: Record<string, string> = {
   paused: "Paused",
   deleted: "Deleted",
   resubmitted: "Restarted",
-  cancelled: "Cancelled",
+  cancelled: "Canceled",
 };
 
 export function jobStateLabel(state: string): string {
@@ -231,7 +231,7 @@ export const OUTCOMES: Array<{ id: string; label: string }> = [
   { id: "completed", label: "Completed" },
   { id: "failed", label: "Failed" },
   { id: "running", label: "Running" },
-  { id: "cancelled", label: "Cancelled" },
+  { id: "cancelled", label: "Canceled" },
 ];
 
 export const RUN_SORTS: Array<{ id: string; label: string; sort: string; direction: "asc" | "desc" }> = [
@@ -363,7 +363,7 @@ export function pieceCounts(runs: number, jobs: number): string {
   return runs > 0 ? `${pluralize(runs, "run")} · ${pluralize(jobs, "job")}` : pluralize(jobs, "job");
 }
 
-/** Failed and still-running jobs, named so they are not carried by colour or texture alone. */
+/** Failed and still-running jobs, named so they are not carried by color or texture alone. */
 export function jobOutcomes(failed: number, running: number): string {
   return [failed && `${failed} failed`, running && `${running} still running`]
     .filter(Boolean).join(", ");
@@ -605,7 +605,7 @@ export const JOBS_CHART_HINT =
   "Pointer-only shortcut. The table under this chart and the job list below hold the same "
   + "information for keyboard and screen reader use.";
 export const STATUS_NOTE =
-  "Colours show each job's status as recorded for this report, not its status at that time.";
+  "Colors show each job's status as recorded for this report, not its status at that time.";
 export const SPAN_NOTE =
   "Jobs that ran across this interval show only the part of their cost inside it. "
   + "Each duration is the job's whole run.";

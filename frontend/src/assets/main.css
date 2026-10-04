@@ -284,7 +284,7 @@ footer { display: flex; gap: .4rem; align-items: center; margin-top: 1.5rem; fon
 .strip-caption { min-height: 2.6em; color: #58585a; font-size: .8rem; }
 
 /* Blocks: a 2px gap between them, a rounded data end and a square baseline.
-   Failed and running runs carry a texture, so colour is never the only channel. */
+   Failed and running runs carry a texture, so color is never the only channel. */
 .blk { display: block; flex: 0 0 auto; padding: 0; border: 0; background: #3477a9; cursor: pointer; }
 .blk[data-status="failed"], .sw[data-status="failed"] { background: repeating-linear-gradient(45deg, #a31d1d 0 3px, #f0cfcf 3px 6px); }
 .blk[data-status="running"], .sw[data-status="running"] { background: repeating-linear-gradient(135deg, #3477a9 0 3px, #d5e4f0 3px 6px); }
@@ -343,7 +343,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .drawer-back { display: inline-flex; align-items: center; gap: .4rem; margin: 0 0 .8rem; padding: .3rem .6rem .3rem .3rem; border: 0; border-radius: .4rem; color: #165b91; background: transparent; }
 .drawer-back:hover { background: #edf4fa; }
 
-/* Individual jobs are dotted, so a workflow and the jobs outside one differ by more than colour. */
+/* Individual jobs are dotted, so a workflow and the jobs outside one differ by more than color. */
 .blk[data-kind="individual"], .sw[data-kind="individual"] { background: radial-gradient(circle, #3477a9 1.3px, #d5e4f0 1.6px) 0 0 / 6px 6px; }
 .overview-col { cursor: default; }
 

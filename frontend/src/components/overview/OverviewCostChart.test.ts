@@ -137,7 +137,7 @@ describe("OverviewCostChart", () => {
     expect(jobs).toContain("Select to see the jobs");
   });
 
-  it("summarises a whole column in an overlay too", async () => {
+  it("summarizes a whole column in an overlay too", async () => {
     const wrapper = chart();
     hover(wrapper.find(".col:not(.empty)"));
     await wrapper.vm.$nextTick();

@@ -186,7 +186,7 @@ def load_corpus(
         session.execute(text(f"ALTER TABLE {table} ENABLE TRIGGER USER"))
     run_count = seed_runs(session, tenant, owner, job_count, run_target)
     # A corpus inserted in one transaction has no planner statistics yet, and
-    # without them the run queries pick plans no real, analysed database would.
+    # without them the run queries pick plans no real, analyzed database would.
     for table in (*TRIGGERED_TABLES, "invocation", "invocation_job", "cost_line", "owner"):
         session.execute(text(f"ANALYZE {table}"))
     revision.input_digest = report_fingerprint(session, tenant.id)

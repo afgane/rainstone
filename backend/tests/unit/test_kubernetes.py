@@ -68,7 +68,7 @@ def test_baseline_node_placement_is_existing_capacity() -> None:
     assert attempt.job_source_id == "1498"
 
 
-def test_unlabelled_baseline_node_takes_its_shape_from_the_descriptor() -> None:
+def test_unlabeled_baseline_node_takes_its_shape_from_the_descriptor() -> None:
     """The observed deployment's node exposes no instance-type label."""
     pod = load("kubernetes-pods.json")["items"][0]
     attempt = normalize_pod(

@@ -78,7 +78,7 @@ WORKFLOWS = (
     )),
     Workflow("single-cell", "Single-cell clustering", 12, (
         Step("filter", f"{TOOLSHED}/iuc/scanpy_filter_cells/scanpy_filter_cells/1.8.1+galaxy9", (5, 12), "n2-standard-2"),
-        Step("normalise", f"{TOOLSHED}/iuc/scanpy_normalize_data/scanpy_normalize_data/1.8.1+galaxy9", (4, 10), "n2-standard-2"),
+        Step("normalize", f"{TOOLSHED}/iuc/scanpy_normalize_data/scanpy_normalize_data/1.8.1+galaxy9", (4, 10), "n2-standard-2"),
         Step("cluster", f"{TOOLSHED}/iuc/scanpy_cluster_reduce_dimension/scanpy_cluster_reduce_dimension/1.8.1+galaxy9", (30, 80), "n2-highmem-4"),
         Step("plot", f"{TOOLSHED}/iuc/scanpy_plot/scanpy_plot/1.8.1+galaxy9", (3, 6), None),
     )),
@@ -89,7 +89,7 @@ WORKFLOWS = (
     Workflow("metagenomics", "Metagenomic profiling", 10, (
         Step("host-removal", f"{TOOLSHED}/devteam/bowtie2/bowtie2/2.5.3+galaxy0", (45, 90), "n2-highmem-4"),
         Step("classify", f"{TOOLSHED}/iuc/kraken2/kraken2/2.1.3+galaxy1", (90, 240), "n2-highmem-4"),
-        Step("summarise", f"{TOOLSHED}/iuc/taxonomy_krona_chart/taxonomy_krona_chart/2.7.1+galaxy0", (4, 9), "n2-standard-2"),
+        Step("summarize", f"{TOOLSHED}/iuc/taxonomy_krona_chart/taxonomy_krona_chart/2.7.1+galaxy0", (4, 9), "n2-standard-2"),
     )),
     Workflow("assembly", "Genome assembly", 7, (
         Step("correct", f"{TOOLSHED}/iuc/flye/flye/2.9.5+galaxy0", (120, 300), "n2-highmem-4"),

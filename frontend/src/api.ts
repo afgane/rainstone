@@ -767,7 +767,7 @@ const VIEWS: View[] = ["overview", "runs", "tool-runs", "daily", "users", "serve
 const RUN_STATUSES: RunStatus[] = ["completed", "failed", "running", "cancelled"];
 const RUN_SORTS: RunSort[] = ["started_at", "amount", "run_total", "duration"];
 
-/** The report a URL describes. Anything missing or unrecognised falls back to its default. */
+/** The report a URL describes. Anything missing or unrecognized falls back to its default. */
 export function stateFromUrl(search: string): ReportState {
   const params = new URLSearchParams(search);
   // The Tools page became the Jobs page's By tool chart; its links still lead there.

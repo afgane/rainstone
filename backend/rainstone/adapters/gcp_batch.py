@@ -475,8 +475,8 @@ def normalize_batch_job(
     job_source_id: str | None = None,
 ) -> list[NormalizedAttempt]:
     """Build attempts and the lifetimes they share for one Batch resource."""
-    labelled = (job.get("labels") or {}).get(JOB_LABEL)
-    source_id = job_source_id or (str(labelled) if labelled else None)
+    labeled = (job.get("labels") or {}).get(JOB_LABEL)
+    source_id = job_source_id or (str(labeled) if labeled else None)
     if not source_id:
         return []
     machine_type, purchase_model = _machine_shape(job)

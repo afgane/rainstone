@@ -200,7 +200,7 @@ describe("the run drawer's job rows", () => {
     expect(jobStateLabel("something-new")).toBe("something-new");
   });
 
-  it("keeps Deleted and Restarted as they are said, not as Cancelled or Running", () => {
+  it("keeps Deleted and Restarted as they are said, not as Canceled or Running", () => {
     expect(jobStateLabel("deleted")).toBe("Deleted");
     expect(jobStateLabel("resubmitted")).toBe("Restarted");
     expect(jobStateKind("deleted")).not.toBe(jobStateKind("cancelled"));

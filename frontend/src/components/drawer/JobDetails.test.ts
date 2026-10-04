@@ -332,7 +332,7 @@ describe("JobDetails timeline", () => {
     expect(wrapper.findAll(".job-facts dt").map(each => each.text())).not.toContain("Waited to start");
   });
 
-  it("summarises several executions instead of drawing continuous activity", () => {
+  it("summarizes several executions instead of drawing continuous activity", () => {
     const wrapper = view(job({ attempts: [execution(), execution({ id: "a2", role: "repeat", attempt_ordinal: 2 })] }));
     expect(wrapper.find(".timeline-graphic").exists()).toBe(false);
     expect(wrapper.findAll(".timeline-label").map(each => each.text())).toEqual(["Submitted", "First started", "Last finished"]);
@@ -352,7 +352,7 @@ describe("JobDetails runs", () => {
     ],
   });
 
-  it("summarises retries and lists each attempt once, never the duplicate observation", () => {
+  it("summarizes retries and lists each attempt once, never the duplicate observation", () => {
     const wrapper = view(retried());
     expect(headings(wrapper)).toContain("Runs");
     expect(wrapper.text()).toContain("Completed after 2 runs");

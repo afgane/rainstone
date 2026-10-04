@@ -685,7 +685,7 @@ def record_catalog_refresh(
 
     A failed download falls back to an older catalog and keeps pricing, so
     without this record a feed that never answers looks like a healthy, merely
-    ageing catalog.
+    aging catalog.
     """
     state = _state(session, tenant_id, CATALOG_FEED_SOURCE)
     now = datetime.now(UTC)

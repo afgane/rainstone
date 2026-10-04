@@ -164,7 +164,7 @@ outline at the baseline rather than a $0 bar.
 **Status.** Both charts stack each tool's or column's cost by the job's
 recorded status: completed solid, still running and failed with the run
 chart's textures, any other status cross-hatched. A piece's size is cost, not a
-count of jobs; tooltips and the table alternative give both. The colours are
+count of jobs; tooltips and the table alternative give both. The colors are
 each job's status in this report, not its status at that time.
 
 **Drawers.** Selecting a tool opens its drawer: its cost in the period, its
@@ -204,7 +204,7 @@ The previous figures stay on screen until the new ones arrive.
 
 The Galaxy server section shows when the server was actually observed, or says
 that no server observations are available; it never presents the selected
-period as observed coverage. An imported snapshot is labelled as such in the
+period as observed coverage. An imported snapshot is labeled as such in the
 masthead, not as demo data.
 
 The Galaxy server page leads with its current session's estimated total,
@@ -224,14 +224,14 @@ Its footer identifies compute estimates in USD and offers Refresh, without
 report dates or run-compute freshness. On narrow screens, Navigation opens
 the sidebar. The session axis stays horizontal to support its activity plot.
 
-Duration sits below the axis, between its timestamps, labelled "Time running"
+Duration sits below the axis, between its timestamps, labeled "Time running"
 at the same text size as the timestamps. Local and Kubernetes server
 jobs share rounded duration marks above it; Batch jobs are excluded. Marks
 use recorded execution time and are clipped to the session's start and last
 observation. Overlapping marks stack without hiding one another. Very short
 executions retain a small visible mark; their exact recorded times and
 duration remain available in the expandable activity table. Blank stretches
-are not annotated or labelled idle.
+are not annotated or labeled idle.
 
 Sessions longer than seven days or with more than 500 execution intervals
 switch to a stepped concurrent-job graph. More than ten rows of overlapping
@@ -273,7 +273,7 @@ and sized by cost. *Over time* draws a column per hour (one day), day
 (up to 92 days) or week (Monday start), with a block per run. A block that
 would be smaller than a few pixels joins one grouped segment; selecting it
 picks exactly those runs. Failed runs are striped one way and running runs the
-other, so colour is never the only signal. Below the chart, a strip shows the
+other, so color is never the only signal. Below the chart, a strip shows the
 chosen workflow's runs at their own scale with the range of their whole-run
 totals, and says how many runs the range leaves out (still running, or missing
 cost data). Blocks are pointer shortcuts; the workflow labels, columns and
@@ -310,7 +310,7 @@ nowhere else. A part too small to have a square of its own is listed under the
 chart so it can still be chosen. For the keyboard and screen readers each part
 is also a button, hidden from view; focusing one lights its squares. A hover
 shows a tooltip that follows the pointer above it, and Escape dismisses the
-tooltip before it closes the drawer. Colour marks where the work ran, never
+tooltip before it closes the drawer. Color marks where the work ran, never
 which tool. Shares are of the cost known, and say "so far" or "recorded" when
 the run is running or missing cost data. Work with no known cost never gets a
 share, and a run whose jobs added nothing shows no squares. The open part is in

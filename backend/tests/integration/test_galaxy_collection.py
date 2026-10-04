@@ -707,12 +707,12 @@ def test_two_instances_keep_overlapping_source_ids_apart(source_engine) -> None:
         adapter = GalaxyDatabaseAdapter(source_engine)
         batch = adapter.collect({})
         for tenant_id, tool in zip(tenants, ("tool-a", "tool-b"), strict=True):
-            relabelled = replace_fields(
+            relabeled = replace_fields(
                 batch,
                 jobs=tuple(replace_fields(job, tool_id=tool) for job in batch.jobs),
             )
             with Session(engine) as session:
-                apply_batch(session, tenant_id, relabelled)
+                apply_batch(session, tenant_id, relabeled)
                 session.commit()
         with Session(engine) as session:
             rows = {

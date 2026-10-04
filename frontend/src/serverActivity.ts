@@ -1,6 +1,6 @@
 import type { ServerActivity, ServerJobInterval } from "./api";
 
-/** Pack duration marks without covering a neighbour, including tiny executions. */
+/** Pack duration marks without covering a neighbor, including tiny executions. */
 export function jobMarks(activity: ServerActivity | null, width: number) {
   if (!activity || activity.kind !== "dots") return [];
   const start = Date.parse(activity.from), end = Date.parse(activity.to);

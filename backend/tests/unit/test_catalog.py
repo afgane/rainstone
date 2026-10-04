@@ -67,7 +67,7 @@ def test_duplicate_resolver_keys_are_rejected() -> None:
         validate(artifact(rates=rates), source="test")
 
 
-def test_unsupported_currency_is_rejected_rather_than_relabelled() -> None:
+def test_unsupported_currency_is_rejected_rather_than_relabeled() -> None:
     with pytest.raises(CatalogError, match="currency"):
         validate(artifact(currency="EUR"), source="test")
 
