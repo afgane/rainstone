@@ -134,6 +134,10 @@ describe("the Workflow runs page", () => {
     const wrapper = await mountRuns();
     expect(wrapper.text()).toContain("No cost was recorded for these runs.");
     expect(wrapper.find(".zoom-label").exists()).toBe(false);
+    // Only the placeholder: no key, hint or table for a plot with nothing in it.
+    expect(wrapper.find(".chart-foot").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("Show this chart as a table");
+    expect(wrapper.text()).not.toContain("Each block is one run");
   });
 
   it("keeps the old picture until the new figures, chart and list arrive together", async () => {

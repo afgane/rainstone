@@ -41,6 +41,11 @@ conversion happens internally. Period amounts use cost accrued *within* the
 period, including failed attempts and running work — never a completed-job
 total substituted for "what did I spend yesterday".
 
+A chart with nothing to plot in the period shows its title, its tabs and one
+sentence such as "No cost was recorded in this period." in place of the plot:
+no axes, key, hints, notes about reading it, table alternative or exploration
+button. A note that work was left out of every period still shows.
+
 ## Words and money
 
 | Internal value | What the user reads |

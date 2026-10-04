@@ -137,10 +137,10 @@ watch(() => props.timeline, leave);
     <div class="panel-heading">
       <div>
         <h2 id="cost-chart-title">{{ OVERVIEW_CHART_TITLE }}</h2>
-        <p>{{ OVERVIEW_CHART_SCOPE }}</p>
+        <p v-if="hasCost">{{ OVERVIEW_CHART_SCOPE }}</p>
       </div>
       <button
-        class="secondary" type="button" data-detail-trigger
+        v-if="hasCost" class="secondary" type="button" data-detail-trigger
         @click="emit('explore', $event.currentTarget as HTMLElement)"
       >
         {{ EXPLORE_PERIOD }}
@@ -149,7 +149,7 @@ watch(() => props.timeline, leave);
 
     <div
       class="chart"
-      aria-describedby="cost-chart-hint"
+      :aria-describedby="hasCost ? 'cost-chart-hint' : undefined"
     >
       <div class="chart-region">
         <div v-if="!hasCost" class="chart-empty">No cost was recorded in this period.</div>
@@ -185,7 +185,8 @@ watch(() => props.timeline, leave);
         </div>
       </div>
     </div>
-    <div class="chart-foot">
+    <!-- A key and hints for a plot with nothing in it would only confuse. -->
+    <div v-if="hasCost" class="chart-foot">
       <span class="key"><i class="sw" data-kind="runs" />{{ WORKFLOW_BLOCK }}</span>
       <span v-if="anyIndividual" class="key"><i class="sw" data-kind="individual" />{{ INDIVIDUAL_BLOCK }}</span>
       <span id="cost-chart-hint">{{ OVERVIEW_CHART_HINT }}</span>
@@ -197,7 +198,7 @@ watch(() => props.timeline, leave);
       <p>{{ unplacedSentence(timeline.unplaced.job_count, timeline.unplaced.amount) }}</p>
     </div>
 
-    <details class="inline-details">
+    <details v-if="hasCost" class="inline-details">
       <summary>Show this chart as a table</summary>
       <div class="table-wrap">
         <table v-if="rows.length">

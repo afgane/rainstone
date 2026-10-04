@@ -46,6 +46,12 @@ function tip(content: TooltipContent | null, x: number, y: number) {
 }
 
 const loaded = computed(() => (props.chart === "tool" ? props.breakdown : props.timeline) !== null);
+// A tool search that matches nothing still has a chart to search, so By tool
+// is empty only when no matching job ran at all.
+const hasData = computed(() => (props.chart === "tool"
+  ? Boolean(props.breakdown?.totals.job_count) : Boolean(props.timeline?.buckets.length)));
+// A key and hints for a plot with nothing in it would only confuse.
+const empty = computed(() => loaded.value && !props.loadingChart && !hasData.value);
 const heading = computed(() => (props.chart === "tool"
   ? `Recorded cost of each tool in ${props.periodLabel}, across all its matching jobs.`
   : `Cost by ${props.timeline?.bucket ?? "day"}, from when the compute was used.`));
@@ -100,7 +106,7 @@ function moveTab(event: KeyboardEvent) {
     <div class="panel-heading">
       <div>
         <h2 id="jobs-chart-title">How the cost adds up</h2>
-        <p>{{ heading }}</p>
+        <p v-if="!empty">{{ heading }}</p>
       </div>
       <div class="tabs" role="tablist" aria-label="Chart view">
         <button
@@ -118,10 +124,13 @@ function moveTab(event: KeyboardEvent) {
 
     <div
       id="jobs-chart-body" class="chart" role="tabpanel" :aria-labelledby="`tab-${chart}`"
-      aria-describedby="jobs-chart-hint"
+      :aria-describedby="empty ? undefined : 'jobs-chart-hint'"
     >
-      <div class="chart-region" :class="{ 'tool-region': chart === 'tool' && loaded && !loadingChart }">
+      <div class="chart-region" :class="{ 'tool-region': chart === 'tool' && loaded && !loadingChart && !empty }">
         <div v-if="!loaded || loadingChart" class="chart-empty">Loading…</div>
+        <div v-else-if="empty" class="chart-empty">
+          {{ chart === "tool" ? "No tool recorded a cost in this period." : "No job had compute in this period." }}
+        </div>
         <ToolBars
           v-else-if="chart === 'tool' && breakdown"
           :breakdown="breakdown" :open-key="openKey" :search="toolSearch" :loading="loadingRanking"
@@ -136,23 +145,23 @@ function moveTab(event: KeyboardEvent) {
         />
       </div>
     </div>
-    <p id="jobs-chart-hint" class="sr-only">{{ JOBS_CHART_HINT }}</p>
+    <p v-if="!empty" id="jobs-chart-hint" class="sr-only">{{ JOBS_CHART_HINT }}</p>
 
-    <div class="chart-foot">
+    <div v-if="!empty" class="chart-foot">
       <span v-for="status in statuses" :key="status" class="key">
         <i class="sw" :data-status="status" />{{ statusPieceLabel(status) }}
       </span>
       <span>{{ chart === "tool" ? "Select a tool to see its jobs." : "Select a column to see its jobs." }}</span>
     </div>
-    <div class="chart-notes">
-      <p>{{ STATUS_NOTE }}</p>
-      <p v-if="totals?.incomplete_job_count">{{ RECORDED_ONLY_NOTE }}</p>
+    <div v-if="!empty || (chart === 'time' && timeline?.unplaced)" class="chart-notes">
+      <p v-if="!empty">{{ STATUS_NOTE }}</p>
+      <p v-if="!empty && totals?.incomplete_job_count">{{ RECORDED_ONLY_NOTE }}</p>
       <p v-if="chart === 'time' && timeline?.unplaced">
         {{ unplacedSentence(timeline.unplaced.job_count, timeline.unplaced.amount) }}
       </p>
     </div>
 
-    <details class="inline-details">
+    <details v-if="!empty" class="inline-details">
       <summary>Show this chart as a table</summary>
       <div class="table-wrap">
         <table v-if="rows.length">

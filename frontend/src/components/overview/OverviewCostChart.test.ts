@@ -168,6 +168,11 @@ describe("OverviewCostChart", () => {
     expect(wrapper.find(".chart-empty").text()).toBe("No cost was recorded in this period.");
     // Like the Workflow runs and Jobs charts: no dollar ticks or grid lines over nothing.
     expect(wrapper.find(".tplot").exists()).toBe(false);
+    // Nor a key, hint, table or exploration for a plot with nothing in it.
+    expect(wrapper.find(".chart-foot").exists()).toBe(false);
+    expect(wrapper.find("details").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("Explore this period");
+    expect(wrapper.text()).not.toContain("Galaxy server shown separately");
   });
 
   it("draws the coming days of an open week, muted", () => {

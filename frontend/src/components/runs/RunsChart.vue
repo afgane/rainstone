@@ -57,10 +57,11 @@ const chosenGroup = computed(() =>
 const heading = computed(() => (props.chart === "workflow"
   ? `Cost in ${props.periodLabel}. Each block is one run; the wider it is, the more it cost.`
   : `Cost by ${timeline.value?.bucket ?? "day"}. Each block is one run; the taller it is, the more it cost.`));
-// The time axis is drawn for the whole period even when nothing cost anything in it.
 const hasData = computed(() => (props.chart === "workflow"
-  ? Boolean(breakdown.value?.groups.length) : Boolean(timeline.value)));
+  ? Boolean(breakdown.value?.groups.length) : Boolean(timeline.value?.buckets.length)));
 const loaded = computed(() => (props.chart === "workflow" ? Boolean(breakdown.value) : Boolean(timeline.value)));
+// A key and hints for a plot with nothing in it would only confuse.
+const empty = computed(() => loaded.value && !props.loadingChart && !hasData.value);
 
 const statuses = computed(() => {
   const found = new Set<string>();
@@ -111,7 +112,7 @@ function moveTab(event: KeyboardEvent) {
       <div>
         <h2 id="chart-title">
           Where the cost went
-        </h2><p>{{ heading }}</p>
+        </h2><p v-if="!empty">{{ heading }}</p>
       </div>
       <div
         class="tabs"
@@ -150,7 +151,7 @@ function moveTab(event: KeyboardEvent) {
       class="chart"
       role="tabpanel"
       :aria-labelledby="`tab-${chart}`"
-      aria-describedby="chart-hint"
+      :aria-describedby="empty ? undefined : 'chart-hint'"
     >
       <div class="chart-region">
         <div
@@ -212,13 +213,14 @@ function moveTab(event: KeyboardEvent) {
       />
     </div>
     <p
+      v-if="!empty"
       id="chart-hint"
       class="sr-only"
     >
       {{ RUN_CHART_HINT }}
     </p>
 
-    <div class="chart-foot">
+    <div v-if="!empty" class="chart-foot">
       <span class="key"><i
         class="sw"
         data-status="completed"
@@ -260,7 +262,7 @@ function moveTab(event: KeyboardEvent) {
       </p>
     </div>
 
-    <details class="inline-details">
+    <details v-if="!empty" class="inline-details">
       <summary>Show this chart as a table</summary>
       <div class="table-wrap">
         <table v-if="rows.length">
