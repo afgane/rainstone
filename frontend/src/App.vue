@@ -23,7 +23,7 @@ import {
   intervalNoun, intervalTitle, overviewId, overviewParams, parseOverviewId,
 } from "./overviewDetail";
 import { describePeriod, PERIOD_LABELS, periodRange, todayIn, type PeriodId } from "./periods";
-import { formatCost, formatDate, formatDateTime, PRIMARY_MEASURE, RUN_SORTS } from "./vocabulary";
+import { formatCost, formatDate, formatDateTime, nowInUtc, PRIMARY_MEASURE, RUN_SORTS } from "./vocabulary";
 
 const TITLES: Record<View, string> = {
   overview: "Overview",
@@ -89,6 +89,8 @@ let extended = false;
 let checkedRevision = "";
 let checking = false;
 let checkTimer = 0;
+const now = ref(new Date());
+let clockTimer = 0;
 let detailOpener: HTMLElement | null = null;
 let controller: AbortController | null = null;
 let timer = 0;
@@ -872,12 +874,14 @@ onMounted(() => {
   window.addEventListener("keydown", onKey);
   document.addEventListener("visibilitychange", onVisibility);
   checkTimer = window.setInterval(() => void checkForNewer(), CHECK_INTERVAL_MS);
+  clockTimer = window.setInterval(() => { now.value = new Date(); }, 30_000);
   void refresh();
   detailFromUrl();
 });
 onBeforeUnmount(() => {
   controller?.abort();
   window.clearInterval(checkTimer);
+  window.clearInterval(clockTimer);
   window.removeEventListener("popstate", onPopState);
   window.removeEventListener("keydown", onKey);
   document.removeEventListener("visibilitychange", onVisibility);
@@ -993,7 +997,7 @@ onBeforeUnmount(() => {
 
         <ServerPanel
           v-else-if="state.view === 'server'" :server="server" :timezone="state.timezone"
-          :imported="Boolean(summary.imported_snapshot)" @refresh="refreshLatest"
+          :imported="Boolean(summary.imported_snapshot)" :now="now" @refresh="refreshLatest"
         />
 
         <StatusPanel
@@ -1049,8 +1053,8 @@ onBeforeUnmount(() => {
               ? `Collected through ${formatDateTime(collection.cutoff, state.timezone)}`
               : "Collection time unknown" }}{{ collection.stale ? " (stale)" : "" }}
           </span> ·
-          Calculated {{ summary.as_of ? formatDateTime(summary.as_of, state.timezone) : "unavailable" }}
-          <button class="link-button" @click="refreshLatest">Refresh</button>
+          Calculated {{ summary.as_of ? formatDateTime(summary.as_of, state.timezone) : "unavailable" }} ·
+          <span class="now">{{ nowInUtc(now) }}</span> · <button class="link-button" @click="refreshLatest">Refresh</button>
           <details class="inline-details">
             <summary>Technical details</summary>
             <p class="mono">Snapshot {{ summary.revision_id }} · {{ summary.calculation_version }}</p>

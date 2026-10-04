@@ -5,9 +5,15 @@ import {
   acrossWorkflows, capacityLabel, coverageSentence, costExplanation, durationText, focusChipLabel,
   formatAxisCost, formatCost, formatDate, formatDuration, formatRate, formatRateInCents, outcomeMix, outOfRuns,
   jobOutcomes, pieceCounts, qualityLabel, rangeCaption, serverQualifiers, sharedJobsNote, showingOf, sinceLaunch,
-  showMore, topContributors,
+  nowInUtc, showMore, topContributors,
   undatedSentence, unplacedSentence,
 } from "./vocabulary";
+
+describe("the current time", () => {
+  it("is always given in UTC and says so", () => {
+    expect(nowInUtc(new Date("2026-10-04T23:30:00Z"))).toMatch(/^Now .*Oct 4, 2026.*11:30.*UTC$/);
+  });
+});
 
 describe("money", () => {
   it("keeps zero, small amounts and unknown distinct", () => {

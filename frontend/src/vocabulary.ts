@@ -27,6 +27,11 @@ export function formatDateTime(instant: string, timezone: string): string {
   });
 }
 
+/** Always in UTC, whatever the report's timezone, so it can be compared with provider consoles. */
+export function nowInUtc(now: Date): string {
+  return `Now ${formatDateTime(now.toISOString(), "UTC")} UTC`;
+}
+
 /** Readable money. Details keep the exact decimal string. */
 export function formatCost(amount: string | null | undefined): string {
   if (amount === null || amount === undefined || amount === "") return "Not available";

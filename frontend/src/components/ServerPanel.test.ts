@@ -25,7 +25,7 @@ function panel(overrides: Partial<CurrentLaunch> | null = {}, imported = true, t
       allocation_reason: "", observation_window: {}, observed_coverage: null,
       activity: null,
     } as Infrastructure,
-    imported, timezone,
+    imported, timezone, now: new Date("2026-10-04T15:42:10Z"),
   } });
 }
 
@@ -95,5 +95,11 @@ describe("Galaxy server session", () => {
     expect(wrapper.find(".server-state").text()).toBe("Stopped");
     expect(wrapper.find(".server-duration strong").text()).toBe("1 h 47 min");
     expect(wrapper.find('[role="status"]').exists()).toBe(false);
+  });
+
+  it("gives the current time in UTC beside Refresh, whatever the report's timezone", () => {
+    const footer = panel({}, true, "America/New_York").find(".server-footer").text();
+    expect(footer).toMatch(/Now .*Oct 4, 2026.*3:42.*UTC/);
+    expect(footer).toMatch(/UTC · Refresh$/);
   });
 });

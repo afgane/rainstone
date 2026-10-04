@@ -2,10 +2,10 @@
 import { computed } from "vue";
 import type { Infrastructure } from "../api";
 import { formatMachineCapacity } from "../jobDetail";
-import { formatCost, formatDateTime, formatDuration, formatRateInCents, pluralize } from "../vocabulary";
+import { formatCost, formatDateTime, formatDuration, formatRateInCents, nowInUtc, pluralize } from "../vocabulary";
 import ServerActivityPlot from "./ServerActivityPlot.vue";
 
-const props = defineProps<{ server: Infrastructure | null; timezone: string; imported: boolean }>();
+const props = defineProps<{ server: Infrastructure | null; timezone: string; imported: boolean; now: Date }>();
 const emit = defineEmits<{ refresh: [] }>();
 const launch = computed(() => props.server?.current_launch ?? null);
 const total = computed(() => {
@@ -115,7 +115,7 @@ const stateLabel = computed(() => {
     </details>
   </section>
   <div class="server-footer">
-    <span>Estimated compute cost · USD · Times shown in {{ timezone }}</span>
-    <button type="button" class="link-button" @click="emit('refresh')">Refresh</button>
+    Estimated compute cost · USD · Times shown in {{ timezone }} ·
+    <span class="now">{{ nowInUtc(now) }}</span> · <button type="button" class="link-button" @click="emit('refresh')">Refresh</button>
   </div>
 </template>
