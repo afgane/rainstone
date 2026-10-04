@@ -47,7 +47,8 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .page-title { margin: 0; font-size: 1.6rem; }
 .page-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1.25rem; margin: 0 0 1rem; }
 .overview-title-row { align-items: baseline; }
-.newer-figures { display: flex; align-items: center; gap: .6rem; margin-left: auto; color: #2c3143; font-weight: 600; }
+/* No taller than the title, so the Update button coming and going never moves the page below it. */
+.newer-figures { display: flex; align-self: center; align-items: center; gap: .6rem; height: 1.9rem; margin-left: auto; color: #2c3143; font-weight: 600; }
 .recorded-dates { white-space: normal; text-align: left; }
 .overview-help { font-size: .9rem; }
 .overview-welcome { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: .75rem; margin-bottom: 1rem; padding: .75rem 1rem; border: 1px solid #c8d4df; border-radius: .5rem; background: #e2edf6; }
