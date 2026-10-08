@@ -125,6 +125,12 @@ collector:
     refreshSeconds: 60
   intervalSeconds: 30
   batchRefreshSeconds: 30
+  # No CPU limit: the collector works in short bursts, and a limit would only
+  # throttle those while the node sits idle. The request still bounds its share
+  # under contention.
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 1Gi}
 
 # Versioned baseline accounting policy for the Galaxy server already running.
 # Discovery reads these from the host's own metadata.
@@ -171,10 +177,6 @@ web:
   resources:
     requests: {cpu: 25m, memory: 128Mi}
     limits: {cpu: "1", memory: 1Gi}
-
-collectorResources:
-  requests: {cpu: 25m, memory: 128Mi}
-  limits: {cpu: "1", memory: 1Gi}
 
 # Separate identities: the web process must not hold observation permissions or
 # the source credential. Note the inherited trust model — on a node whose

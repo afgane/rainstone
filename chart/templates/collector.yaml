@@ -34,7 +34,7 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["rainstone", "wait-ready", "--timeout", "900"]
           env: {{- include "rainstone.env" . | nindent 12 }}
-          resources: {{- toYaml .Values.collectorResources | nindent 12 }}
+          resources: {{- toYaml .Values.collector.resources | nindent 12 }}
       containers:
         - name: collector
           image: {{ include "rainstone.image" . }}
@@ -52,5 +52,5 @@ spec:
             initialDelaySeconds: 60
             periodSeconds: 60
             timeoutSeconds: 10
-          resources: {{- toYaml .Values.collectorResources | nindent 12 }}
+          resources: {{- toYaml .Values.collector.resources | nindent 12 }}
 {{- end }}
