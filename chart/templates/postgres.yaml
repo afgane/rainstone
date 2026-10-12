@@ -58,6 +58,7 @@ spec:
       containers:
         - name: postgres
           image: {{ .Values.database.image }}
+          resources: {{- toYaml .Values.database.resources | nindent 12 }}
           ports:
             - name: postgres
               containerPort: 5432

@@ -50,6 +50,9 @@ database:
   existingSecretKey: dsn
   deploy: true
   image: postgres:17.6-alpine
+  resources:
+    requests: {cpu: 10m, memory: 64Mi}
+    limits: {memory: 256Mi}
   # Reporting history and the enrollment identity live here, so the storage
   # class must be one that survives stop, resume and reinstall. The chart
   # refuses to render without a decision rather than landing on whatever the
