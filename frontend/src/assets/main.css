@@ -256,7 +256,8 @@ footer { display: flex; gap: .4rem; align-items: center; margin-top: 1.5rem; fon
 .figure-qualifier { margin-left: .4rem; font-size: 1rem; font-weight: 400; color: #58585a; }
 .figure-line { margin: .15rem 0; font-size: .92rem; }
 .figure-line strong { color: #2c3143; }
-.figure-scope, .figure-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.figure-scope { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.figure-note { white-space: normal; overflow-wrap: anywhere; }
 
 /* The chart. The plot keeps one outer height however much or little it holds. */
 .tabs { display: inline-flex; flex: 0 0 auto; }

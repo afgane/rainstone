@@ -157,7 +157,7 @@ const showControls = computed(() => !["server", "status"].includes(props.state.v
               :value="state.capacity" @change="update('capacity', $event)">
               <option value="">Anywhere</option>
               <option value="existing">Your Galaxy server</option>
-              <option value="dedicated">Dedicated cloud compute</option>
+              <option value="dedicated">Additional machines</option>
               <option value="unknown">Not established</option>
             </select></label>
           <label v-if="state.view !== 'runs'"><span>Tool ID</span>

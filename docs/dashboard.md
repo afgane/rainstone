@@ -61,7 +61,7 @@ button. A note that work was left out of every period still shows.
 | `collecting` | Cost data still being collected, for a day after completion |
 | root invocation | Workflow run |
 | `ok` / `error` / scheduling states | Completed, Failed, and a run status derived from the run's executions |
-| `gcp_batch` / `kubernetes` | Dedicated cloud compute / Your Galaxy server, only where the resource relationship is established |
+| `gcp_batch` / `kubernetes` | Additional machines / Your Galaxy server, only where the resource relationship is established |
 | full Tool Shed identifier | Tool name and version, with the full identity in details |
 
 Amounts render to two decimals, show "less than $0.01" rather than rounding a
@@ -332,12 +332,13 @@ replaces rather than adds a history entry, and is cleared with a notice if the
 run no longer has it. The drawer scrolls without showing a scrollbar, so its
 content does not shift when one would appear.
 
-**Jobs.** Every job of the whole run, once, grouped by where it ran: Dedicated
-cloud compute, Your Galaxy server, other verified places, several places, then
+**Jobs.** Every job of the whole run, once, grouped by where it ran: Additional
+machines, Your Galaxy server, other verified places, several places, then
 Not established. A group's heading carries its cost on the same line, and says
-beneath it what that cost leaves out. Each row is one button with the tool, a
-state icon, the duration (seconds kept) and, where the group states one, the
-cost. The server's jobs are said once to have added no compute charge and carry
+beneath it what that cost leaves out. Additional machines are explained as
+compute machines separate from the Galaxy server. Each row is one button with
+the tool, a state icon, the duration (seconds kept) and, where the group states
+one, the cost. The server's jobs are said once to have added no compute charge and carry
 no cost column. Repeated tools stay separate rows.
 
 ## Overview

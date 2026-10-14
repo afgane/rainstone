@@ -3,7 +3,7 @@ import { computed, reactive } from "vue";
 import type { RunJob } from "../../api";
 import { groupJobs } from "../../runJobs";
 import {
-  formatCost, groupCoverage, groupHeading, MULTIPLE_ENVIRONMENTS_NOTE, SERVER_GROUP_NOTE, showMore,
+  ADDITIONAL_MACHINES_NOTE, formatCost, groupCoverage, groupHeading, MULTIPLE_ENVIRONMENTS_NOTE, SERVER_GROUP_NOTE, showMore,
   shownOf,
 } from "../../vocabulary";
 import JobRow from "./JobRow.vue";
@@ -31,7 +31,8 @@ function cost(group: Group): string {
 }
 function summary(group: Group): string {
   if (group.environment === "existing") return SERVER_GROUP_NOTE;
-  const lines = [group.environment === "multiple" ? MULTIPLE_ENVIRONMENTS_NOTE : "",
+  const lines = [group.environment === "dedicated" ? ADDITIONAL_MACHINES_NOTE
+    : group.environment === "multiple" ? MULTIPLE_ENVIRONMENTS_NOTE : "",
     groupCoverage(Boolean(cost(group)), group.incomplete)];
   return lines.filter(Boolean).join(" ");
 }

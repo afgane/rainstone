@@ -97,7 +97,7 @@ export function jobStateLabel(state: string): string {
 
 const CAPACITY: Record<string, string> = {
   existing: "Your Galaxy server",
-  dedicated: "Dedicated cloud compute",
+  dedicated: "Additional machines",
   elastic_shared: "Shared cloud capacity",
   unknown: "Not established",
   multiple: "Multiple environments",
@@ -386,6 +386,8 @@ export const BREAKDOWN_HEADING = "Cost breakdown by tool";
 export const BREAKDOWN_UNAVAILABLE = "Cost breakdown unavailable";
 export const JOBS_HEADING = "Jobs";
 export const NO_RUN_JOBS = "No jobs are recorded for this run yet.";
+export const ADDITIONAL_MACHINES_NOTE =
+  "These jobs ran on additional compute machines, separate from your Galaxy server.";
 export const SERVER_GROUP_NOTE =
   "These jobs used your Galaxy server and added no compute charge. The server's own cost is reported separately.";
 export const MULTIPLE_ENVIRONMENTS_NOTE = "Some of these jobs ran in more than one place.";

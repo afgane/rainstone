@@ -49,7 +49,7 @@ describe("vocabulary", () => {
 
   it("names where work ran only when the relationship is established", () => {
     expect(capacityLabel(["existing"])).toBe("Your Galaxy server");
-    expect(capacityLabel(["dedicated"])).toBe("Dedicated cloud compute");
+    expect(capacityLabel(["dedicated"])).toBe("Additional machines");
     expect(capacityLabel(["unknown"])).toBe("Not established");
     expect(capacityLabel([])).toBe("Not established");
   });
@@ -214,7 +214,7 @@ describe("the run drawer's job rows", () => {
   });
 
   it("names the places a job ran, several included", () => {
-    expect(environmentLabel("dedicated")).toBe("Dedicated cloud compute");
+    expect(environmentLabel("dedicated")).toBe("Additional machines");
     expect(environmentLabel("existing")).toBe("Your Galaxy server");
     expect(environmentLabel("multiple")).toBe("Multiple environments");
     expect(environmentLabel("unknown")).toBe("Not established");
@@ -233,7 +233,7 @@ describe("the run drawer's job rows", () => {
   });
 
   it("labels a group with what it holds and what is missing", () => {
-    expect(groupHeading("dedicated", 1)).toBe("Dedicated cloud compute · 1 job");
+    expect(groupHeading("dedicated", 1)).toBe("Additional machines · 1 job");
     expect(groupCoverage(true, 0)).toBe("");
     expect(groupCoverage(true, 2)).toBe("Recorded so far · 2 jobs still need cost data");
     expect(groupCoverage(false, 1)).toBe("1 job still needs cost data");

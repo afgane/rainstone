@@ -173,7 +173,7 @@ describe("composing the parts of a run's cost", () => {
     ]));
     expect(composition.parts).toHaveLength(4);
     expect(collidingNames(composition.parts)).toEqual(new Set(["same"]));
-    expect(composition.parts.map(partQualifier)).toContain("version 2.0 · Dedicated cloud compute");
+    expect(composition.parts.map(partQualifier)).toContain("version 2.0 · Additional machines");
   });
 
   it("pools parts from several places as multiple environments", () => {

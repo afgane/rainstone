@@ -14,7 +14,7 @@ function job(order: number, environment: string, amount: string | null, over: Pa
 }
 
 describe("grouping a run's jobs by where they ran", () => {
-  it("puts dedicated compute first, the server next, and not established last", () => {
+  it("puts additional machines first, the server next, and not established last", () => {
     const groups = groupJobs([
       job(1, "unknown", null), job(2, "existing", "0"), job(3, "multiple", "1"),
       job(4, "elastic_shared", "1"), job(5, "dedicated", "1"),
@@ -40,7 +40,7 @@ describe("grouping a run's jobs by where they ran", () => {
     expect(groups[0].showsCost).toBe(false);
   });
 
-  it("states a cost for dedicated compute even when none is known yet", () => {
+  it("states a cost for additional machines even when none is known yet", () => {
     const [group] = groupJobs([job(1, "dedicated", null)]);
     expect(group.showsCost).toBe(true);
     expect(group.subtotal).toBeNull();

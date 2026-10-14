@@ -110,7 +110,7 @@ describe("the parts as text", () => {
     expect(first.text()).toContain("tool 0");
     expect(first.text()).toContain("$81.00");
     expect(first.text()).toContain("56%");
-    expect(first.text()).toContain("Dedicated cloud compute");
+    expect(first.text()).toContain("Additional machines");
     expect(first.attributes("aria-pressed")).toBe("false");
     // They are for the keyboard and screen readers; the chart is what is seen.
     expect(first.element.closest("ul")!.classList.contains("sr-only")).toBe(true);
@@ -140,7 +140,7 @@ describe("the parts as text", () => {
       runJob("same", "10", { tool_id: "a/same" }), runJob("same", "10", { tool_id: "b/same", tool_version: "2.0" }),
     ]);
     const text = breakdown(detail).text();
-    expect(text).toContain("version 2.0 · Dedicated cloud compute");
+    expect(text).toContain("version 2.0 · Additional machines");
   });
 });
 
@@ -167,7 +167,7 @@ describe("choosing a part", () => {
     expect(detail.exists()).toBe(true);
     expect(detail.find("h4").text()).toBe("tool 1");
     expect(detail.text()).toContain("$50.00");
-    expect(detail.text()).toContain("Dedicated cloud compute");
+    expect(detail.text()).toContain("Additional machines");
     expect(wrapper.findAll("button[data-part]")).toHaveLength(4);
   });
 
@@ -271,7 +271,7 @@ describe("the tooltip", () => {
     expect(tip.attributes("role")).toBe("tooltip");
     expect(tip.text()).toContain("tool 0");
     expect(tip.text()).toContain("$81.00 · 56% of this run's cost");
-    expect(tip.text()).toContain("Dedicated cloud compute");
+    expect(tip.text()).toContain("Additional machines");
     expect(wrapper.findAll('.fp-cell[data-hot="true"]')).toHaveLength(56);
   });
 

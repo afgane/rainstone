@@ -218,7 +218,7 @@ describe("DetailDrawer for a workflow run's cost and jobs", () => {
     const wrapper = mounted({ detail: cheap().detail });
     const groups = wrapper.findAll(".job-group");
     expect(groups.map(group => group.find("h4").text())).toEqual([
-      "Dedicated cloud compute · 4 jobs", "Your Galaxy server · 2 jobs",
+      "Additional machines · 4 jobs", "Your Galaxy server · 2 jobs",
     ]);
     expect(groups[1].findAll(".job-cost")).toHaveLength(0);
     expect(groups[0].findAll(".job-cost")).toHaveLength(4);
