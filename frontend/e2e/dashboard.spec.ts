@@ -1062,6 +1062,11 @@ async function openJobs(page: Page, extra = "") {
 
 test("the Jobs page answers what the jobs cost, by tool, with every period choice", async ({ page, request }) => {
   const summary = await api(request, "summary");
+  await page.route("**/api/summary**", async route => {
+    const response = await route.fetch();
+    const body = await response.json();
+    await route.fulfill({ response, json: { ...body, unrecorded_job_count: 9 } });
+  });
   await openJobs(page);
   await expect(page.locator(".figure.featured .figure-amount")).toContainText(dollars(summary.amount));
   for (const period of ["Today", "Yesterday", "This week", "Last week", "This month", "Last month", "Custom dates"]) {
@@ -1076,6 +1081,16 @@ test("the Jobs page answers what the jobs cost, by tool, with every period choic
   // No job numbers or invented context on the list.
   await expect(page.locator(".job-cards")).not.toContainText(/#\d|Job \d/);
   await expect(page.locator(".origin").first()).toHaveText(/Part of .+|Individual tool job|Workflow link not recorded/);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const note = page.locator(".job-figures .figure-note");
+  await expect(note).toContainText("9 jobs whose cost was not recorded are not included");
+  const layout = await note.evaluate(element => ({
+    height: element.getBoundingClientRect().height,
+    fontSize: parseFloat(getComputedStyle(element).fontSize),
+    width: element.clientWidth, contentWidth: element.scrollWidth,
+  }));
+  expect(layout.height).toBeGreaterThan(layout.fontSize * 1.5);
+  expect(layout.contentWidth).toBeLessThanOrEqual(layout.width);
 });
 
 test("more tools keep one scale, and finding one leaves the report as it was", async ({ page }) => {

@@ -29,7 +29,7 @@ const mix = computed(() => (empty.value ? NO_JOBS : statusMix(props.totals?.by_s
 </script>
 
 <template>
-  <div class="figures">
+  <div class="figures job-figures">
     <section class="figure featured" aria-labelledby="figure-cost">
       <p id="figure-cost" class="eyebrow">{{ PRIMARY_MEASURE }}</p>
       <p class="figure-amount">
