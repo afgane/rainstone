@@ -43,9 +43,12 @@ const scale = computed(() => niceScale(
 const columns = computed(() => slots.value.map(slot => {
   const bucket = byStart.value.get(slot.from) ?? null;
   // At most two blocks, so none is folded away: a small one keeps a minimum height.
-  const blocks = (bucket?.pieces ?? []).filter(piece => Number(piece.amount) > 0).map(piece => ({
-    piece, size: Math.max(MINIMUM_VERTICAL, Number(piece.amount) / scale.value.max * PLOT_HEIGHT),
-  }));
+  // The stack starts at the bottom, keeping workflow runs on a consistent baseline.
+  const blocks = (bucket?.pieces ?? []).filter(piece => Number(piece.amount) > 0)
+    .sort((left, right) => Number(right.kind === "runs") - Number(left.kind === "runs"))
+    .map(piece => ({
+      piece, size: Math.max(MINIMUM_VERTICAL, Number(piece.amount) / scale.value.max * PLOT_HEIGHT),
+    }));
   return { slot, bucket, blocks, label: bucketLabel(unit.value, slot.from, slot.to, props.timezone) };
 }));
 

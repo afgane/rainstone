@@ -382,7 +382,9 @@ time chart: one column per hour (one day), day (up to 92 days) or week, every
 day of the period named with its month, and a week or month still in progress
 drawn whole with its coming days empty. Each column has at most two blocks: one
 for all the workflow runs together, and one dotted block for jobs outside
-workflows. The columns add up to the run compute card. Each block is a button;
+workflows. Workflow runs always form the bottom of the stack, with jobs
+outside workflows above them. The columns add up to the run compute card.
+Each block is a button;
 hovering or focusing it says what it holds. Pressing it opens the drawer for
 that block's exact interval and category; the columns themselves do nothing.
 The table alternative, collapsed under the chart, lists the same blocks with a

@@ -62,7 +62,7 @@ describe("OverviewCostChart", () => {
 
   it("draws one block for all the workflow runs and one for the individual jobs, told apart by texture", () => {
     const blocks = chart().findAll(".blk");
-    expect(blocks.map(block => block.attributes("data-kind")).sort()).toEqual(["individual", "runs"]);
+    expect(blocks.map(block => block.attributes("data-kind"))).toEqual(["runs", "individual"]);
     expect(chart().find(".chart-foot").text()).toContain("Jobs outside workflows");
     expect(chart().find(".chart-foot").text()).toContain("Select a block to see what ran.");
   });
