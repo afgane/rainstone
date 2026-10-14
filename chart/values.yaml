@@ -51,7 +51,7 @@ database:
   deploy: true
   image: postgres:17.6-alpine
   resources:
-    requests: {cpu: 10m, memory: 64Mi}
+    requests: {cpu: 10m, memory: 96Mi}
     limits: {memory: 256Mi}
   # Reporting history and the enrollment identity live here, so the storage
   # class must be one that survives stop, resume and reinstall. The chart
@@ -178,7 +178,7 @@ diagnosticsEnabled: true
 web:
   replicas: 1
   resources:
-    requests: {cpu: 25m, memory: 128Mi}
+    requests: {cpu: 25m, memory: 160Mi}
     limits: {cpu: "1", memory: 1Gi}
 
 # Separate identities: the web process must not hold observation permissions or
