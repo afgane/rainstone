@@ -2,7 +2,7 @@
 import { CalendarRange, CircleDollarSign, Filter, RefreshCw } from "@lucide/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import {
-  ADVANCED_FILTERS, ApiError, activeFilters, chartsNeeded, collectionCutoff, DEFAULT_RANKING,
+  ADVANCED_FILTERS, ApiError, activeFilters, chartsNeeded, collectionUpdate, DEFAULT_RANKING,
   DEFAULT_RUN_CONTROLS, downloadExport, figuresDiffer, get, loadJobCharts, loadJobPage, loadMoreRuns,
   loadReport, loadRunChart, loadToolRanking, NO_RUN_FILTERS, periodOf, queryString, stateFromUrl,
   urlQuery, WINDOW_PAGE_SIZE,
@@ -146,7 +146,7 @@ const server = computed(() => (state.view === "server"
   ? viewData.value as Infrastructure | null
   : null));
 const status = computed(() => (state.view === "status" ? viewData.value as Status | null : null));
-const collection = computed(() => collectionCutoff(freshness.value));
+const collection = computed(() => collectionUpdate(freshness.value));
 const openRunId = computed(() => (detailKind.value === "runs" ? detailId.value : ""));
 /** The drawer, or the drawer a job was opened from, of the given kind; its ID or empty. */
 function openOrParent(kind: DrawerKind): string {
@@ -1049,15 +1049,16 @@ onBeforeUnmount(() => {
         <div v-if="!['status', 'server'].includes(state.view)" class="snapshot">
           {{ PRIMARY_MEASURE }} · {{ describePeriod(period, state.timezone) }} ·
           <span :class="{ stale: collection.stale }">
-            {{ collection.cutoff
-              ? `Collected through ${formatDateTime(collection.cutoff, state.timezone)}`
-              : "Collection time unknown" }}{{ collection.stale ? " (stale)" : "" }}
+            {{ collection.lastUpdate
+              ? `Last collection update ${formatDateTime(collection.lastUpdate, state.timezone)}`
+              : "Collection update time unknown" }}{{ collection.stale ? " (stale)" : "" }}
           </span> ·
           Calculated {{ summary.as_of ? formatDateTime(summary.as_of, state.timezone) : "unavailable" }} ·
           <span class="now">{{ nowInUtc(now) }}</span> · <button class="link-button" @click="refreshLatest">Refresh</button>
           <details class="inline-details">
             <summary>Technical details</summary>
             <p class="mono">Snapshot {{ summary.revision_id }} · {{ summary.calculation_version }}</p>
+            <p>The collection time is the oldest last successful update across sources. An update can cover only some jobs; other jobs may still be awaiting cost data.</p>
             <p>
               {{ summary.observation_window.semantics }} interval in
               {{ summary.observation_window.timezone }}. Amounts are estimates in USD covering

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  collectionCutoff, DEFAULT_RUN_CONTROLS, figuresDiffer, loadReport, NO_RUN_FILTERS, queryString, runQueryString,
+  collectionUpdate, DEFAULT_RUN_CONTROLS, figuresDiffer, loadReport, NO_RUN_FILTERS, queryString, runQueryString,
   stateFromUrl, urlQuery, withChartBucket, type ReportState, type Summary,
 } from "./api";
 
@@ -78,13 +78,13 @@ describe("loadReport", () => {
   });
 });
 
-describe("collection cutoff", () => {
+describe("collection update", () => {
   const source = (name: string, at: string | null, status = "healthy") => ({
     source: name, status, last_success_at: at, error: null,
   });
 
   it("is the oldest report source, ignoring the price catalog", () => {
-    const result = collectionCutoff({
+    const result = collectionUpdate({
       overall_status: "healthy", observation_gaps: [], revision_id: null,
       sources: [
         source("galaxy_db", "2026-09-23T02:40:16Z"),
@@ -92,18 +92,18 @@ describe("collection cutoff", () => {
         source("price_catalog", "2026-09-01T00:00:00Z", "historical_snapshot"),
       ],
     });
-    expect(result).toEqual({ cutoff: "2026-09-23T02:39:23Z", stale: false });
+    expect(result).toEqual({ lastUpdate: "2026-09-23T02:39:23Z", stale: false });
   });
 
   it("is stale when any source is, and unknown when a source never succeeded", () => {
-    expect(collectionCutoff({
+    expect(collectionUpdate({
       overall_status: "partial", observation_gaps: [], revision_id: null,
       sources: [source("galaxy_db", "2026-09-23T02:40:16Z", "stale")],
     }).stale).toBe(true);
-    expect(collectionCutoff({
+    expect(collectionUpdate({
       overall_status: "partial", observation_gaps: [], revision_id: null,
       sources: [source("kubernetes", null)],
-    })).toEqual({ cutoff: null, stale: true });
+    })).toEqual({ lastUpdate: null, stale: true });
   });
 });
 

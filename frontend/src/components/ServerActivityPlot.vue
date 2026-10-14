@@ -31,7 +31,8 @@ onBeforeUnmount(() => observer.disconnect());
 
 const marks = computed(() => jobMarks(props.activity, width.value));
 const lanes = computed(() => marks.value.reduce((maximum, mark) => Math.max(maximum, mark.lane + 1), 0));
-const stepped = computed(() => props.activity?.kind === "steps" || lanes.value > 10);
+const bucketed = computed(() => props.activity?.kind === "buckets");
+const stepped = computed(() => bucketed.value || props.activity?.kind === "steps" || lanes.value > 10);
 const height = computed(() => stepped.value ? 140 : Math.max(60, lanes.value * 12 + 20));
 const baseline = computed(() => height.value - 8);
 const maximum = computed(() => Math.max(0, ...(props.activity?.steps.map(step => step.count) ?? [])));
@@ -54,12 +55,12 @@ function jobLabel(interval: ServerJobInterval): string {
   return `Job ${interval.source_id}: ${formatDateTime(interval.from, props.timezone)} to ${formatDateTime(interval.to, props.timezone)} · ${recordedDuration(interval)}${interval.running ? " (through the last observation)" : ""}`;
 }
 function stepLabel(step: ServerJobStep): string {
-  return `${pluralize(step.count, "job")} running: ${formatDateTime(step.from, props.timezone)} to ${formatDateTime(step.to, props.timezone)}`;
+  return `${bucketed.value ? "Peak: " : ""}${pluralize(step.count, "job")} running: ${formatDateTime(step.from, props.timezone)} to ${formatDateTime(step.to, props.timezone)}`;
 }
 </script>
 
 <template>
-  <div class="server-activity" :data-kind="activity?.kind === 'hidden' ? 'hidden' : stepped ? 'steps' : 'dots'">
+  <div class="server-activity" :data-kind="activity?.kind === 'hidden' ? 'hidden' : bucketed ? 'buckets' : stepped ? 'steps' : 'dots'">
     <div v-if="activity" class="activity-caption">
       <span>{{ pluralize(activity.job_count, 'recorded job') }}</span>
       <span v-if="stepped">Jobs running · peak {{ maximum }}</span>
@@ -95,7 +96,8 @@ function stepLabel(step: ServerJobStep): string {
       </li>
     </ol>
     <p v-if="activity?.kind === 'hidden'" class="activity-scale-note">Job activity is not plotted at this scale.</p>
-    <details v-else-if="activity?.job_count" class="inline-details activity-table" @toggle="toggleTable">
+    <p v-if="bucketed" class="activity-scale-note">Each interval shows the highest number of jobs running together within it.</p>
+    <details v-if="activity?.job_count && activity.kind !== 'hidden'" class="inline-details activity-table" @toggle="toggleTable">
       <summary>Show job activity as a table</summary>
       <div v-if="tableOpen" class="table-wrap" tabindex="0" role="region" :aria-label="stepped ? 'Concurrent recorded jobs' : 'Recorded jobs'">
         <table v-if="!stepped">
@@ -111,8 +113,8 @@ function stepLabel(step: ServerJobStep): string {
           </tbody>
         </table>
         <table v-else>
-          <caption class="sr-only">Concurrent recorded jobs within this server session</caption>
-          <thead><tr><th>From</th><th>Through</th><th>Jobs running</th></tr></thead>
+          <caption class="sr-only">{{ bucketed ? 'Peak concurrent recorded jobs per interval within this server session' : 'Concurrent recorded jobs within this server session' }}</caption>
+          <thead><tr><th>From</th><th>Through</th><th>{{ bucketed ? 'Peak jobs running' : 'Jobs running' }}</th></tr></thead>
           <tbody>
             <tr v-for="(step, index) in tableSteps" :key="index" :title="stepLabel(step)">
               <td>{{ formatDateTime(step.from, timezone) }}</td>

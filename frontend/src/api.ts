@@ -187,7 +187,7 @@ export interface ServerJobInterval {
 export interface ServerJobStep { from: string; to: string; count: number }
 
 export interface ServerActivity {
-  from: string; to: string; kind: "dots" | "steps" | "hidden"; job_count: number;
+  from: string; to: string; kind: "dots" | "steps" | "buckets" | "hidden"; job_count: number;
   intervals: ServerJobInterval[]; steps: ServerJobStep[];
 }
 
@@ -1008,19 +1008,19 @@ async function loadRunsView(state: ReportState, signal?: AbortSignal): Promise<R
 const COLLECTION_SOURCES = new Set(["galaxy_db", "kubernetes", "gcp_batch"]);
 
 /**
- * The instant every report source had been collected through: the oldest of
- * their last successes. A missing success leaves the cutoff unknown. The
- * server already marks a source stale once its last success is too old.
+ * The oldest last successful update among report sources. A success can
+ * cover only one page, so this is not a guarantee of complete job evidence.
+ * A missing success leaves the update time unknown.
  */
-export function collectionCutoff(freshness: Freshness | null) {
+export function collectionUpdate(freshness: Freshness | null) {
   const sources = (freshness?.sources || []).filter(source => COLLECTION_SOURCES.has(source.source));
   if (!sources.length || sources.some(source => !source.last_success_at)) {
-    return { cutoff: null, stale: true };
+    return { lastUpdate: null, stale: true };
   }
-  const cutoff = sources
+  const lastUpdate = sources
     .map(source => source.last_success_at as string)
     .reduce((oldest, value) => (new Date(value) < new Date(oldest) ? value : oldest));
-  return { cutoff, stale: sources.some(source => source.status !== "healthy") };
+  return { lastUpdate, stale: sources.some(source => source.status !== "healthy") };
 }
 
 /**

@@ -782,7 +782,7 @@ class ServerJobStep(APIModel):
 class ServerActivity(APIModel):
     from_: datetime = Field(alias="from")
     to: datetime
-    kind: Literal["dots", "steps", "hidden"]
+    kind: Literal["dots", "steps", "buckets", "hidden"]
     job_count: int
     intervals: list[ServerJobInterval]
     steps: list[ServerJobStep]

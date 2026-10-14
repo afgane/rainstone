@@ -500,8 +500,13 @@ interval, with a simultaneous start and finish applied together. Activity is
 not a utilization measurement or a claim that unfilled time was idle.
 Sessions of up to seven days and at most 500 intervals use `kind=dots` and
 include intervals. Longer or denser sessions use `kind=steps`, with intervals
-omitted. More than 2,000 step segments use `kind=hidden`, retaining the count
-but omitting both plot arrays. The summary does not compute activity.
+omitted. More than 2,000 step segments use `kind=buckets`, with at most 400
+equal time intervals in `steps`. Each `count` is the maximum exact concurrency
+within that half-open interval, preserving brief peaks; it does not mean that
+many jobs ran throughout the interval. The UI labels these interval peaks and
+offers a table alternative. Distinct `job_count` remains exact, and `intervals`
+is omitted. Clients still accept `kind=hidden` from older servers. The summary
+does not compute activity.
 
 Raw job metrics are not part of the revision content digest: they reach reports
 only through attempts, lifetimes and job resource hints, which are covered.

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Activity, BarChart3, Search, Server, Users, Wrench, Workflow, X } from "@lucide/vue";
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { activeFilters, FILTER_LABELS, periodOf, type AdvancedFilter, type ReportState, type View } from "../api";
 import { describePeriod, PERIOD_LABELS, PERIOD_ORDER, type PeriodId } from "../periods";
 import { JOBS_SEARCH_HELP } from "../vocabulary";
@@ -23,6 +23,12 @@ const emit = defineEmits<{
 
 function update(key: string, event: Event): void {
   emit("set", key, (event.target as HTMLInputElement | HTMLSelectElement).value);
+}
+
+const searchInput = ref<HTMLInputElement | null>(null);
+function clearSearch(): void {
+  emit("set", "search", "");
+  searchInput.value?.focus();
 }
 
 const PRIMARY: Array<{ id: View; label: string; icon: unknown }> = [
@@ -81,14 +87,20 @@ const showControls = computed(() => !["server", "status"].includes(props.state.v
       <slot name="page-filters" />
 
       <div v-if="state.view !== 'runs'" class="control-group">
-        <label class="search"><Search :size="16" aria-hidden="true" />
-          <span class="sr-only">{{ searchLabel }}</span>
+        <div class="search">
+          <Search :size="16" aria-hidden="true" />
+          <label for="sidebar-search" class="sr-only">{{ searchLabel }}</label>
           <input
+            id="sidebar-search" ref="searchInput"
             :value="state.search" :placeholder="searchLabel"
             :aria-describedby="state.view === 'tool-runs' ? 'search-help' : undefined"
             @input="update('search', $event)"
           >
-        </label>
+          <button
+            v-if="state.search" type="button" class="search-clear"
+            aria-label="Clear search" @click="clearSearch"
+          ><X :size="16" aria-hidden="true" /></button>
+        </div>
         <p v-if="state.view === 'tool-runs'" id="search-help" class="search-help">{{ JOBS_SEARCH_HELP }}</p>
       </div>
 
@@ -137,7 +149,7 @@ const showControls = computed(() => !["server", "status"].includes(props.state.v
               <option value="unpriced">Price unavailable</option>
               <option value="in_progress">Still running</option>
               <option value="unavailable">Cost data unavailable</option>
-              <option value="collecting">Cost still being collected</option>
+              <option value="collecting">Cost data still being collected</option>
               <option value="not_started">Not run yet</option>
             </select></label>
           <label><span>Where it ran</span>

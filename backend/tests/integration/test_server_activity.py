@@ -107,10 +107,14 @@ def test_long_sessions_use_steps_and_dense_sessions_bound_the_response(scope, mo
         assert result["intervals"] == []
         assert max(row["count"] for row in result["steps"]) == 2
         monkeypatch.setattr(server_activity, "MAX_STEPS", 2)
-        hidden = activity(session, viewer, launch)
-        assert hidden["kind"] == "hidden"
-        assert hidden["job_count"] == 3
-        assert hidden["intervals"] == hidden["steps"] == []
+        dense = activity(session, viewer, launch)
+        assert dense["kind"] == "buckets"
+        assert dense["job_count"] == 3
+        assert dense["intervals"] == []
+        assert len(dense["steps"]) == server_activity.MAX_BUCKETS
+        assert max(row["count"] for row in dense["steps"]) == 2
+        assert dense["steps"][0]["from"] == START
+        assert dense["steps"][-1]["to"] == END
 
 
 def test_the_activity_response_ignores_report_filters_without_widening_authorization(scope, client, monkeypatch):

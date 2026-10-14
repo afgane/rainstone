@@ -120,8 +120,10 @@ select, input { width: 100%; min-height: 42px; border: 1px solid #c8d4df; border
 .panel-heading { display: flex; justify-content: space-between; gap: 1rem; padding: 1rem 1.2rem; border-bottom: 1px solid #e3e9ee; }
 .panel-heading p { font-size: .9rem; }
 .search { width: min(320px, 100%); position: relative; display: flex; align-items: center; }
-.search svg { position: absolute; left: .7rem; }
-.search input { padding-left: 2.2rem; }
+.search > svg { position: absolute; left: .7rem; pointer-events: none; }
+.search input { padding-left: 2.2rem; padding-right: 2.5rem; }
+.search-clear { position: absolute; right: .3rem; display: flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; padding: 0; border: 0; border-radius: .25rem; color: #3d4a57; background: transparent; }
+.search-clear:hover { background: #e2edf6; }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: .92rem; }
 th { text-align: left; color: white; background: #25537b; padding: .75rem; }

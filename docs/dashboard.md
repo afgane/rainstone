@@ -58,7 +58,7 @@ button. A note that work was left out of every period still shows.
 | `in_progress` | Still running, only for queued or running work |
 | `unavailable` | Cost data unavailable, for finished work whose evidence was not collected |
 | `not_started` | Not run yet, for new or paused work |
-| `collecting` | Cost still being collected, for a day after the work finished |
+| `collecting` | Cost data still being collected, for a day after completion |
 | root invocation | Workflow run |
 | `ok` / `error` / scheduling states | Completed, Failed, and a run status derived from the run's executions |
 | `gcp_batch` / `kubernetes` | Dedicated cloud compute / Your Galaxy server, only where the resource relationship is established |
@@ -146,9 +146,10 @@ own, so its total is the Overview headline for the same filters. Two cards
 give the period's cost (recorded so far, with the same "still in progress" and
 "cost was not recorded" counts as Overview) and its workload: jobs by status,
 and how many tools ran. The chart notes that only recorded costs are drawn.
-Jobs that could not be placed in time are listed in a collapsed section under
-the list, so they can still be opened. The sidebar's search is "Find a job",
-searching by tool.
+Jobs needing timing data before their costs can appear in a period are listed
+in a collapsed section under the list, so they can still be opened. The note
+explains that cost data may still be arriving for finished jobs. The sidebar's
+search is "Find a job", searching by tool.
 
 **By tool.** One row per tool, every version of it together: a Tool Shed
 tool's versions share a row, and any other tool keeps its exact identity, so
@@ -195,9 +196,12 @@ name opens that run; anywhere else on the row opens the job.
 ## Time and freshness
 
 Every date and time is shown in the report's timezone, not the browser's, so a
-run always appears under the day it is counted in. Report pages end with when
-collection last reached every source ("Collected through", marked stale when
-any source is) and, separately, when costs were calculated.
+run always appears under the day it is counted in. Report pages show the
+oldest last successful collection update across sources ("Last collection
+update", marked stale when any source is) and, separately, when costs were
+calculated. A successful update may cover only a page of jobs; it does not
+guarantee that all earlier work has cost data. The footer's technical details
+explain that distinction.
 
 An open page checks for a newer calculation about once a minute while it is
 visible. Figures a reader is looking at do not change by themselves: when the
@@ -228,6 +232,10 @@ filters without clearing them; returning to a report restores those choices.
 Its footer identifies compute estimates in USD and offers Refresh, without
 report dates or run-compute freshness. On narrow screens, Navigation opens
 the sidebar. The session axis stays horizontal to support its activity plot.
+Dense activity stays visible as interval peaks: each interval shows the
+highest number of recorded jobs running together within it, with a table
+alternative. The job count and overall peak remain exact. This describes
+recorded execution, not server utilization.
 
 Duration sits below the axis, between its timestamps, labeled "Time running"
 at the same text size as the timestamps. Local and Kubernetes server

@@ -56,6 +56,19 @@ describe("server job activity", () => {
     expect(plot(crowded).attributes("data-kind")).toBe("steps");
   });
 
+  it("plots dense sessions with clearly labeled peaks and a table alternative", async () => {
+    const wrapper = plot({ ...activity, kind: "buckets", intervals: [], job_count: 3588 });
+    expect(wrapper.attributes("data-kind")).toBe("buckets");
+    expect(wrapper.find(".activity-step").attributes("points")).toBeTruthy();
+    expect(wrapper.text()).toContain("highest number of jobs running together");
+    expect(wrapper.text()).not.toContain("not plotted at this scale");
+    expect(wrapper.find(".activity-caption").text()).toContain("peak 2");
+    (wrapper.find("details").element as HTMLDetailsElement).open = true;
+    await wrapper.find("details").trigger("toggle");
+    expect(wrapper.find("thead").text()).toContain("Peak jobs running");
+    expect(wrapper.findAll("tbody tr")).toHaveLength(2);
+  });
+
   it("keeps the interval when activity cannot be plotted, without inventing a peak", () => {
     const missing = plot(null);
     expect(missing.find(".activity-dot").exists()).toBe(false);

@@ -175,6 +175,35 @@ for (const width of [1280, 390]) {
 }
 
 for (const width of [1280, 390]) {
+  test(`dense server activity stays plotted and accessible at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.route("**/api/infrastructure**", async route => {
+      const response = await route.fetch();
+      const body = await response.json();
+      const start = Date.parse(body.current_launch.launch_at), end = Date.parse(body.current_launch.as_of);
+      const instant = (index: number) => new Date(start + (end - start) * index / 400).toISOString();
+      await route.fulfill({ response, json: { ...body, activity: {
+        from: instant(0), to: instant(400), kind: "buckets", job_count: 2464, intervals: [],
+        steps: Array.from({ length: 400 }, (_, index) => ({
+          from: instant(index), to: instant(index + 1), count: index % 17,
+        })),
+      } } });
+    });
+    await page.goto(`${BASE}?view=server`);
+    const plot = page.locator(".server-activity");
+    await expect(plot).toHaveAttribute("data-kind", "buckets");
+    await expect(plot.locator(".activity-step")).toBeVisible();
+    await expect(plot.locator(".activity-caption")).toContainText("peak 16");
+    await expect(plot).toContainText("highest number of jobs running together");
+    await plot.getByText("Show job activity as a table", { exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await expect(plot.getByRole("columnheader", { name: "Peak jobs running" })).toBeVisible();
+    await expect(plot.locator("tbody tr")).toHaveCount(376);
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(results.violations.map(violation => `${violation.id}: ${violation.help}`)).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+
   test(`server duration marks and their table work at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
     await page.route("**/api/infrastructure**", async route => {

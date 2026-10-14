@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from rainstone.server_activity import concurrency, merge_windows
+from rainstone.server_activity import concurrency, merge_windows, peak_buckets
 
 START = datetime(2026, 10, 1, tzinfo=UTC)
 
@@ -32,3 +32,19 @@ def test_an_empty_session_has_no_invented_activity() -> None:
     assert concurrency([], START, START + timedelta(hours=1)) == [
         {"from": START, "to": START + timedelta(hours=1), "count": 0},
     ]
+
+
+def test_dense_buckets_preserve_brief_peaks_and_half_open_boundaries(monkeypatch) -> None:
+    from rainstone import server_activity
+
+    monkeypatch.setattr(server_activity, "MAX_BUCKETS", 4)
+    end = START + timedelta(minutes=40)
+    steps = concurrency([
+        window("first", 0, 10), window("second", 10, 20),
+        window("burst", 11, 12), window("last", 30, 40),
+    ], START, end)
+    buckets = peak_buckets(steps, START, end)
+    assert [row["count"] for row in buckets] == [1, 2, 0, 1]
+    assert buckets[0]["from"] == START
+    assert buckets[-1]["to"] == end
+    assert all(left["to"] == right["from"] for left, right in zip(buckets, buckets[1:], strict=False))

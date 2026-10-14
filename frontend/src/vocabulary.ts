@@ -123,7 +123,7 @@ const QUALITY: Record<string, string> = {
   unpriced: "Price unavailable",
   in_progress: "Still running",
   unavailable: "Cost data unavailable",
-  collecting: "Cost still being collected",
+  collecting: "Cost data still being collected",
   not_started: "Not run yet",
 };
 
@@ -150,7 +150,7 @@ export function costExplanation(record: {
     return "This job finished, but the evidence needed to cost it was not collected, so its cost is unavailable rather than zero.";
   }
   if (record.quality === "collecting") {
-    return "This job finished recently and the evidence needed to cost it is still arriving; its cost appears once it does.";
+    return "Cost data for this finished job is still being collected. Its cost can appear once the required data arrives.";
   }
   if (record.quality === "not_started") return "This work has not run, so there is no cost to show.";
   return record.reason || "Estimated from the observed run using public prices.";
@@ -158,11 +158,11 @@ export function costExplanation(record: {
 
 /** Evidence a dated report leaves out because no period can hold it. */
 export function undatedSentence(count: number): string {
-  return `${pluralize(count, "job")} could not be placed in time, so no period includes ${count === 1 ? "it" : "them"}.`;
+  return `${pluralize(count, "job")} ${count === 1 ? "needs" : "need"} timing data before ${count === 1 ? "its cost" : "their costs"} can appear in a period.`;
 }
 
 export const UNDATED_LIST_NOTE =
-  "They are listed here so they can still be opened. A job that has not started yet stays here until it runs.";
+  "These jobs can still be opened here. Cost data may still be arriving for finished jobs. A job that has not started yet stays here until it runs.";
 
 export const RECORDED_ONLY_NOTE = "Only recorded costs are drawn.";
 

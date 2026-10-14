@@ -12,6 +12,7 @@ from rainstone.models import CapacityRelationship, ExecutionAttempt, Job, Lifeti
 DOT_WINDOW = timedelta(days=7)
 MAX_DOTS = 500
 MAX_STEPS = 2000
+MAX_BUCKETS = 400
 
 
 def merge_windows(windows: list[dict]) -> list[dict]:
@@ -45,6 +46,24 @@ def concurrency(windows: list[dict], start: datetime, end: datetime) -> list[dic
     if previous < end:
         steps.append({"from": previous, "to": end, "count": count})
     return steps
+
+
+def peak_buckets(steps: list[dict], start: datetime, end: datetime) -> list[dict]:
+    """Bound dense plots while retaining even a brief concurrency peak."""
+    buckets, index = [], 0
+    for bucket in range(MAX_BUCKETS):
+        left = start + (end - start) * (bucket / MAX_BUCKETS)
+        right = start + (end - start) * ((bucket + 1) / MAX_BUCKETS)
+        if right <= left:
+            continue
+        while index < len(steps) and steps[index]["to"] <= left:
+            index += 1
+        scan, peak = index, 0
+        while scan < len(steps) and steps[scan]["from"] < right:
+            peak = max(peak, steps[scan]["count"])
+            scan += 1
+        buckets.append({"from": left, "to": right, "count": peak})
+    return buckets
 
 
 def activity(session: Session, identity: Identity, launch: dict) -> dict | None:
@@ -101,10 +120,11 @@ def activity(session: Session, identity: Identity, launch: dict) -> dict | None:
     steps = concurrency(windows, start, end)
     kind = "dots" if end - start <= DOT_WINDOW and len(windows) <= MAX_DOTS else "steps"
     if len(steps) > MAX_STEPS:
-        kind = "hidden"
+        kind = "buckets"
+        steps = peak_buckets(steps, start, end)
     return {
         "from": start, "to": end, "kind": kind,
         "job_count": len({window["job_id"] for window in windows}),
         "intervals": windows if kind == "dots" else [],
-        "steps": steps if kind != "hidden" else [],
+        "steps": steps,
     }
