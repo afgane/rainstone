@@ -60,6 +60,16 @@ different one.
 
 {{/* Settings shared by the web and collector workloads. */}}
 {{- define "rainstone.env" -}}
+- name: RAINSTONE_LOG_LEVEL
+  value: {{ .Values.logging.level | quote }}
+- name: RAINSTONE_LOG_PROGRESS_SECONDS
+  value: {{ .Values.logging.progressSeconds | quote }}
+- name: RAINSTONE_LOG_IDLE_SECONDS
+  value: {{ .Values.logging.idleSeconds | quote }}
+- name: RAINSTONE_LOG_REPEAT_SECONDS
+  value: {{ .Values.logging.repeatSeconds | quote }}
+- name: RAINSTONE_LOG_SLOW_REQUEST_SECONDS
+  value: {{ .Values.logging.slowRequestSeconds | quote }}
 - name: RAINSTONE_DATABASE_URL
   valueFrom:
     secretKeyRef:

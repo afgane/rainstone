@@ -1,5 +1,8 @@
 # Deployment, identity and diagnostics
 
+See [operational logging](logging.md) for pod log events, noise suppression
+and logging configuration.
+
 Rainstone installs alongside Galaxy and fits the deployment it finds.
 Installation, operation and acceptance diagnostics all run inside the Galaxy VM:
 no remote kubeconfig, SSH access, developer cloud login or externally hosted

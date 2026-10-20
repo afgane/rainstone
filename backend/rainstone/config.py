@@ -1,8 +1,9 @@
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
 
@@ -18,6 +19,11 @@ class Settings(BaseSettings):
     demo_data: bool = False
     static_dir: Path = Path("static")
     root_path: str = ""
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    log_progress_seconds: int = Field(default=60, gt=0)
+    log_idle_seconds: int = Field(default=300, gt=0)
+    log_repeat_seconds: int = Field(default=300, gt=0)
+    log_slow_request_seconds: float = Field(default=2, gt=0)
 
     # Instance identity. Boot supplies these; they are not discovered from a URL.
     tenant_slug: str = "anvil-demo"

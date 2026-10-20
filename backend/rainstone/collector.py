@@ -19,9 +19,10 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 
-from sqlalchemy import Engine, select, text
+from sqlalchemy import Engine, func, select, text
 from sqlalchemy.orm import Session
 
+from rainstone import __version__
 from rainstone.adapters.contracts import NormalizedServerObservation, ObservationBatch, SourceAdapter
 from rainstone.adapters.galaxy_db import GalaxyDatabaseAdapter, discover_capabilities
 from rainstone.adapters.galaxy_server import GalaxyServerCollector, HostDescriptor, resolve_host
@@ -44,7 +45,8 @@ from rainstone.ingestion import (
     record_failure,
     stable_id,
 )
-from rainstone.models import DeploymentPolicy, ExecutionAttempt, Job, Tenant
+from rainstone.logging import Failures
+from rainstone.models import CostRevision, DeploymentPolicy, ExecutionAttempt, Job, LifetimeAttempt, Tenant
 
 logger = logging.getLogger("rainstone.collector")
 
@@ -278,6 +280,13 @@ class Collector:
         self._tenant_id = tenant_id_for(settings)
         self._catalog_due = 0.0
         self._diagnostics_due = 0.0
+        self._failures = Failures(logger, settings.log_repeat_seconds, clock)
+        self._progress: dict[str, dict] = {}
+        self._summary_at = clock()
+        self._coverage_at = float("-inf")
+        self._missing_resources: int | None = None
+        self._last_catalog: tuple | None = None
+        self._last_diagnostics: str | None = None
 
     @property
     def tenant_id(self) -> uuid.UUID:
@@ -288,6 +297,10 @@ class Collector:
         return ceiling / 2 + random.random() * ceiling / 2  # noqa: S311 - jitter only
 
     def collect_source(self, source: ScheduledSource) -> dict:
+        started = self._clock()
+        cycle_id = uuid.uuid4().hex
+        fields = {"source": source.adapter.source_name, "cycle_id": cycle_id}
+        logger.debug("collection_started", extra={"fields": fields})
         with Session(self._engine) as session:
             cursor = read_cursor(session, self._tenant_id, source.adapter.source_name)
             try:
@@ -295,18 +308,15 @@ class Collector:
                 if source.transform is not None:
                     batch = source.transform(batch)
             except Exception as error:  # noqa: BLE001 - surfaced as source status
+                logger.debug("collection_failed", exc_info=True, extra={"fields": fields})
                 session.rollback()
                 record_failure(session, self._tenant_id, source.adapter.source_name, repr(error))
                 session.commit()
                 source.failures += 1
                 delay = self._backoff(source.failures)
                 source.due_at = self._clock() + delay
-                logger.warning(
-                    "source %s failed (%s); retrying in %.1fs",
-                    source.adapter.source_name,
-                    type(error).__name__,
-                    delay,
-                )
+                self._failures.failed(source.adapter.source_name, error, **fields,
+                                      retry_in_seconds=round(delay, 1))
                 return {
                     "source": source.adapter.source_name,
                     "status": "failed",
@@ -314,10 +324,13 @@ class Collector:
                     "retry_in_seconds": round(delay, 1),
                 }
             result = apply_batch(session, self._tenant_id, batch)
+            collected = self._clock()
             if batch.servers and extend_baseline_to_host_creation(
                 session, self._tenant_id, self._settings, batch.servers
             ):
-                logger.info("baseline policy now starts when the Galaxy host VM was created")
+                logger.info("baseline_start_corrected")
+            previous = session.get(CostRevision, self._tenant_id)
+            previous_id = previous.id if previous else None
             revision = calculate_tenant(
                 session, self._tenant_id, reason=f"{batch.source} collection"
             )
@@ -325,10 +338,65 @@ class Collector:
             # see observations without a matching revision, and an interrupted
             # cycle is simply re-collected.
             session.commit()
+            finished = self._clock()
+            revision_id = str(revision.id)
+            self._failures.recovered(source.adapter.source_name, **fields)
+            counts = {key: result[key] for key in (
+                "jobs", "attempts", "invocations", "gaps", "held_attempts", "pending_applied",
+            )}
+            counts["changed_calculations"] = int(previous_id != revision.id)
+            progress = self._progress.setdefault(batch.source, {"pages": 0})
+            progress["pages"] += 1
+            for key, value in counts.items():
+                progress[key] = progress.get(key, 0) + value
+            progress.update({
+                **fields, "revision_id": revision_id,
+                "collection_ms": round((collected - started) * 1000, 1),
+                "calculation_ms": round((finished - collected) * 1000, 1),
+                "adapter_exhausted": batch.exhausted,
+            })
+            # These are source gauges for the latest page, not a claim that
+            # targets minus the page size is a count of missing evidence.
+            for key in ("targets", "active_targets", "terminal_targets", "observed", "unresolved",
+                        "active_offset", "terminal_offset", "terminal_sweep_wrapped", "rows", "reconciled"):
+                if key in batch.metrics:
+                    progress[key] = batch.metrics[key]
+            logger.debug("collection_completed", extra={"fields": {**progress, **counts}})
+            gap_types = sorted({gap.kind for gap in batch.gaps})
+            if gap_types:
+                self._failures.failed(f"{batch.source}.coverage", RuntimeError(),
+                                      source=batch.source, gap_types=gap_types)
+            else:
+                self._failures.recovered(f"{batch.source}.coverage", source=batch.source)
             source.failures = 0
             source.due_at = self._clock() + (0 if not batch.exhausted else source.interval_seconds)
             source.last_result = {**result, "revision": str(revision.id)}
             return source.last_result
+
+    def log_progress(self, *, force: bool = False) -> None:
+        now = self._clock()
+        active = any(row.get("changed_calculations") for row in self._progress.values())
+        interval = self._settings.log_progress_seconds if active else self._settings.log_idle_seconds
+        if not force and now - self._summary_at < interval:
+            return
+        if (any(source.adapter.source_name == "gcp_batch" for source in self._sources)
+                and now - self._coverage_at >= self._settings.log_idle_seconds):
+            with Session(self._engine) as session:
+                resource = (select(ExecutionAttempt.id).join(LifetimeAttempt)
+                            .where(ExecutionAttempt.job_id == Job.id).exists())
+                self._missing_resources = session.scalar(select(func.count()).select_from(Job).where(
+                    Job.tenant_id == self._tenant_id, Job.runner == "gcp_batch",
+                    Job.state.in_(TERMINAL_STATES), ~resource,
+                ))
+            self._coverage_at = now
+        logger.info("collection_progress", extra={"fields": {
+            "interval_seconds": round(now - self._summary_at, 1),
+            "active": active, "sources": self._progress,
+            "finished_batch_jobs_without_resources": self._missing_resources,
+            "coverage_age_seconds": round(now - self._coverage_at, 1) if self._missing_resources is not None else None,
+        }})
+        self._progress = {}
+        self._summary_at = now
 
     def heartbeat(self) -> None:
         """Record that the loop is alive, independently of dependency health."""
@@ -336,8 +404,9 @@ class Collector:
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(datetime.now(UTC).isoformat())
+            self._failures.recovered("heartbeat")
         except OSError as error:  # noqa: BLE001 - heartbeat is best effort
-            logger.warning("could not write the collector heartbeat: %s", error)
+            self._failures.failed("heartbeat", error)
 
     def record_capabilities(self) -> dict:
         """Run and persist the checks only this process has credentials for."""
@@ -345,6 +414,10 @@ class Collector:
             report = run_checks(session, self._settings, context="collector")
             record_report(session, self._tenant_id, report)
             session.commit()
+        if report["overall_status"] != self._last_diagnostics:
+            logger.log(logging.WARNING if report["overall_status"] in {"warn", "fail"} else logging.INFO,
+                       "diagnostics_changed", extra={"fields": {"status": report["overall_status"]}})
+            self._last_diagnostics = report["overall_status"]
         return {"source": "diagnostics", "status": report["overall_status"]}
 
     def refresh_catalog(self) -> dict:
@@ -360,12 +433,16 @@ class Collector:
                 record_catalog_refresh(session, self._tenant_id, result)
                 session.commit()
             if "error" in result:
-                logger.warning(
-                    "price catalog feed refresh failed (%s); using %s: %s",
-                    result["status"],
-                    result.get("catalog_id", "no catalog"),
-                    result["error"],
-                )
+                self._failures.failed("price_catalog", RuntimeError(), status=result["status"],
+                                      catalog_id=result.get("catalog_id"))
+            else:
+                self._failures.recovered("price_catalog")
+            state = (result["status"], result.get("catalog_id"))
+            if state != self._last_catalog:
+                logger.info("catalog_changed", extra={"fields": {
+                    "status": state[0], "catalog_id": state[1],
+                }})
+                self._last_catalog = state
             if result["status"] in {"refreshed", "bundled"}:
                 # New prices change report facts, so recalculate rather than
                 # leaving pinned snapshots stale until the next source batch.
@@ -386,6 +463,7 @@ class Collector:
         for source in self._sources:
             if now >= source.due_at:
                 results.append(self.collect_source(source))
+        self.log_progress()
         return results
 
     def next_delay(self) -> float:
@@ -399,8 +477,7 @@ class Collector:
     def run_forever(self, stop: Callable[[], bool] | None = None) -> None:
         should_stop = stop or (lambda: False)
         while not should_stop():
-            for result in self.run_once():
-                logger.info("collected %s", result)
+            self.run_once()
             delay = min(self.next_delay(), 5.0)
             if delay > 0:
                 self._sleep(delay)
@@ -563,20 +640,30 @@ def reclassify(settings: Settings | None = None) -> dict:
 def run(settings: Settings | None = None, *, cycles: int | None = None) -> list[dict]:
     """Entry point for `rainstone collect`."""
     settings = settings or get_settings()
+    logger.info("collector_starting", extra={"fields": {"version": __version__}})
     collector = build_collector(settings)
     stopping = {"value": False}
 
     def request_stop(*_: object) -> None:
         stopping["value"] = True
-        logger.info("collector stopping after the current cycle")
+        logger.info("collector_stopping")
 
     results: list[dict] = []
     with CollectorLease(application_engine, settings.collector_lease_key):
+        logger.info("collector_started", extra={"fields": {
+            "lease_acquired": True, "version": __version__,
+            "sources": [{"source": source.adapter.source_name, "interval_seconds": source.interval_seconds}
+                        for source in collector._sources],
+        }})
         if cycles is None:
             for received in (signal.SIGINT, signal.SIGTERM):
                 signal.signal(received, request_stop)
             collector.run_forever(lambda: stopping["value"])
+            collector.log_progress(force=True)
+            logger.info("collector_stopped")
             return results
         for _ in range(cycles):
             results.extend(collector.run_once())
+        collector.log_progress(force=True)
+        logger.info("collector_stopped")
     return results

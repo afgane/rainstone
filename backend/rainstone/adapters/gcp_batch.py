@@ -757,11 +757,15 @@ class BatchCollector:
             metrics={
                 "targets": len(targets),
                 "active_targets": sum(1 for target in targets if target.active),
+                "terminal_targets": sum(1 for target in targets if not target.active),
                 "observed": len(selected),
                 "attempts": len(attempts),
                 "unresolved": unresolved,
                 "active_offset": state["active_offset"],
                 "terminal_offset": state["terminal_offset"],
+                "terminal_sweep_wrapped": bool(
+                    any(not target.active for target in selected) and state["terminal_offset"] == 0
+                ),
             },
             # Another page of active work is drained immediately rather than
             # waiting a full refresh interval.

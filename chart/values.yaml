@@ -21,6 +21,13 @@ ingress:
 service:
   port: 8000
 
+logging:
+  level: INFO
+  progressSeconds: 60
+  idleSeconds: 300
+  repeatSeconds: 300
+  slowRequestSeconds: 2
+
 # Galaxy links sibling applications from its masthead through a webhook, which
 # is how the Kubernetes monitor is surfaced. The chart ships the webhook
 # ConfigMap; Galaxy's own release mounts it, because only Galaxy's deployment

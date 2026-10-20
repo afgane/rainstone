@@ -132,13 +132,22 @@ def main() -> None:
         return
 
     if args.command == "collect":
-        from rainstone.collector import CollectorLeaseUnavailable, run
+        import logging
 
+        from rainstone.collector import CollectorLeaseUnavailable, run
+        from rainstone.config import get_settings
+        from rainstone.logging import configure_logging
+
+        configure_logging("collector", get_settings())
         try:
             results = run(cycles=args.cycles)
         except CollectorLeaseUnavailable as error:
+            logging.getLogger("rainstone.collector").warning("collector_lease_unavailable")
             _print({"status": "lease_unavailable", "detail": str(error)})
             sys.exit(75)
+        except Exception:  # noqa: BLE001 - terminate with one sanitized traceback
+            logging.getLogger("rainstone.collector").exception("collector_failed")
+            sys.exit(1)
         if args.cycles is not None:
             _print(results)
         return

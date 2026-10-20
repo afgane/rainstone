@@ -1,4 +1,6 @@
+import logging
 import re
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse
@@ -6,9 +8,23 @@ from fastapi.staticfiles import StaticFiles
 
 from rainstone.api.routes import router
 from rainstone.config import get_settings
+from rainstone.logging import configure_logging
+from rainstone.request_logging import RequestLogging
 
 settings = get_settings()
-app = FastAPI(title="Rainstone", version="2.0.0b1", root_path=settings.root_path)
+configure_logging("web", settings)
+logger = logging.getLogger("rainstone.web")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("web_started", extra={"fields": {"version": app.version}})
+    yield
+    logger.info("web_stopped")
+
+
+app = FastAPI(title="Rainstone", version="2.0.0b1", root_path=settings.root_path, lifespan=lifespan)
+app.add_middleware(RequestLogging, slow_seconds=settings.log_slow_request_seconds)
 app.include_router(router)
 
 static_dir = settings.static_dir
