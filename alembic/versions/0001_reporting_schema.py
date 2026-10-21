@@ -118,7 +118,10 @@ def _create_trigger(table: str, suffix: str, operation: str, transitions: str, s
 
 
 def upgrade() -> None:
-    Base.metadata.create_all(bind=op.get_bind(), checkfirst=True)
+    # Guard tables belong to their later revisions, including on a fresh DB.
+    reporting = [table for table in Base.metadata.sorted_tables
+                 if not table.name.startswith("guard_") and table.name != "spend_guard"]
+    Base.metadata.create_all(bind=op.get_bind(), tables=reporting, checkfirst=True)
     op.execute(FUNCTION)
     for table, source in TENANT_SOURCES.items():
         for suffix, operation, transition in OPERATIONS:

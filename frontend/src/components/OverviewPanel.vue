@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { X } from "@lucide/vue";
 import { computed } from "vue";
-import type { CostPiece, CostTimeline, Summary } from "../api";
+import type { CostPiece, CostTimeline, SpendGuard, Summary } from "../api";
 import { offsetBoundary, periodOf, type ReportState } from "../api";
 import { periodAxisEnd } from "../chart/axis";
 import type { JobWindow } from "../jobsView";
@@ -17,9 +17,11 @@ const props = defineProps<{
   openBlock: string;
   welcome: boolean;
   guideOpen: boolean;
+  guard?: SpendGuard | null;
+  limitHref?: string;
 }>();
 const emit = defineEmits<{
-  view: [view: "server"];
+  view: [view: "server" | "limit"];
   block: [category: CostPiece["kind"], window: JobWindow, opener: HTMLElement];
   explore: [opener: HTMLElement];
   guide: [opener: HTMLElement];
@@ -43,7 +45,7 @@ const axisEnd = computed(() => periodAxisEnd(period.value, props.state.timezone)
       <X :size="18" aria-hidden="true" />
     </button>
   </section>
-  <OverviewFigures
+  <OverviewFigures :guard="guard" :limit-href="limitHref" @limit="emit('view', 'limit')"
     :summary="summary"
     :period-text="describePeriod(period, state.timezone)"
     @server="emit('view', 'server')"

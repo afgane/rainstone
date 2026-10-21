@@ -179,6 +179,7 @@ services:
       RAINSTONE_DATABASE_URL: postgresql+psycopg://rainstone:rainstone@e2e-postgres:5432/rainstone_test
       RAINSTONE_AUTH_MODE: development
       RAINSTONE_DEMO_DATA: "true"
+      RAINSTONE_GUARD_ENABLED: "true"
     depends_on:
       e2e-postgres:
         condition: service_healthy

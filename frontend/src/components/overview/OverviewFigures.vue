@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { Summary } from "../../api";
+import type { SpendGuard, Summary } from "../../api";
 import {
-  COST_PARTS_SENTENCE, formatCost, formatRateInCents, inProgressNote, RUN_COMPUTE, SERVER_COMPUTE,
+  batchLimitProgress, COST_PARTS_SENTENCE, formatCost, formatRateInCents, inProgressNote, RUN_COMPUTE, SERVER_COMPUTE,
   serverQualifiers, sinceLaunch, unrecordedNote,
 } from "../../vocabulary";
 
 const props = defineProps<{
   summary: Summary;
   periodText: string;
+  guard?: SpendGuard | null;
+  limitHref?: string;
 }>();
-const emit = defineEmits<{ server: [] }>();
+const emit = defineEmits<{ server: []; limit: [] }>();
 
 const empty = computed(() => props.summary.job_count === 0);
 const recordedSoFar = computed(() =>
@@ -48,6 +50,12 @@ const qualifiers = computed(() => serverQualifiers(launch.value, Boolean(props.s
       <p v-if="summary.unrecorded_job_count" class="figure-line">
         {{ unrecordedNote(summary.unrecorded_job_count) }}
       </p>
+      <div v-if="guard?.limit !== null && guard?.limit !== undefined" class="limit-progress">
+        <p class="eyebrow">Batch spend limit · recorded history</p>
+        <p>{{ batchLimitProgress(guard) }}</p>
+        <p v-if="guard.snapshot.incomplete_jobs">{{ guard.snapshot.incomplete_jobs }} jobs need cost data.</p>
+        <a :href="limitHref" @click.prevent="emit('limit')">Manage Batch limit</a>
+      </div>
     </section>
     <template v-if="summary.can_view_infrastructure">
       <span class="cost-plus" aria-hidden="true">+</span>

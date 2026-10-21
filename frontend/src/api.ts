@@ -3,7 +3,7 @@ import { exclusiveEnd, isTimezone, PERIOD_ORDER, resolvePeriod, type Period, typ
 export type Basis = "additional" | "allocated";
 /** Views are named for the questions they answer, not for their endpoints. */
 export type View =
-  | "overview" | "runs" | "tool-runs" | "daily" | "users" | "server" | "status";
+  | "overview" | "runs" | "tool-runs" | "daily" | "users" | "server" | "status" | "limit";
 
 export interface ReportState {
   view: View;
@@ -785,7 +785,7 @@ export const DEFAULT_RUN_CONTROLS = {
   runSort: "started_at", runDirection: "desc", runChart: "workflow",
 } as const;
 
-const VIEWS: View[] = ["overview", "runs", "tool-runs", "daily", "users", "server", "status"];
+const VIEWS: View[] = ["overview", "runs", "tool-runs", "daily", "users", "server", "status", "limit"];
 const RUN_STATUSES: RunStatus[] = ["completed", "failed", "running", "cancelled"];
 const RUN_SORTS: RunSort[] = ["started_at", "amount", "run_total", "duration"];
 
@@ -910,6 +910,20 @@ export async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: response.statusText }));
     throw new ApiError(body.detail || `${response.status} ${response.statusText}`, response.status);
+  }
+  return response.json() as Promise<T>;
+}
+
+export async function put<T>(path: string, payload: unknown): Promise<T> {
+  const response = await fetch(apiPath(path), {
+    method: "PUT", headers: { ...identityHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ detail: response.statusText }));
+    const message = Array.isArray(body.detail)
+      ? body.detail.map((item: { msg: string }) => item.msg).join("; ") : body.detail;
+    throw new ApiError(message || "Unable to save the Batch limit", response.status);
   }
   return response.json() as Promise<T>;
 }

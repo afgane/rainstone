@@ -391,3 +391,34 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .rank-list .rank-row { min-height: 44px; padding: .6rem .4rem; }
 .rank-list .rank-row:hover { background: #f2f7fb; }
 .rank-list .rank-row strong { white-space: normal; overflow-wrap: anywhere; }
+
+/* The limit remains reachable when Reporting is collapsed on small screens. */
+.masthead-inner { gap: .8rem; flex-wrap: wrap; }
+.guard-masthead { display: inline-flex; gap: .5rem; align-items: center; min-height: 42px; padding: .45rem .7rem; border: 1px solid #c7d5e1; border-radius: .45rem; color: white; text-decoration: none; }
+.guard-masthead:hover { background: #ffffff1a; }
+.guard-masthead[data-triggered="true"] { border: 2px solid #ffd700; font-weight: 700; }
+.guard-masthead small { display: block; font-size: .8rem; }
+.spend-limit-page { max-width: 760px; }
+.spend-limit-page .panel { padding: 1.25rem; }
+.spend-limit-page p { margin: .65rem 0; line-height: 1.5; }
+.limit-facts { display: flex; flex-wrap: wrap; gap: 1.5rem; margin: 1rem 0; }
+.limit-facts dt { color: #58585a; }
+.limit-facts dd { margin: .3rem 0; font-size: 1.6rem; font-weight: 700; color: #2c3143; }
+.limit-form > label { display: block; margin-top: 1rem; font-weight: 700; }
+.limit-form > input { max-width: 16rem; margin-top: .35rem; }
+.limit-form fieldset { margin: 1.2rem 0; border: 1px solid #c8d4df; border-radius: .45rem; padding: 1rem; }
+.limit-form legend { padding: 0 .35rem; font-weight: 700; }
+.limit-form fieldset label { display: flex; align-items: flex-start; gap: .65rem; margin: .6rem 0; line-height: 1.5; cursor: pointer; }
+.limit-form input[type="radio"] { width: 1.2rem; min-width: 1.2rem; min-height: 1.2rem; height: 1.2rem; margin-top: .2rem; accent-color: #25537b; }
+.limit-actions { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: 1rem; }
+.limit-actions .primary { min-height: 42px; padding: .6rem .85rem; border: 1px solid #25537b; border-radius: .45rem; color: white; background: #25537b; }
+.limit-condition { border-left: 4px solid #a96300; padding-left: .7rem; }
+.limit-stops { margin-top: 1.2rem; border-top: 1px solid #dce4ec; }
+.limit-result { padding: 1rem; border: 1px solid #25537b; border-radius: .45rem; background: white; }
+.limit-progress { margin-top: 1rem; padding-top: .7rem; border-top: 1px solid #c8d4df; }
+.limit-progress p { margin: .25rem 0; }
+.limit-progress a { display: inline-block; padding: .35rem 0; }
+@media (max-width: 600px) {
+  .guard-masthead { order: 3; width: 100%; }
+  .spend-limit-page .panel { padding: 1rem; }
+}

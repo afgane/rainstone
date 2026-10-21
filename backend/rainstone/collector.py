@@ -64,6 +64,7 @@ from rainstone.models import (
     CostRevision,
     DeploymentPolicy,
     ExecutionAttempt,
+    GuardCancellation,
     Job,
     LifetimeAttempt,
     ResourceLifetime,
@@ -249,7 +250,7 @@ def batch_targets(
     prefix is never used to infer environment or outcome.
     """
     rows = session.execute(
-        select(Job.source_id, Job.state, ExecutionAttempt.external_id)
+        select(Job.id, Job.source_id, Job.state, ExecutionAttempt.external_id)
         .join(ExecutionAttempt, ExecutionAttempt.job_id == Job.id)
         .where(
             Job.tenant_id == tenant_id,
@@ -258,9 +259,22 @@ def batch_targets(
         )
         .order_by(Job.source_id)
     ).all()
+    # Galaxy's stop path deletes the Batch record. Once cleanup and final
+    # cost are verified, polling that expected absence only invents gaps.
+    completed = {(row.job_id, row.external_id.rsplit("/", 1)[-1]) for row in session.scalars(
+        select(GuardCancellation).where(
+            GuardCancellation.tenant_id == tenant_id,
+            GuardCancellation.project == settings.gcp_project,
+            GuardCancellation.location == settings.gcp_location,
+            GuardCancellation.verified_at.is_not(None),
+            GuardCancellation.cost_reconciled.is_(True),
+        )
+    )}
     targets: dict[tuple[str, str], BatchTarget] = {}
-    for source_id, state, external_id in rows:
+    for job_id, source_id, state, external_id in rows:
         name = external_id.rsplit("/", 1)[-1]
+        if (job_id, name) in completed:
+            continue
         targets[(source_id, name)] = BatchTarget(
             job_source_id=source_id,
             external_id=name,

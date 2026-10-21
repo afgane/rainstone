@@ -4,6 +4,7 @@ from decimal import Decimal
 from unittest.mock import Mock
 
 from rainstone.batch_spend import batch_spend
+from rainstone.collector import batch_targets
 from rainstone.config import Settings
 from rainstone.galaxy_control import GalaxyControlError
 from rainstone.guard_cancellation import reconcile_cancellations
@@ -78,3 +79,24 @@ def test_partial_failure_retries_after_restart_and_waits_for_vm_deletion(spend_s
     gcp.list_batch_instances.return_value = []
     reconcile_cancellations(session, tenant.id, settings, galaxy, gcp)
     assert row.verified_at is not None
+
+
+def test_verified_cancellation_does_not_poll_expected_deleted_batch_record(spend_source):
+    session, tenant, owner, job, resource = spend_source
+    settings = configure(spend_source)
+    assert batch_targets(session, tenant.id, settings)
+    galaxy, gcp = clients(spend_source)
+    reconcile_cancellations(session, tenant.id, settings, galaxy, gcp)
+    assert not batch_targets(session, tenant.id, settings)
+    row = session.scalar(select(GuardCancellation).where(GuardCancellation.tenant_id == tenant.id))
+    row.cost_reconciled = False
+    session.flush()
+    assert batch_targets(session, tenant.id, settings)
+    row.cost_reconciled = True
+    row.verified_at = None
+    session.flush()
+    assert batch_targets(session, tenant.id, settings)
+    row.verified_at = START
+    row.project = "another-project"
+    session.flush()
+    assert batch_targets(session, tenant.id, settings)

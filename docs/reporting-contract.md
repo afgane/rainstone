@@ -649,3 +649,30 @@ rechecks the active policy and source before destructive calls. Jobs that
 have moved to a server destination are not cancelled. Disabling a guard
 does not undo already sent requests; their cleanup continues to be checked.
 No provider write permission is added to Rainstone.
+
+The limit page is addressed by `view=limit`, preserving the report period
+and filters for returning to a report. The masthead shows the current
+policy independently of the report's selected period. Overview's limit
+progress is separately labelled as recorded Batch history and is never
+combined with its period headline or the Galaxy VM cost. Configuration
+requires an explicit stop-or-finish choice and a separate confirmation.
+Limits accept up to twelve whole-number digits and two fractional digits,
+matching database precision. Concurrent policy saves have one winner;
+other writers receive 409 and must reload the saved revision.
+
+Source replacement is refused while the old enrolled source has an active
+limit. Turn it off explicitly before re-enrolling; a new fact namespace
+must not silently reset an active guard. The old policy and audit history
+remain with the archived source.
+
+Verified guard cancellations with reconciled final cost are no longer
+polled as Batch targets: Galaxy has deleted those provider records, so
+their absence is expected. Cleanup with incomplete cost evidence continues
+to be checked; it is not treated as complete accounting.
+
+Galaxy must also handle a dynamic mapper deferring a resubmission without
+aborting the handler's poll. Validation on 26.2.rc1 exposed that upstream
+prerequisite: catch `JobNotReadyException` around resubmission destination
+recovery, retaining the retry and continuing with other ready jobs. The
+reusable correction is prepared in the Galaxy repository; a release must
+include it before enabling the guard on a fresh deployment.
