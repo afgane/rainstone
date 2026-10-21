@@ -47,6 +47,34 @@ class GalaxyControl:
         except (httpx.RequestError, ValueError):
             raise GalaxyControlError("Galaxy did not return a valid response") from None
 
+    def owner_id(self, username: str) -> str:
+        users = self.request("GET", "users", params={"f_name": username})
+        matches = [user for user in users if user.get("username") == username]
+        if len(matches) != 1:
+            raise GalaxyControlError("The configured Galaxy account could not be resolved")
+        return matches[0]["id"]
+
+    def outstanding_batch_jobs(self) -> list[dict]:
+        result = self.request("GET", "jobs", params={
+            "view": "admin_job_list", "search": "runner:gcp_batch",
+            "state": ["new", "queued", "running", "resubmitted", "waiting"],
+            "limit": 100, "offset": 0, "order_by": "create_time",
+        })
+        if not isinstance(result, list):
+            raise GalaxyControlError("Galaxy returned invalid jobs")
+        return result
+
+    def cancel_job(self, encoded_id: str, external_id: str) -> bool:
+        # A resubmission may have moved to the server since target discovery.
+        current = self.request("GET", f"jobs/{encoded_id}")
+        if current.get("job_runner_name") != "gcp_batch" or current.get("external_id") != external_id:
+            return False
+        if current.get("state") in {"ok", "error", "deleted", "deleting", "failed", "cancelled"}:
+            return False
+        return bool(self.request("DELETE", f"jobs/{encoded_id}", json={
+            "message": "Stopped because the Batch spend limit was reached.",
+        }))
+
     def broadcasts(self) -> list[dict]:
         result = self.request("GET", "notifications/broadcast")
         if not isinstance(result, list) or any(not isinstance(item, dict) or not isinstance(item.get("id"), str) for item in result):

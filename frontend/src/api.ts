@@ -1097,10 +1097,13 @@ export interface SpendGuard {
   margin: string;
   snapshot: BatchSpendSnapshot;
   stale: boolean;
+  cancellation_checked_at: string | null;
+  cancellation_error: string | null;
   cancellations: GuardCancellation[];
   notifications: { condition: string; error: string | null }[];
 }
 export interface GuardCancellation {
+  cost_reconciled: boolean;
   job_id: string;
   requested_at: string | null;
   verified_at: string | null;

@@ -608,6 +608,9 @@ class Collector:
 
                     client = GalaxyControl(self._settings)
                     try:
+                        from rainstone.guard_cancellation import reconcile_cancellations
+
+                        reconcile_cancellations(session, self._tenant_id, self._settings, client, HttpGcpClient())
                         reconcile_notifications(session, guard, self._settings, client)
                         session.commit()
                     finally:

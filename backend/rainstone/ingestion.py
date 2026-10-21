@@ -67,6 +67,7 @@ TIMING_PRECEDENCE = {
     "provider_billable": 50,
     "compute_instance_timestamps": 40,
     "compute_insert_complete_to_delete_request": 35,
+    "compute_absence_after_cancellation": 30,
     "kubernetes_pod_occupancy": 25,
     "batch_task_events": 15,
     "configured_baseline_occupancy": 10,

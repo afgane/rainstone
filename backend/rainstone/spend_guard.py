@@ -10,7 +10,14 @@ from sqlalchemy.orm import Session
 
 from rainstone.batch_spend import BatchSpend, batch_spend, utcnow
 from rainstone.config import Settings
-from rainstone.models import GuardAudit, GuardNotification, SpendGuard, Tenant
+from rainstone.models import (
+    GuardAudit,
+    GuardCancellation,
+    GuardControlStatus,
+    GuardNotification,
+    SpendGuard,
+    Tenant,
+)
 
 
 class PolicyConflict(ValueError):
@@ -85,6 +92,7 @@ def status(session: Session, tenant_id: uuid.UUID, owner_id: uuid.UUID, settings
     snapshot = batch_spend(session, tenant_id, owner_id)
     guard = session.get(SpendGuard, tenant_id)
     same_source = guard is None or guard.enrollment == snapshot.enrollment
+    control = session.get(GuardControlStatus, tenant_id)
     return {
         "revision": guard.revision if guard else 0,
         "limit": str(guard.amount) if guard and guard.amount is not None else None,
@@ -94,7 +102,13 @@ def status(session: Session, tenant_id: uuid.UUID, owner_id: uuid.UUID, settings
         "margin": str(margin(snapshot, settings, now)),
         "snapshot": snapshot.payload(now),
         "stale": snapshot.observed_at is None or snapshot.data_age(now) > settings.guard_stale_seconds,
-        "cancellations": [],
+        "cancellation_checked_at": control.checked_at if control else None,
+        "cancellation_error": control.error if control and guard and guard.triggered_at and guard.stop_jobs else None,
+        "cancellations": [{"job_id": str(row.job_id), "requested_at": row.requested_at,
+                           "verified_at": row.verified_at, "attempts": row.attempts, "error": row.error,
+                           "cost_reconciled": row.cost_reconciled}
+                          for row in session.scalars(select(GuardCancellation).where(
+                              GuardCancellation.tenant_id == tenant_id))],
         "notifications": [{"condition": row.condition, "error": row.error}
                           for row in session.scalars(select(GuardNotification).where(
                               GuardNotification.tenant_id == tenant_id))],
