@@ -1098,6 +1098,7 @@ export interface SpendGuard {
   snapshot: BatchSpendSnapshot;
   stale: boolean;
   cancellations: GuardCancellation[];
+  notifications: { condition: string; error: string | null }[];
 }
 export interface GuardCancellation {
   job_id: string;
