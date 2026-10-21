@@ -577,3 +577,41 @@ sanitized for download through the normal authenticated route.
 report requested now would be pinned to, or null while changed facts await
 recalculation. It is cheap to read, so an open page polls it to learn that
 newer figures exist without asking for the report itself.
+
+## Batch spend guard
+
+The optional guard is available to the fixed `anvil-workspace` identity and
+fixture development identities, never trusted-proxy multi-user deployments.
+`GET /api/spend-guard` returns the current policy and cumulative Batch
+snapshot. `PUT /api/spend-guard` accepts `revision`, `limit` (a positive USD
+amount with at most two decimals, or null to disable), and `stop_jobs`.
+Revision 0 creates the first policy; stale revisions return 409. Activation
+and edits validate against the latest recorded snapshot, including accrued
+cost before activation. Unknown cost cannot be represented as zero.
+
+The response mirrors `SpendGuard` in `frontend/src/api.ts`. It includes the
+policy revision, limit, stop choice, latched trigger time, source-change
+flag, current margin, stale-data flag and cancellation progress. Its
+`snapshot` contains `amount` (nullable decimal string), `hourly_rate`,
+`observed_at`, `coverage_start`, `generation`, `enrollment`,
+`data_age_seconds`, `incomplete_jobs`, `unpriced_running_resources` and
+`gaps`. Timestamps are UTC instants or null; rates are USD/hour. The amount
+is the known subtotal when coverage is partial, or null when Batch work
+exists but none can be priced. An empty observed history has amount zero.
+
+The snapshot covers only Batch compute attributable to the fixed owner's
+Galaxy jobs in the enrolled deployment. It counts VM lifetimes once across
+retries and uses the same prices and minimum billing as reports. Active
+lifetimes accrue through the observation cutoff without closing source
+facts. Closed lifetimes reconcile with job reports. Neither the host cost
+nor browser report dates enter the guard total. History extends only as
+far back as the collected evidence, with its start and gaps explicit.
+
+The trigger margin is the greater of $0.25 and the current running-VM
+hourly rate multiplied by reaction time plus snapshot age. The default
+reaction time is 300 seconds. The collector evaluates after collection and
+while waiting for sources, so age continues to grow during source errors.
+Missing data alone does not pause or cancel jobs. A triggered policy stays
+triggered until its limit is raised or disabled; corrections do not resume
+it. Control changes and trigger decisions are audited with policy revision
+and source identity.
