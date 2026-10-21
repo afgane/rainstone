@@ -220,6 +220,28 @@ class HttpGcpClient:
             if not page_token:
                 return tasks
 
+    def list_batch_instances(self, project: str, job_id: str, uid: str | None = None) -> list[dict]:
+        """Verify cleanup by provider labels, including VMs not yet in task events."""
+        result = []
+        page_token = None
+        while True:
+            params = {"filter": f'labels.batch-job-uid = "{uid}"' if uid else f'labels.batch-job-id = "{job_id}"',
+                      "returnPartialSuccess": "true"}
+            if page_token:
+                params["pageToken"] = page_token
+            payload = self._get(f"https://compute.googleapis.com/compute/v1/projects/{project}/aggregated/instances",
+                                params, operation="compute.instances.list")
+            if payload is None or payload.get("warning", {}).get("code") not in {None, "NO_RESULTS_ON_PAGE"}:
+                raise CloudAccessDenied("compute.instances.list", "Complete inventory unavailable")
+            for group in payload.get("items", {}).values():
+                warning = group.get("warning", {}).get("code")
+                if warning and warning != "NO_RESULTS_ON_PAGE":
+                    raise CloudAccessDenied("compute.instances.list", "Incomplete zone inventory")
+                result.extend(group.get("instances", []))
+            page_token = payload.get("nextPageToken")
+            if not page_token:
+                return result
+
     def get_instance(self, project: str, zone: str, instance_id: str) -> dict | None:
         return self._get(
             "https://compute.googleapis.com/compute/v1/"

@@ -1,0 +1,22 @@
+"""Record when outstanding Batch jobs were last checked.
+
+Revision ID: 0005
+Revises: 0004
+"""
+import sqlalchemy as sa
+from alembic import op
+
+revision = "0005"
+down_revision = "0004"
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    columns = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("guard_control_status")}
+    if "checked_at" not in columns:
+        op.add_column("guard_control_status", sa.Column("checked_at", sa.DateTime(timezone=True)))
+
+
+def downgrade() -> None:
+    op.drop_column("guard_control_status", "checked_at")

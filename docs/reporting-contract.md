@@ -633,3 +633,19 @@ collector reconciles source-marked active broadcasts to recover a lost
 POST response without duplicating notices. Resuming or disabling expires
 them through Galaxy; errors remain visible and retry with bounded backoff.
 Only the collector receives the administrator API key.
+
+`cancellation_error` reports a sanitized failure to discover outstanding
+Batch jobs. Each `cancellations` entry has the Rainstone `job_id`,
+`requested_at`, `verified_at`, `attempts`, `error` and `cost_reconciled`.
+Accepted Galaxy cancellation does not imply cleanup: verification checks
+Batch state and Compute instances, including the provider's Batch labels.
+Preserved observations and later deletion evidence feed the same cost
+calculation as reports. If deletion timing is unavailable, observed VM
+absence bounds the estimate and is explicitly recorded as an upper bound;
+cleanup may be verified while final cost evidence is still pending.
+
+The collector durably records cancellation intent before sending it and
+rechecks the active policy and source before destructive calls. Jobs that
+have moved to a server destination are not cancelled. Disabling a guard
+does not undo already sent requests; their cleanup continues to be checked.
+No provider write permission is added to Rainstone.

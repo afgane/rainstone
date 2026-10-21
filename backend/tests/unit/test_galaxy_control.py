@@ -34,3 +34,17 @@ def test_admin_broadcast_listing_excludes_expired_and_scheduled_notices():
         assert [item["id"] for item in client.broadcasts()] == ["active"]
     finally:
         client.close()
+
+
+def test_job_that_moved_to_server_is_not_cancelled():
+    calls = []
+    def handler(request):
+        calls.append(request.method)
+        return httpx.Response(200, json={"job_runner_name": "k8s", "external_id": "local", "state": "running"})
+    client = GalaxyControl(Settings(guard_galaxy_url="http://galaxy", guard_galaxy_api_key="test"),
+                           transport=httpx.MockTransport(handler))
+    try:
+        assert client.cancel_job("encoded-job", "test-batch") is False
+        assert calls == ["GET"]
+    finally:
+        client.close()

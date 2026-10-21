@@ -18,7 +18,7 @@ from rainstone.models import (
     ResourceLifetime,
     Tenant,
 )
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 START = datetime(2026, 9, 20, tzinfo=UTC)
@@ -40,12 +40,13 @@ def spend_source():
         session.add(IngestionState(id=uuid.uuid4(), tenant_id=tenant.id, source="gcp_batch",
                                    status="ok", last_success_at=START + timedelta(hours=1)))
         resource = ResourceLifetime(id=uuid.uuid4(), tenant_id=tenant.id, provider="gcp",
-                                    resource_key="test-vm", resource_uid="1", region="test",
+                                    resource_key="test-vm", resource_uid="1", region="test", project="test-project", zone="test-a",
                                     machine_type="test-vm", purchase_model="on_demand",
                                     capacity_relationship=CapacityRelationship.dedicated,
                                     observed_start=START, timing_method="provider_billable", facts={})
         session.add(resource)
-        session.add(PriceVersion(id=uuid.uuid4(), catalog_id=str(uuid.uuid4()), provider="gcp",
+        price_id = uuid.uuid4()
+        session.add(PriceVersion(id=price_id, catalog_id=str(uuid.uuid4()), provider="gcp",
                                  region="test", machine_type="test-vm", purchase_model="on_demand",
                                  currency="USD", hourly_rate=Decimal("2"), observed_at=START,
                                  effective_from=START, provenance={}))
@@ -59,6 +60,9 @@ def spend_source():
         session.flush()
         yield session, tenant, owner, job, resource
         session.rollback()
+        session.execute(delete(Tenant).where(Tenant.id == tenant.id))
+        session.execute(delete(PriceVersion).where(PriceVersion.id == price_id))
+        session.commit()
 
 
 def test_active_accrual_deduplicates_retries_and_reconciles_when_closed(spend_source):

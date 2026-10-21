@@ -566,3 +566,32 @@ class GuardNotification(Base):
     error: Mapped[str | None] = mapped_column(String(200))
     retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     attempts: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class GuardCancellation(Base):
+    __tablename__ = "guard_cancellation"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"))
+    job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("job.id", ondelete="CASCADE"))
+    revision: Mapped[int] = mapped_column(Integer)
+    galaxy_id: Mapped[str] = mapped_column(String(100))
+    external_id: Mapped[str] = mapped_column(String(500))
+    project: Mapped[str] = mapped_column(String(200))
+    location: Mapped[str] = mapped_column(String(100))
+    requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(String(200))
+    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    cost_reconciled: Mapped[bool] = mapped_column(Boolean, default=False)
+    __table_args__ = (UniqueConstraint("tenant_id", "job_id", "external_id"),)
+
+
+class GuardControlStatus(Base):
+    __tablename__ = "guard_control_status"
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), primary_key=True)
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error: Mapped[str | None] = mapped_column(String(200))
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
