@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/spend-guard", tags=["spend-guard"])
 
 class GuardPolicy(BaseModel):
     revision: int = Field(ge=0)
-    limit: Decimal | None = Field(default=None, gt=0, max_digits=24, decimal_places=2)
+    limit: Decimal | None = Field(default=None, gt=0, max_digits=14, decimal_places=2)
     stop_jobs: bool
 
 

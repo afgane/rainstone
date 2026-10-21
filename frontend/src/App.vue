@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CalendarRange, CircleDollarSign, Filter, RefreshCw } from "@lucide/vue";
+import { CalendarRange, CircleDollarSign, Filter, Pause, RefreshCw } from "@lucide/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import {
   ADVANCED_FILTERS, ApiError, activeFilters, chartsNeeded, collectionUpdate, DEFAULT_RANKING,
@@ -8,7 +8,7 @@ import {
   urlQuery, WINDOW_PAGE_SIZE,
   type AdvancedFilter, type CostPiece, type CostTimeline, type DailyItem, type DrawerKind, type Freshness,
   type GroupItem, type Infrastructure, type JobCharts, type JobList, type JobsChart, type Me,
-  type ReportState, type RunsView, type RunStatus, type Status, type Summary, type ToolRanking, type View,
+  type ReportState, type RunsView, type RunStatus, type SpendGuard, type Status, type Summary, type ToolRanking, type View,
 } from "./api";
 import DetailDrawer from "./components/DetailDrawer.vue";
 import JobsPage from "./components/jobs/JobsPage.vue";
@@ -18,12 +18,14 @@ import PageFilters from "./components/runs/PageFilters.vue";
 import RunsPage from "./components/runs/RunsPage.vue";
 import ServerPanel from "./components/ServerPanel.vue";
 import StatusPanel from "./components/StatusPanel.vue";
+import SpendLimitPage from "./components/SpendLimitPage.vue";
+import { readGuard } from "./spendGuard";
 import { parseWindowId, windowId, windowLabel, type JobWindow } from "./jobsView";
 import {
   intervalNoun, intervalTitle, overviewId, overviewParams, parseOverviewId,
 } from "./overviewDetail";
 import { describePeriod, PERIOD_LABELS, periodRange, todayIn, type PeriodId } from "./periods";
-import { formatCost, formatDate, formatDateTime, nowInUtc, PRIMARY_MEASURE, RUN_SORTS } from "./vocabulary";
+import { batchLimitLabel, formatCost, formatDate, formatDateTime, nowInUtc, PRIMARY_MEASURE, RUN_SORTS } from "./vocabulary";
 
 const TITLES: Record<View, string> = {
   overview: "Overview",
@@ -33,9 +35,41 @@ const TITLES: Record<View, string> = {
   users: "Galaxy accounts",
   server: "Galaxy server",
   status: "Status",
+  limit: "Batch spend limit",
 };
 
 const state = reactive<ReportState>(stateFromUrl(location.search));
+const guard = ref<SpendGuard | null>(null);
+const guardError = ref("");
+const guardLabel = computed(() => guard.value ? batchLimitLabel(guard.value) : "");
+const limitHref = computed(() => `?${urlQuery({ ...state, view: "limit" })}`);
+let guardTimer = 0;
+let guardGeneration = 0;
+let guardDisabled = false;
+let guardController: AbortController | null = null;
+async function loadGuard() {
+  guardController?.abort();
+  guardController = new AbortController();
+  const mine = ++guardGeneration;
+  try {
+    const loaded = await readGuard(guardController.signal);
+    if (mine === guardGeneration) { guardDisabled = false; guard.value = loaded; guardError.value = ""; }
+  } catch (reason) {
+    if ((reason as Error).name === "AbortError" || mine !== guardGeneration) return;
+    if (reason instanceof ApiError && reason.status === 404) {
+      guardDisabled = true;
+      guard.value = null;
+      guardError.value = "Batch spend limits are not available on this deployment.";
+    } else guardError.value = "Batch limit status is unavailable. The last recorded state may be out of date.";
+  }
+}
+function savedGuard(saved: SpendGuard) {
+  guardGeneration += 1;
+  guardController?.abort();
+  guard.value = saved; guardError.value = "";
+}
+watch(() => state.view, view => { if (view === "limit") void loadGuard(); });
+
 const summary = ref<Summary | null>(null);
 const jobs = ref<Pick<JobList, "items" | "undated_items" | "total" | "limit">>({
   items: [], undated_items: [], total: 0, limit: 50,
@@ -125,7 +159,7 @@ const filters = computed(() => activeFilters(state));
 // Fixture and imported data have fixed dates; an empty period offers to jump to them.
 const recordedDates = computed(() => {
   const window = summary.value?.demo_period;
-  if (!window || summary.value?.job_count || ["server", "status"].includes(state.view)) return "";
+  if (!window || summary.value?.job_count || ["server", "status", "limit"].includes(state.view)) return "";
   const from = formatDate(window.from, state.timezone);
   const to = formatDate(window.to, state.timezone);
   return from === to ? from : `${from} – ${to}`;
@@ -874,12 +908,16 @@ onMounted(() => {
   window.addEventListener("keydown", onKey);
   document.addEventListener("visibilitychange", onVisibility);
   checkTimer = window.setInterval(() => void checkForNewer(), CHECK_INTERVAL_MS);
+  void loadGuard();
+  guardTimer = window.setInterval(() => { if (document.visibilityState === "visible" && !guardDisabled) void loadGuard(); }, 15_000);
   clockTimer = window.setInterval(() => { now.value = new Date(); }, 30_000);
   void refresh();
   detailFromUrl();
 });
 onBeforeUnmount(() => {
   controller?.abort();
+  guardController?.abort();
+  window.clearInterval(guardTimer);
   window.clearInterval(checkTimer);
   window.clearInterval(clockTimer);
   window.removeEventListener("popstate", onPopState);
@@ -892,6 +930,14 @@ onBeforeUnmount(() => {
   <header class="masthead">
     <div class="masthead-inner">
       <div class="brand"><CircleDollarSign :size="28" aria-hidden="true" /><span>Rainstone</span></div>
+      <a
+        v-if="guard" class="guard-masthead" :href="limitHref"
+        :data-triggered="Boolean(guard.triggered_at) && !guard.source_changed"
+        :aria-current="state.view === 'limit' ? 'page' : undefined"
+        @click.prevent="changeView('limit')"
+      ><Pause v-if="guard.triggered_at && !guard.source_changed" :size="18" aria-hidden="true" />
+        <span>{{ guardLabel }}<small v-if="guardError">Status may be out of date</small></span>
+      </a>
       <span v-if="summary?.demo" class="demo-badge">Demo data · synthetic scenarios included</span>
       <span v-else-if="summary?.imported_snapshot" class="demo-badge">
         Imported snapshot{{ summary.imported_snapshot.captured_at
@@ -903,8 +949,8 @@ onBeforeUnmount(() => {
 
   <div class="shell">
     <button class="drawer-toggle" :aria-expanded="drawerOpen" @click="drawerOpen = !drawerOpen">
-      <Filter :size="18" aria-hidden="true" /> {{ state.view === 'server' ? 'Navigation' : 'Filters' }}
-      <span v-if="filters.length && state.view !== 'server'" class="count">{{ filters.length }}</span>
+      <Filter :size="18" aria-hidden="true" /> {{ ['server', 'status', 'limit'].includes(state.view) ? 'Navigation' : 'Filters' }}
+      <span v-if="filters.length && !['server', 'status', 'limit'].includes(state.view)" class="count">{{ filters.length }}</span>
     </button>
     <div class="sidebar-wrap" :data-open="drawerOpen">
       <ReportSidebar
@@ -952,20 +998,25 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </div>
-      <div v-if="error" class="error" role="alert">
+      <div v-if="error && state.view !== 'limit'" class="error" role="alert">
         <strong>Reporting data unavailable.</strong> {{ error }}
       </div>
-      <div v-if="loading && !keepPrevious" class="loading" aria-live="polite">
+      <div v-if="loading && !keepPrevious && state.view !== 'limit'" class="loading" aria-live="polite">
         <RefreshCw class="spin" :size="18" /> Loading…
       </div>
 
+      <SpendLimitPage
+        v-if="state.view === 'limit'" :guard="guard" :error="guardError" :timezone="state.timezone"
+        @saved="savedGuard" @reload="loadGuard"
+      />
       <div
-        v-if="summary && (!loading || keepPrevious)" :class="{ refetching: keepPrevious }"
+        v-if="state.view !== 'limit' && summary && (!loading || keepPrevious)" :class="{ refetching: keepPrevious }"
         :aria-busy="keepPrevious"
       >
         <OverviewPanel
           v-if="state.view === 'overview' && costTimeline"
           :state="state" :summary="summary" :timeline="costTimeline" :open-block="openBlock"
+          :guard="guard" :limit-href="limitHref"
           :welcome="Boolean(welcomeKey) && !welcomeDismissed" :guide-open="detailKind === 'guide'"
           @view="changeView" @block="openBlockDrawer" @explore="explorePeriod"
           @guide="openOverviewGuide" @dismiss-welcome="dismissOverviewWelcome"
@@ -1046,7 +1097,7 @@ onBeforeUnmount(() => {
         </section>
 
 
-        <div v-if="!['status', 'server'].includes(state.view)" class="snapshot">
+        <div v-if="!['status', 'server', 'limit'].includes(state.view)" class="snapshot">
           {{ PRIMARY_MEASURE }} · {{ describePeriod(period, state.timezone) }} ·
           <span :class="{ stale: collection.stale }">
             {{ collection.lastUpdate

@@ -696,3 +696,25 @@ export const JOB_SORTS: Array<{ id: string; label: string; sort: string; directi
   { id: "tool", label: "Tool name", sort: "tool_id", direction: "asc" },
   { id: "status", label: "Status", sort: "state", direction: "asc" },
 ];
+
+export const BATCH_LIMIT_SCOPE =
+  "Batch compute only. Excludes the Galaxy server, storage and network costs. The Galaxy server keeps running.";
+export const BATCH_LIMIT_BEST_EFFORT =
+  "This is best effort. Final spending may exceed your limit.";
+export const BATCH_FINISH_EFFECT =
+  "Let jobs already on Batch finish. They keep adding costs and spending may go over the limit without an upper bound.";
+export const BATCH_STOP_EFFECT =
+  "Stop jobs already on Batch. Their work is lost and is not restarted. Workflow runs containing stopped jobs stay failed.";
+
+export function batchLimitLabel(guard: import("./api").SpendGuard): string {
+  if (guard.source_changed) return "Batch limit needs attention";
+  if (guard.limit === null) return "Set a Batch spend limit";
+  if (guard.triggered_at) return "New Batch jobs paused";
+  return `Batch limit ${formatCost(guard.limit)} · ${formatCost(guard.snapshot.amount)} recorded`;
+}
+
+export function batchLimitProgress(guard: import("./api").SpendGuard): string {
+  if (guard.source_changed) return "The enrolled Galaxy source changed. Review your Batch limit.";
+  if (guard.triggered_at) return "New Batch jobs are paused. Jobs that fit on your Galaxy server still run.";
+  return `${formatCost(guard.snapshot.amount)} of your ${formatCost(guard.limit)} Batch limit recorded so far`;
+}

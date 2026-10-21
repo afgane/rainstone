@@ -50,7 +50,7 @@ const searchLabel = computed(() =>
     : props.state.view === "tool-runs" ? "Find a job"
       : "Search your work");
 // Server sessions and deployment status do not use report dates or job filters.
-const showControls = computed(() => !["server", "status"].includes(props.state.view));
+const showControls = computed(() => !["server", "status", "limit"].includes(props.state.view));
 </script>
 
 <template>

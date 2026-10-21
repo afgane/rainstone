@@ -57,3 +57,12 @@ def test_latch_survives_session_reload_and_raising_limit(spend_source):
     with patch("rainstone.spend_guard.utcnow", return_value=START + timedelta(hours=1)):
         raised = configure(spend_source, "100", revision=1)
     assert raised.triggered_at is None
+
+
+def test_replacing_source_cannot_silently_reset_an_active_guard(spend_source):
+    from rainstone.enrollment import SourceReplacementDetected, ensure_enrollment
+
+    session, tenant, owner, job, resource = spend_source
+    configure(spend_source, "100")
+    with pytest.raises(SourceReplacementDetected, match="Turn off the Batch spend limit"):
+        ensure_enrollment(session, Settings(tenant_slug=tenant.slug), None, None, reenroll=True)

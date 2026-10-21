@@ -48,3 +48,18 @@ def test_multiuser_deployments_cannot_enable_guard(client):
         assert response.status_code == 404
     finally:
         app.dependency_overrides.pop(get_settings, None)
+
+
+def test_concurrent_policy_updates_have_one_winner(guard_api):
+    from concurrent.futures import ThreadPoolExecutor
+
+    payload = {"revision": 0, "limit": "100", "stop_jobs": False}
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(lambda _: guard_api.put("/api/spend-guard", json=payload), range(2)))
+    assert sorted(response.status_code for response in responses) == [200, 409]
+    assert guard_api.get("/api/spend-guard").json()["revision"] == 1
+
+
+def test_limit_validation_matches_database_precision(guard_api):
+    response = guard_api.put("/api/spend-guard", json={"revision": 0, "limit": "1000000000000.00", "stop_jobs": False})
+    assert response.status_code == 422
