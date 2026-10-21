@@ -5,6 +5,7 @@ from pathlib import Path
 from rainstone.adapters.gcp_batch import (
     BatchCollector,
     BatchTarget,
+    CloudAccessDenied,
     _instance_from_compute,
     _lifecycle_bounds,
     normalize_batch_job,
@@ -42,7 +43,7 @@ class FakeGcpClient:
             return self._instance
         return None
 
-    def instance_lifecycle_entries(self, project: str, instance_id: str, *, after=None) -> list:
+    def instance_lifecycle_entries(self, project: str, instance_id: str, *, after=None, before=None) -> list:
         return self._entries
 
 
@@ -260,3 +261,214 @@ def test_provisioning_model_is_translated_into_catalog_vocabulary() -> None:
     # An unfamiliar model keeps the provider's own word, so it reads as
     # unpriced rather than being charged at a rate it may not deserve.
     assert catalog_purchase_model("RESERVATION_BOUND") == "reservation_bound"
+
+
+def test_logging_query_has_explicit_window_and_oldest_first():
+    from datetime import UTC, datetime
+
+    from rainstone.adapters.gcp_batch import HttpGcpClient
+
+    client = HttpGcpClient(token_provider=lambda: "token")
+    payloads = []
+    client._post = lambda url, payload, **kwargs: payloads.append(payload) or {}
+    client.instance_lifecycle_entries("project", "123", after=datetime(2026, 1, 1, tzinfo=UTC),
+                                      before=datetime(2026, 1, 2, tzinfo=UTC))
+    assert 'timestamp>="2026-01-01T00:00:00+00:00"' in payloads[0]["filter"]
+    assert 'timestamp<="2026-01-02T00:00:00+00:00"' in payloads[0]["filter"]
+    assert payloads[0]["orderBy"] == "timestamp asc"
+
+
+def test_complete_terminal_lifetimes_skip_enrichment_but_incomplete_ones_retry():
+    from dataclasses import replace
+
+    job = load("batch-job-retry.json")
+    calls = []
+
+    class Client(FakeGcpClient):
+        def get_instance(self, *args):
+            calls.append("compute")
+            return None
+
+        def instance_lifecycle_entries(self, *args, after=None, before=None):
+            assert after is not None and before is not None
+            calls.append("logging")
+            return load("logging-entries.json")
+
+    target = BatchTarget("336", "job", "demo-project", "us-east4")
+    client = Client(jobs={"job": job})
+    collector = BatchCollector(client, lambda: [target])
+    first = collector.collect({})
+    lifetime = first.attempts[0].lifetimes[0]
+    assert lifetime.observed_start and lifetime.observed_end
+    target = replace(target, completed_lifetimes=(lifetime,))
+    calls.clear()
+    second = collector.collect(first.cursor)
+    assert not calls
+    assert second.attempts[0].lifetimes[0] == lifetime
+    target = replace(target, completed_lifetimes=())
+    collector.collect(second.cursor)
+    assert calls == ["compute", "logging"]
+
+
+def test_logging_throttling_degrades_only_enrichment():
+    from urllib.error import HTTPError
+
+    class Client(FakeGcpClient):
+        def instance_lifecycle_entries(self, *args, **kwargs):
+            raise HTTPError("https://logging.invalid", 429, "Too Many Requests", {}, None)
+
+    job = load("batch-job-retry.json")
+    batch = BatchCollector(Client(jobs={"job": job}), lambda: [
+        BatchTarget("336", "job", "demo-project", "us-east4"),
+    ]).collect({})
+    assert len(batch.attempts) == 2
+    assert batch.gaps[0].kind == "cloud_enrichment_throttled"
+    assert batch.gaps[0].recoverable
+    assert batch.metrics["observed"] == 1
+
+
+def test_time_budget_advances_only_processed_targets_and_alternates_groups():
+    now = [0]
+    seen = []
+
+    class Client(FakeGcpClient):
+        def get_batch_job(self, project, location, job_id):
+            seen.append(job_id)
+            now[0] += 10
+            return None
+
+    collector = BatchCollector(Client(jobs={}), lambda: targets(3, terminal=3),
+                               budget_seconds=5, monotonic=lambda: now[0])
+    cursor = {}
+    for _ in range(6):
+        batch = collector.collect(cursor)
+        assert batch.metrics["observed"] == 1
+        cursor = batch.cursor
+    assert seen == ["job-a0", "job-t0", "job-a1", "job-t1", "job-a2", "job-t2"]
+
+
+def test_expired_budget_mid_target_keeps_prior_progress_and_revisits_target():
+    from rainstone.adapters.gcp_batch import CollectionBudgetExpired
+
+    class Client(FakeGcpClient):
+        def get_batch_job(self, project, location, job_id):
+            if job_id == "job-a1":
+                raise CollectionBudgetExpired()
+            return None
+
+    batch = BatchCollector(Client(jobs={}), lambda: targets(3)).collect({})
+    assert batch.cursor["active_offset"] == 1
+    assert batch.metrics["observed"] == 1
+    assert batch.metrics["budget_exhausted"]
+
+
+def test_http_request_metrics_include_failed_requests(monkeypatch):
+    import urllib.error
+
+    from rainstone.adapters.gcp_batch import HttpGcpClient
+
+    def missing(request, **kwargs):
+        raise urllib.error.HTTPError("https://compute.invalid", 404, "Not Found", {}, None)
+
+    monkeypatch.setattr("urllib.request.urlopen", missing)
+    client = HttpGcpClient(token_provider=lambda: "secret")
+    assert client.get_instance("project", "zone", "123") is None
+    assert client.request_metrics["compute.instances.get"]["count"] == 1
+    assert client.request_metrics["compute.instances.get"]["total_ms"] >= 0
+
+
+def test_budget_during_enrichment_retains_task_evidence_for_retry():
+    from rainstone.adapters.gcp_batch import CollectionBudgetExpired
+
+    class Client(FakeGcpClient):
+        def get_instance(self, *args):
+            raise CollectionBudgetExpired()
+
+    job = load("batch-job-retry.json")
+    batch = BatchCollector(Client(jobs={"job": job}), lambda: [
+        BatchTarget("336", "job", "demo-project", "us-east4"),
+    ]).collect({})
+    assert len(batch.attempts) == 2
+    assert batch.metrics["observed"] == 1
+    assert batch.gaps[0].kind == "cloud_enrichment_budget_exhausted"
+    assert batch.metrics["budget_exhausted"]
+    assert batch.gaps[0].recoverable
+    assert batch.attempts[0].lifetimes[0].facts["missing_provisioning_overhead"]
+
+
+def test_target_that_exceeds_the_whole_budget_records_a_gap_and_advances():
+    from rainstone.adapters.gcp_batch import CollectionBudgetExpired
+
+    class Client(FakeGcpClient):
+        def get_batch_job(self, project, location, job_id):
+            if job_id == "job-a0":
+                raise CollectionBudgetExpired()
+            return None
+
+    collector = BatchCollector(Client(jobs={}), lambda: targets(3))
+    first = collector.collect({})
+    assert first.cursor["active_offset"] == 1
+    assert first.metrics["budget_exhausted"]
+    assert first.gaps[0].kind == "batch_target_budget_exhausted"
+    assert "Galaxy job a0" in first.gaps[0].detail
+    assert first.gaps[0].recoverable
+    second = collector.collect(first.cursor)
+    assert second.metrics["observed"] == 2
+
+
+def two_vm_job() -> dict:
+    """The retry fixture with its second attempt on a different VM."""
+    job = load("batch-job-retry.json")
+    events = job["tasks"][0]["status"]["statusEvents"]
+    retried = next(index for index, event in enumerate(events) if event["type"] == "RETRIED")
+    for event in events[retried + 1:]:
+        event["description"] = event["description"].replace("8649021727128195799", "8649021727128195800")
+    return job
+
+
+def test_denied_enrichment_records_one_gap_per_job():
+    calls = []
+
+    class Client(FakeGcpClient):
+        def get_instance(self, *args):
+            calls.append("compute")
+            raise CloudAccessDenied("compute.instances.get", "Forbidden")
+
+    job = two_vm_job()
+    batch = BatchCollector(Client(jobs={"job": job}), lambda: [
+        BatchTarget("336", "job", "demo-project", "us-east4"),
+    ]).collect({})
+    assert len(calls) == 1
+    assert len({lifetime.resource_key for attempt in batch.attempts for lifetime in attempt.lifetimes}) == 2
+    assert [gap.kind for gap in batch.gaps] == ["cloud_enrichment_denied"]
+    assert "Galaxy job 336" in batch.gaps[0].detail
+
+
+def test_logging_throttling_stops_logging_reads_for_the_job():
+    from urllib.error import HTTPError
+
+    calls = []
+
+    class Client(FakeGcpClient):
+        def instance_lifecycle_entries(self, *args, **kwargs):
+            calls.append("logging")
+            raise HTTPError("https://logging.invalid", 429, "Too Many Requests", {}, None)
+
+    job = two_vm_job()
+    batch = BatchCollector(Client(jobs={"job": job}), lambda: [
+        BatchTarget("336", "job", "demo-project", "us-east4"),
+    ]).collect({})
+    assert len(calls) == 1
+    assert [gap.kind for gap in batch.gaps] == ["cloud_enrichment_throttled"]
+
+
+def test_completed_lifetimes_are_loaded_only_for_the_terminal_page():
+    requested = []
+    collector = BatchCollector(
+        FakeGcpClient(jobs={}), lambda: targets(2, terminal=40), max_targets=5,
+        completed_lifetimes=lambda ids: requested.append(list(ids)) or {},
+    )
+    collector.collect({})
+    assert len(requested) == 1
+    assert 0 < len(requested[0]) <= 5
+    assert all(source_id.startswith("t") for source_id in requested[0])

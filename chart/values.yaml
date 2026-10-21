@@ -122,6 +122,7 @@ collector:
     location: ""
     enrichCompute: true
     enrichLogging: true
+    collectionBudgetSeconds: 60
   # The Galaxy server's hourly rate and total since its current launch. `auto`
   # observes it whenever the host is known (instanceId, or baseline.resourceUid).
   # One Compute instances.get per refresh uses the existing VM credential.
@@ -135,6 +136,8 @@ collector:
     refreshSeconds: 60
   intervalSeconds: 30
   batchRefreshSeconds: 30
+  queueSize: 64
+  workerStallSeconds: 180
   # No CPU limit: the collector works in short bursts, and a limit would only
   # throttle those while the node sits idle. The request still bounds its share
   # under contention.

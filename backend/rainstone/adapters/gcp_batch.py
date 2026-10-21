@@ -14,13 +14,15 @@ available.
 """
 
 import json
+import logging
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Protocol
 
@@ -32,6 +34,8 @@ from rainstone.adapters.contracts import (
     ObservationBatch,
 )
 from rainstone.models import CapacityRelationship
+
+logger = logging.getLogger("rainstone.adapters.gcp_batch")
 
 SOURCE_NAME = "gcp_batch"
 JOB_LABEL = "galaxy-job-id"
@@ -90,6 +94,7 @@ class BatchTarget:
     project: str
     location: str
     active: bool = False
+    completed_lifetimes: tuple[NormalizedLifetime, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -107,6 +112,10 @@ class InstanceObservation:
 
 
 class GcpClient(Protocol):
+    # Monotonic time after which requests raise CollectionBudgetExpired.
+    deadline: float | None
+    request_metrics: dict[str, dict]
+
     def get_batch_job(self, project: str, location: str, job_id: str) -> dict | None: ...
 
     def list_batch_tasks(self, job_name: str, group: str = "group0") -> list[dict]: ...
@@ -114,7 +123,7 @@ class GcpClient(Protocol):
     def get_instance(self, project: str, zone: str, instance_id: str) -> dict | None: ...
 
     def instance_lifecycle_entries(
-        self, project: str, instance_id: str, *, after: datetime | None = None
+        self, project: str, instance_id: str, *, after: datetime | None = None, before: datetime | None = None
     ) -> list[dict]: ...
 
     def probe_access(self, project: str, location: str) -> dict[str, str]: ...
@@ -130,6 +139,8 @@ class HttpGcpClient:
     def __init__(self, *, token_provider: Callable[[], str] | None = None, page_limit: int = 100):
         self._token_provider = token_provider or self._metadata_token
         self._page_limit = page_limit
+        self.deadline: float | None = None
+        self.request_metrics: dict[str, dict] = {}
 
     @staticmethod
     def _metadata_token() -> str:
@@ -139,14 +150,24 @@ class HttpGcpClient:
         with urllib.request.urlopen(request, timeout=10) as response:  # noqa: S310
             return json.load(response)["access_token"]
 
-    def _get(self, url: str, params: dict | None = None, *, operation: str = "read") -> dict | None:
-        if params:
-            url = f"{url}?{urllib.parse.urlencode(params)}"
-        request = urllib.request.Request(
-            url, headers={"Authorization": f"Bearer {self._token_provider()}"}
-        )
+    def _request(self, url: str, params: dict | None = None, *, payload: dict | None = None,
+                 operation: str = "read") -> dict | None:
+        started = time.monotonic()
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
+            remaining = self.deadline - started if self.deadline is not None else 30
+            if remaining <= 0:
+                raise CollectionBudgetExpired()
+            if params:
+                url = f"{url}?{urllib.parse.urlencode(params)}"
+            token = self._token_provider()
+            remaining = self.deadline - time.monotonic() if self.deadline is not None else 30
+            if remaining <= 0:
+                raise CollectionBudgetExpired()
+            request = urllib.request.Request(
+                url, data=json.dumps(payload).encode() if payload is not None else None,
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(request, timeout=min(30, remaining)) as response:  # noqa: S310
                 return json.load(response)
         except urllib.error.HTTPError as error:
             if error.code in {401, 403}:
@@ -154,26 +175,24 @@ class HttpGcpClient:
             if error.code == 404:
                 return None
             raise
+        except (TimeoutError, urllib.error.URLError) as error:
+            if self.deadline is not None and time.monotonic() >= self.deadline:
+                raise CollectionBudgetExpired() from error
+            raise
+        finally:
+            elapsed = round((time.monotonic() - started) * 1000, 1)
+            metric = self.request_metrics.setdefault(operation, {"count": 0, "total_ms": 0.0})
+            metric["count"] += 1
+            metric["total_ms"] = round(metric["total_ms"] + elapsed, 1)
+            logger.debug("provider_request_completed", extra={"fields": {
+                "source": SOURCE_NAME, "operation": operation, "duration_ms": elapsed,
+            }})
+
+    def _get(self, url: str, params: dict | None = None, *, operation: str = "read") -> dict | None:
+        return self._request(url, params, operation=operation)
 
     def _post(self, url: str, payload: dict, *, operation: str = "read") -> dict | None:
-        body = json.dumps(payload).encode()
-        request = urllib.request.Request(
-            url,
-            data=body,
-            headers={
-                "Authorization": f"Bearer {self._token_provider()}",
-                "Content-Type": "application/json",
-            },
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
-                return json.load(response)
-        except urllib.error.HTTPError as error:
-            if error.code in {401, 403}:
-                raise CloudAccessDenied(operation, error.reason or "") from error
-            if error.code == 404:
-                return None
-            raise
+        return self._request(url, payload=payload, operation=operation)
 
     def get_batch_job(self, project: str, location: str, job_id: str) -> dict | None:
         return self._get(
@@ -209,11 +228,13 @@ class HttpGcpClient:
         )
 
     def instance_lifecycle_entries(
-        self, project: str, instance_id: str, *, after: datetime | None = None
+        self, project: str, instance_id: str, *, after: datetime | None = None, before: datetime | None = None
     ) -> list[dict]:
         window = (
             f' AND timestamp>="{after.isoformat()}"' if after else ""
         )
+        if before:
+            window += f' AND timestamp<="{before.isoformat()}"'
         query = (
             f'resource.type="gce_instance" AND resource.labels.instance_id="{instance_id}"'
             ' AND (protoPayload.methodName="v1.compute.instances.insert"'
@@ -565,6 +586,7 @@ def _lifetime_for(
         facts["lifecycle_uncertainty"] = (
             "Audit operation markers approximate the billable lifetime; they are not an invoice."
         )
+    facts["missing_provisioning_overhead"] = start is None
     if start is None:
         start = parsed.assigned_at or parsed.started_at
         end = end or parsed.finished_at
@@ -582,7 +604,7 @@ def _lifetime_for(
         provider="gcp",
         # Project, zone and numeric instance ID identify a GCE VM; retries that
         # reuse the VM resolve to this same key and are charged once.
-        resource_key=f"gce:{project}/{zone}/{parsed.instance_id}",
+        resource_key=instance_key(project, zone, parsed.instance_id),
         resource_uid=parsed.instance_id,
         capacity_relationship=CapacityRelationship.dedicated,
         timing_method=method,
@@ -600,6 +622,18 @@ def _lifetime_for(
     )
 
 
+def _target_key(target: BatchTarget) -> tuple[str, str]:
+    return target.job_source_id, target.external_id
+
+
+def instance_key(project: str, zone: str | None, instance_id: str) -> str:
+    return f"gce:{project}/{zone}/{instance_id}"
+
+
+class CollectionBudgetExpired(TimeoutError):
+    """Yield the processed page without advancing past an unfinished target."""
+
+
 class BatchCollector:
     """Observes a bounded slice of known Batch targets per cycle."""
 
@@ -615,6 +649,9 @@ class BatchCollector:
         enrich_compute: bool = True,
         enrich_logging: bool = True,
         now: datetime | None = None,
+        budget_seconds: float = 60,
+        monotonic: Callable[[], float] = time.monotonic,
+        completed_lifetimes: Callable[[Sequence[str]], dict[str, tuple[NormalizedLifetime, ...]]] | None = None,
     ) -> None:
         self._client = client
         self._targets = targets
@@ -623,6 +660,9 @@ class BatchCollector:
         self._enrich_compute = enrich_compute
         self._enrich_logging = enrich_logging
         self._now = now
+        self._budget_seconds = budget_seconds
+        self._monotonic = monotonic
+        self._completed_lifetimes = completed_lifetimes
 
     def _clock(self) -> datetime:
         return self._now or datetime.now(UTC)
@@ -642,8 +682,10 @@ class BatchCollector:
 
     def _select(
         self, targets: Sequence[BatchTarget], state: dict
-    ) -> tuple[list[BatchTarget], bool]:
-        """Page active targets fairly while reserving terminal reconciliation.
+    ) -> list[BatchTarget]:
+        """Plan a page without advancing either durable offset.
+
+        Page active targets fairly while reserving terminal reconciliation.
 
         Always taking the first N active targets starves the rest whenever the
         active set is larger than one page, and leaves reconciliation no slots
@@ -659,7 +701,7 @@ class BatchCollector:
             if terminal
             else 0
         )
-        terminal_first = bool(state.pop("terminal_due", False)) and terminal
+        terminal_first = bool(state.get("terminal_due", False)) and terminal
         if terminal_first:
             terminal_slots = min(len(terminal), self._max_targets)
             active_slots = max(self._max_targets - terminal_slots, 0)
@@ -669,85 +711,96 @@ class BatchCollector:
         else:
             active_slots, terminal_slots = 0, min(len(terminal), self._max_targets)
 
-        active_page, active_offset, active_done = self._page(
+        active_page, _, _ = self._page(
             active, int(state.get("active_offset", 0)), active_slots
         )
         if not terminal_first:
             terminal_slots = max(self._max_targets - len(active_page), 0)
-        terminal_page, terminal_offset, _ = self._page(
+        terminal_page, _, _ = self._page(
             terminal, int(state.get("terminal_offset", 0)), terminal_slots
         )
-        state["active_offset"] = active_offset
-        state["terminal_offset"] = terminal_offset
-        if terminal and not terminal_page and active_done:
-            # This cycle had no room for reconciliation; the next one leads with
-            # it rather than letting a busy active set starve it.
-            state["terminal_due"] = True
-        return [*active_page, *terminal_page], active_done
+        return [*terminal_page, *active_page] if terminal_first else [*active_page, *terminal_page]
 
     def collect(self, cursor: dict) -> ObservationBatch:
         started = self._clock()
         state = dict(cursor)
+        state.setdefault("active_offset", 0)
+        state.setdefault("terminal_offset", 0)
         targets = list(self._targets())
-        selected, active_done = self._select(targets, state)
+        selected = self._select(targets, state)
+        state.pop("terminal_due", None)
+        terminal_ids = [target.job_source_id for target in selected if not target.active]
+        if self._completed_lifetimes and terminal_ids:
+            # Loaded for this page only; the full target list grows with history.
+            known = self._completed_lifetimes(terminal_ids)
+            selected = [
+                target if target.active else replace(target, completed_lifetimes=known.get(target.job_source_id, ()))
+                for target in selected
+            ]
+        deadline = self._monotonic() + self._budget_seconds
+        self._client.deadline = time.monotonic() + self._budget_seconds
+        self._client.request_metrics = {}
+        try:
+            return self._collect_page(targets, selected, state, started, deadline)
+        finally:
+            self._client.deadline = None
+
+    def _collect_page(
+        self, targets: list[BatchTarget], selected: list[BatchTarget], state: dict,
+        started: datetime, deadline: float,
+    ) -> ObservationBatch:
+        positions = {
+            _target_key(target): index
+            for group in (True, False)
+            for index, target in enumerate(item for item in targets if item.active == group)
+        }
+        group_sizes = {True: sum(1 for item in targets if item.active)}
+        group_sizes[False] = len(targets) - group_sizes[True]
+        processed: list[BatchTarget] = []
+        active_done = not any(target.active for target in targets)
+        budget_exhausted = False
         attempts: list[NormalizedAttempt] = []
         gaps: list[NormalizedGap] = []
         unresolved = 0
         for target in selected:
+            if processed and (budget_exhausted or self._monotonic() >= deadline):
+                budget_exhausted = True
+                break
             try:
-                job = self._client.get_batch_job(
-                    target.project, target.location, target.external_id
-                )
-            except CloudAccessDenied as denial:
-                # A denied primary read is a capability gap, not a missing job.
-                raise denial
-            if job is None:
-                unresolved += 1
-                gaps.append(
-                    NormalizedGap(
-                        source=SOURCE_NAME,
-                        kind="batch_resource_unavailable",
-                        detail=(
-                            "Batch job "
-                            f"projects/{target.project}/locations/{target.location}/jobs/"
-                            f"{target.external_id} was not readable for Galaxy job "
-                            f"{target.job_source_id}."
-                        ),
-                        gap_end=started,
-                        recoverable=True,
-                    )
-                )
-                continue
-            tasks = self._client.list_batch_tasks(job["name"])
-            try:
-                instances, lifecycles = self._enrich(job, tasks, target)
-            except CloudAccessDenied as denial:
-                # Enrichment is optional: degrade with a visible gap rather than
-                # failing collection of the Batch record itself.
-                instances, lifecycles = {}, {}
-                gaps.append(
-                    NormalizedGap(
-                        source=SOURCE_NAME,
-                        kind="cloud_enrichment_denied",
-                        detail=(
-                            f"{denial.operation} is denied, so VM lifetimes for Galaxy job "
-                            f"{target.job_source_id} use task events only."
-                        ),
-                        gap_end=started,
-                        recoverable=True,
-                    )
-                )
-            attempts.extend(
-                normalize_batch_job(
-                    job,
-                    tasks,
-                    project=target.project,
-                    location=target.location,
-                    instances=instances,
-                    lifecycles=lifecycles,
-                    job_source_id=target.job_source_id,
-                )
-            )
+                target_attempts, target_gaps = self._collect_target(target, started)
+            except CollectionBudgetExpired:
+                budget_exhausted = True
+                if processed:
+                    break
+                # A target that cannot finish within the whole budget would
+                # otherwise block every later target on every page.
+                target_attempts, target_gaps = [], [NormalizedGap(
+                    source=SOURCE_NAME, kind="batch_target_budget_exhausted",
+                    detail=(f"Batch job {target.external_id} for Galaxy job {target.job_source_id} "
+                            "could not be read within the collection time budget; it will be retried."),
+                    gap_end=started, recoverable=True,
+                )]
+            except TimeoutError:
+                if not processed:
+                    raise
+                budget_exhausted = True
+                break
+            attempts.extend(target_attempts)
+            gaps.extend(target_gaps)
+            budget_exhausted |= any(gap.kind == "cloud_enrichment_budget_exhausted" for gap in target_gaps)
+            unresolved += int(bool(target_gaps and target_gaps[0].kind == "batch_resource_unavailable"))
+            processed.append(target)
+            offset = positions[_target_key(target)] + 1
+            key = "active_offset" if target.active else "terminal_offset"
+            state[key] = offset if offset < group_sizes[target.active] else 0
+            if target.active:
+                active_done = state[key] == 0
+        if any(not item.active for item in targets):
+            state["terminal_due"] = not any(not item.active for item in processed)
+        request_metrics = self._client.request_metrics
+        logger.debug("batch_request_summary", extra={"fields": {
+            "source": SOURCE_NAME, "requests": request_metrics,
+        }})
         return ObservationBatch(
             source=SOURCE_NAME,
             observed_at=started,
@@ -755,16 +808,18 @@ class BatchCollector:
             gaps=tuple(gaps),
             cursor=state,
             metrics={
+                "requests": request_metrics,
+                "budget_exhausted": budget_exhausted,
                 "targets": len(targets),
                 "active_targets": sum(1 for target in targets if target.active),
                 "terminal_targets": sum(1 for target in targets if not target.active),
-                "observed": len(selected),
+                "observed": len(processed),
                 "attempts": len(attempts),
                 "unresolved": unresolved,
                 "active_offset": state["active_offset"],
                 "terminal_offset": state["terminal_offset"],
                 "terminal_sweep_wrapped": bool(
-                    any(not target.active for target in selected) and state["terminal_offset"] == 0
+                    any(not target.active for target in processed) and state["terminal_offset"] == 0
                 ),
             },
             # Another page of active work is drained immediately rather than
@@ -772,24 +827,92 @@ class BatchCollector:
             exhausted=active_done,
         )
 
+    def _collect_target(
+        self, target: BatchTarget, started: datetime
+    ) -> tuple[list[NormalizedAttempt], list[NormalizedGap]]:
+        job = self._client.get_batch_job(target.project, target.location, target.external_id)
+        if job is None:
+            return [], [NormalizedGap(
+                source=SOURCE_NAME, kind="batch_resource_unavailable",
+                detail=(f"Batch job projects/{target.project}/locations/{target.location}/jobs/"
+                        f"{target.external_id} was not readable for Galaxy job {target.job_source_id}."),
+                gap_end=started, recoverable=True,
+            )]
+        tasks = self._client.list_batch_tasks(job["name"])
+        instances, lifecycles, gaps = self._enrich(job, tasks, target, started)
+        attempts = normalize_batch_job(
+            job, tasks, project=target.project, location=target.location,
+            instances=instances, lifecycles=lifecycles, job_source_id=target.job_source_id,
+        )
+        completed = {item.resource_key: item for item in target.completed_lifetimes} if not target.active else {}
+        return [replace(attempt, lifetimes=tuple(
+            completed.get(item.resource_key, item) for item in attempt.lifetimes
+        )) for attempt in attempts], gaps
+
     def _enrich(
-        self, job: dict, tasks: Sequence[dict], target: BatchTarget
-    ) -> tuple[dict[str, InstanceObservation], dict[str, dict]]:
+        self, job: dict, tasks: Sequence[dict], target: BatchTarget, started: datetime
+    ) -> tuple[dict[str, InstanceObservation], dict[str, dict], list[NormalizedGap]]:
         instances: dict[str, InstanceObservation] = {}
         lifecycles: dict[str, dict] = {}
+        gaps: list[NormalizedGap] = []
+        completed = {item.resource_key for item in target.completed_lifetimes} if not target.active else set()
         references = {
             (parsed.instance_id, parsed.zone)
             for task in tasks
             for parsed in parse_task_attempts(task)
             if parsed.instance_id
         }
+        created = provider_time(job.get("createTime"))
+        # Include provisioning before the job and delayed deletion after it.
+        after = (created or started) - timedelta(hours=1)
+        terminal = job.get("status", {}).get("state") in {
+            "SUCCEEDED", "FAILED", "CANCELLED", "DELETION_IN_PROGRESS",
+        }
+        end = provider_time(job.get("updateTime")) if terminal else None
+        before = (end or started) + timedelta(hours=1)
+        logging_throttled = False
         for instance_id, zone in references:
-            if self._enrich_compute and zone:
-                payload = self._client.get_instance(target.project, zone, instance_id)
-                if payload:
-                    instances[instance_id] = _instance_from_compute(payload, target.project)
-            if instance_id not in instances and self._enrich_logging:
-                entries = self._client.instance_lifecycle_entries(target.project, instance_id)
-                if entries:
-                    lifecycles[instance_id] = _lifecycle_bounds(entries)
-        return instances, lifecycles
+            if instance_key(target.project, zone, instance_id) in completed:
+                continue
+            try:
+                if self._enrich_compute and zone:
+                    payload = self._client.get_instance(target.project, zone, instance_id)
+                    if payload:
+                        instances[instance_id] = _instance_from_compute(payload, target.project)
+                if instance_id not in instances and self._enrich_logging and not logging_throttled:
+                    try:
+                        entries = self._client.instance_lifecycle_entries(
+                            target.project, instance_id, after=after, before=before,
+                        )
+                    except urllib.error.HTTPError as error:
+                        if error.code != 429:
+                            raise
+                        logging_throttled = True
+                        gaps.append(NormalizedGap(
+                            source=SOURCE_NAME, kind="cloud_enrichment_throttled",
+                            detail=(f"Cloud Logging throttled VM lifecycle reads for Galaxy job "
+                                    f"{target.job_source_id}; they will be retried."),
+                            gap_end=started, recoverable=True,
+                        ))
+                        continue
+                    if entries:
+                        lifecycles[instance_id] = _lifecycle_bounds(entries)
+            except CollectionBudgetExpired:
+                gaps.append(NormalizedGap(
+                    source=SOURCE_NAME, kind="cloud_enrichment_budget_exhausted",
+                    detail=(f"VM enrichment for Galaxy job {target.job_source_id} reached the collection "
+                            "time budget; incomplete lifetimes will be retried."),
+                    gap_end=started, recoverable=True,
+                ))
+                break
+            except CloudAccessDenied as denial:
+                # Enrichment is optional: degrade with one visible gap rather
+                # than repeating a denied call for every VM of the job.
+                gaps.append(NormalizedGap(
+                    source=SOURCE_NAME, kind="cloud_enrichment_denied",
+                    detail=(f"{denial.operation} is denied, so VM lifetimes for Galaxy job "
+                            f"{target.job_source_id} are incomplete."),
+                    gap_end=started, recoverable=True,
+                ))
+                break
+        return instances, lifecycles, gaps

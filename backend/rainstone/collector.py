@@ -2,14 +2,15 @@
 
 One collector runs per enrolled Galaxy instance, holding a PostgreSQL advisory
 lease so a second process cannot double-collect. Each cycle collects one bounded
-batch per due source, commits it before advancing that source's cursor, and then
-recalculates costs. Failures record a visible status and back off with jitter;
-they never advance a cursor.
+batch per due source. Network workers feed one accounting writer, which commits
+facts, cursors and coalesced cost revisions together. Failures record a visible
+status and back off with jitter; they never advance a cursor.
 
 No broker or separate orchestration platform is required, and web availability
 is independent of this process.
 """
 
+import functools
 import logging
 import random
 import signal
@@ -18,19 +19,32 @@ import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from queue import Empty, Queue
 
 from sqlalchemy import Engine, func, select, text
 from sqlalchemy.orm import Session
 
 from rainstone import __version__
-from rainstone.adapters.contracts import NormalizedServerObservation, ObservationBatch, SourceAdapter
+from rainstone.acquisition import AcquisitionWorker, Delivery
+from rainstone.adapters.contracts import (
+    NormalizedLifetime,
+    NormalizedServerObservation,
+    ObservationBatch,
+    SourceAdapter,
+)
 from rainstone.adapters.galaxy_db import GalaxyDatabaseAdapter, discover_capabilities
 from rainstone.adapters.galaxy_server import GalaxyServerCollector, HostDescriptor, resolve_host
 from rainstone.adapters.gcp_batch import BatchCollector, BatchTarget, HttpGcpClient
 from rainstone.adapters.kubernetes import HttpKubernetesClient, KubernetesCollector
 from rainstone.baseline import BaselineProfile, classify_job, saved_policy_conflict
-from rainstone.catalog import parse_trusted_keys
-from rainstone.catalog import refresh as refresh_catalog
+from rainstone.catalog import (
+    CatalogError,
+    active_catalog,
+    fetch,
+    import_catalog,
+    load_file,
+    parse_trusted_keys,
+)
 from rainstone.config import Settings, get_settings
 from rainstone.costing import calculate_tenant
 from rainstone.db import engine as application_engine
@@ -46,7 +60,15 @@ from rainstone.ingestion import (
     stable_id,
 )
 from rainstone.logging import Failures
-from rainstone.models import CostRevision, DeploymentPolicy, ExecutionAttempt, Job, LifetimeAttempt, Tenant
+from rainstone.models import (
+    CostRevision,
+    DeploymentPolicy,
+    ExecutionAttempt,
+    Job,
+    LifetimeAttempt,
+    ResourceLifetime,
+    Tenant,
+)
 
 logger = logging.getLogger("rainstone.collector")
 
@@ -100,6 +122,8 @@ class ScheduledSource:
     adapter: SourceAdapter
     interval_seconds: int
     transform: Callable[[ObservationBatch], ObservationBatch] | None = None
+    # Reconnects immediately after every batch, like a Kubernetes watch.
+    continuous: bool = False
     due_at: float = 0.0
     failures: int = 0
     last_result: dict = field(default_factory=dict)
@@ -247,6 +271,38 @@ def batch_targets(
     return list(targets.values())
 
 
+def completed_batch_lifetimes(
+    session: Session, tenant_id: uuid.UUID, source_ids: Sequence[str]
+) -> dict[str, tuple[NormalizedLifetime, ...]]:
+    """Terminal VM lifetimes whose boundaries both came from provider evidence."""
+    complete: dict[str, list[NormalizedLifetime]] = {}
+    lifetimes = session.execute(
+        select(Job.source_id, ResourceLifetime)
+        .join(ExecutionAttempt, ExecutionAttempt.job_id == Job.id)
+        .join(LifetimeAttempt, LifetimeAttempt.attempt_id == ExecutionAttempt.id)
+        .join(ResourceLifetime, ResourceLifetime.id == LifetimeAttempt.lifetime_id)
+        .where(Job.tenant_id == tenant_id, Job.source_id.in_(source_ids),
+               ResourceLifetime.tenant_id == tenant_id, Job.state.in_(TERMINAL_STATES), ResourceLifetime.provider == "gcp",
+               ResourceLifetime.observed_start.is_not(None), ResourceLifetime.observed_end.is_not(None))
+    ).unique().all()
+    for source_id, lifetime in lifetimes:
+        facts = lifetime.facts or {}
+        end_method = facts.get("observed_end_timing_method", lifetime.timing_method)
+        provider_methods = {"compute_instance_timestamps", "compute_insert_complete_to_delete_request"}
+        # Task completion is not VM deletion. Keep polling fallback boundaries.
+        if (lifetime.timing_method not in provider_methods or end_method not in provider_methods
+                or facts.get("missing_provisioning_overhead")):
+            continue
+        complete.setdefault(source_id, []).append(NormalizedLifetime(
+            **{name: getattr(lifetime, name) for name in (
+                "provider", "resource_key", "resource_uid", "capacity_relationship", "timing_method",
+                "project", "zone", "region", "machine_type", "purchase_model", "observed_start",
+                "observed_end", "requested_vcpu", "requested_memory_mib",
+            )}, facts=dict(facts),
+        ))
+    return {source_id: tuple(items) for source_id, items in complete.items()}
+
+
 def tenant_id_for(settings: Settings, session: Session | None = None) -> uuid.UUID:
     """The active fact namespace for this instance.
 
@@ -287,6 +343,8 @@ class Collector:
         self._missing_resources: int | None = None
         self._last_catalog: tuple | None = None
         self._last_diagnostics: str | None = None
+        self._queue: Queue[Delivery] = Queue(maxsize=settings.collect_queue_size)
+        self._workers: dict[str, AcquisitionWorker] = {}
 
     @property
     def tenant_id(self) -> uuid.UUID:
@@ -296,82 +354,242 @@ class Collector:
         ceiling = min(self._settings.collect_max_backoff_seconds, 2 ** min(failures, 10))
         return ceiling / 2 + random.random() * ceiling / 2  # noqa: S311 - jitter only
 
+    @staticmethod
+    def _acquire(source: ScheduledSource, cursor: dict) -> ObservationBatch:
+        batch = source.adapter.collect(cursor)
+        return source.transform(batch) if source.transform is not None else batch
+
     def collect_source(self, source: ScheduledSource) -> dict:
+        """Synchronous bounded collection for explicit one-shot CLI cycles."""
         started = self._clock()
-        cycle_id = uuid.uuid4().hex
-        fields = {"source": source.adapter.source_name, "cycle_id": cycle_id}
-        logger.debug("collection_started", extra={"fields": fields})
         with Session(self._engine) as session:
             cursor = read_cursor(session, self._tenant_id, source.adapter.source_name)
-            try:
-                batch = source.adapter.collect(cursor)
-                if source.transform is not None:
-                    batch = source.transform(batch)
-            except Exception as error:  # noqa: BLE001 - surfaced as source status
-                logger.debug("collection_failed", exc_info=True, extra={"fields": fields})
-                session.rollback()
-                record_failure(session, self._tenant_id, source.adapter.source_name, repr(error))
-                session.commit()
-                source.failures += 1
-                delay = self._backoff(source.failures)
-                source.due_at = self._clock() + delay
-                self._failures.failed(source.adapter.source_name, error, **fields,
-                                      retry_in_seconds=round(delay, 1))
-                return {
-                    "source": source.adapter.source_name,
-                    "status": "failed",
-                    "error": type(error).__name__,
-                    "retry_in_seconds": round(delay, 1),
-                }
-            result = apply_batch(session, self._tenant_id, batch)
-            collected = self._clock()
-            if batch.servers and extend_baseline_to_host_creation(
-                session, self._tenant_id, self._settings, batch.servers
-            ):
-                logger.info("baseline_start_corrected")
+        try:
+            payload = self._acquire(source, cursor)
+            delivery = Delivery(source.adapter.source_name, started, self._clock(), payload=payload)
+        except Exception as error:  # noqa: BLE001 - persisted by the sole writer
+            delivery = Delivery(source.adapter.source_name, started, self._clock(), error=error)
+        return self.apply_deliveries([delivery])[0]
+
+    def apply_deliveries(self, deliveries: Sequence[Delivery]) -> list[dict]:
+        """Commit a finite queue snapshot with one matching cost calculation."""
+        sources = {source.adapter.source_name: source for source in self._sources}
+        applying_at = self._clock()
+        applied = {}
+        revised_sources = set()
+        results = []
+        changed = False
+        with Session(self._engine) as session:
             previous = session.get(CostRevision, self._tenant_id)
             previous_id = previous.id if previous else None
-            revision = calculate_tenant(
-                session, self._tenant_id, reason=f"{batch.source} collection"
-            )
-            # Facts, cursor and calculation commit together, so reports never
-            # see observations without a matching revision, and an interrupted
-            # cycle is simply re-collected.
+            for delivery in deliveries:
+                source = sources.get(delivery.source)
+                if delivery.error is not None:
+                    record_failure(session, self._tenant_id, delivery.source, repr(delivery.error))
+                    results.append({"source": delivery.source, "status": "failed",
+                                    "error": type(delivery.error).__name__})
+                    continue
+                if delivery.source == "diagnostics":
+                    record_report(session, self._tenant_id, delivery.payload)
+                    results.append({"source": "diagnostics", "status": delivery.payload["overall_status"]})
+                    continue
+                if delivery.source == "price_catalog":
+                    result = self._apply_catalog(session, delivery.payload)
+                    changed |= result["status"] in {"refreshed", "bundled"}
+                    results.append({**result, "source": "price_catalog"})
+                    continue
+                batch = delivery.payload
+                result = apply_batch(session, self._tenant_id, batch)
+                if batch.servers and extend_baseline_to_host_creation(
+                    session, self._tenant_id, self._settings, batch.servers
+                ):
+                    logger.info("baseline_start_corrected")
+                changed = True
+                applied[id(delivery)] = (source, batch, result)
+                results.append(result)
+            collected = self._clock()
+            revision = calculate_tenant(session, self._tenant_id, reason="collected observations") if changed else previous
+            revision_id = str(revision.id) if revision else None
+            # All facts and all corresponding source cursors become visible with
+            # their matching cost revision, or the entire transaction rolls back.
             session.commit()
-            finished = self._clock()
-            revision_id = str(revision.id)
-            self._failures.recovered(source.adapter.source_name, **fields)
+        finished = self._clock()
+        for delivery in deliveries:
+            if delivery.error is not None:
+                source = sources.get(delivery.source)
+                delay = delivery.retry_seconds
+                # Workers schedule their own retries; only coordinator-run
+                # sources are rescheduled here.
+                if delay is None and source:
+                    source.failures += 1
+                    delay = self._backoff(source.failures)
+                    source.due_at = self._clock() + delay
+                retry = {"retry_in_seconds": round(delay, 1)} if delay is not None else {}
+                self._failures.failed(delivery.source, delivery.error, source=delivery.source, **retry)
+                for result in results:
+                    if result["source"] == delivery.source and result.get("status") == "failed":
+                        result.update(retry)
+            elif delivery.source == "diagnostics":
+                status = delivery.payload["overall_status"]
+                if status != self._last_diagnostics:
+                    logger.log(logging.WARNING if status in {"warn", "fail"} else logging.INFO,
+                               "diagnostics_changed", extra={"fields": {"status": status}})
+                    self._last_diagnostics = status
+                self._failures.recovered("diagnostics")
+            elif delivery.source == "price_catalog":
+                self._log_catalog(next(result for result in results if result["source"] == "price_catalog"))
+            if id(delivery) not in applied:
+                continue
+            source, batch, result = applied[id(delivery)]
+            fields = {"source": batch.source, "cycle_id": uuid.uuid4().hex}
+            self._failures.recovered(batch.source, **fields)
             counts = {key: result[key] for key in (
                 "jobs", "attempts", "invocations", "gaps", "held_attempts", "pending_applied",
             )}
-            counts["changed_calculations"] = int(previous_id != revision.id)
+            counts["changed_calculations"] = int(
+                revision_id is not None and str(previous_id) != revision_id and batch.source not in revised_sources
+            )
+            revised_sources.add(batch.source)
             progress = self._progress.setdefault(batch.source, {"pages": 0})
             progress["pages"] += 1
             for key, value in counts.items():
                 progress[key] = progress.get(key, 0) + value
             progress.update({
                 **fields, "revision_id": revision_id,
-                "collection_ms": round((collected - started) * 1000, 1),
+                "collection_ms": round((delivery.completed_at - delivery.started_at) * 1000, 1),
+                "queue_delay_ms": round(max(0, applying_at - delivery.completed_at) * 1000, 1),
                 "calculation_ms": round((finished - collected) * 1000, 1),
                 "adapter_exhausted": batch.exhausted,
             })
-            # These are source gauges for the latest page, not a claim that
-            # targets minus the page size is a count of missing evidence.
             for key in ("targets", "active_targets", "terminal_targets", "observed", "unresolved",
-                        "active_offset", "terminal_offset", "terminal_sweep_wrapped", "rows", "reconciled"):
+                        "active_offset", "terminal_offset", "terminal_sweep_wrapped", "rows", "reconciled",
+                        "budget_exhausted", "mode", "events", "deletions", "nodes", "pods"):
                 if key in batch.metrics:
                     progress[key] = batch.metrics[key]
-            logger.debug("collection_completed", extra={"fields": {**progress, **counts}})
+            logger.debug("collection_completed", extra={"fields": {
+                **progress, **counts, "requests": batch.metrics.get("requests", {}),
+            }})
             gap_types = sorted({gap.kind for gap in batch.gaps})
             if gap_types:
                 self._failures.failed(f"{batch.source}.coverage", RuntimeError(),
                                       source=batch.source, gap_types=gap_types)
             else:
-                self._failures.recovered(f"{batch.source}.coverage", source=batch.source)
+                self._failures.recovered(f"{batch.source}.coverage", source=batch.source,
+                                        message="Observation resumed; previously recorded gaps remain.")
             source.failures = 0
             source.due_at = self._clock() + (0 if not batch.exhausted else source.interval_seconds)
-            source.last_result = {**result, "revision": str(revision.id)}
-            return source.last_result
+            result["revision"] = revision_id
+            source.last_result = result
+        return results
+
+    def _acquire_catalog(self, _cursor: dict) -> tuple:
+        try:
+            if self._settings.catalog_feed_url:
+                return fetch(self._settings.catalog_feed_url,
+                             trusted_keys=parse_trusted_keys(self._settings.catalog_trusted_keys)), None
+            return None, None
+        except (OSError, ValueError) as error:
+            return None, str(error)
+
+    def _apply_catalog(self, session: Session, payload: tuple) -> dict:
+        artifact, error = payload
+        if artifact is not None:
+            try:
+                with session.begin_nested():
+                    result = {**import_catalog(session, artifact), "status": "refreshed"}
+            except CatalogError as rejected:
+                artifact, error = None, str(rejected)
+        if artifact is None:
+            current = active_catalog(session)
+            if current:
+                result = {"catalog_id": current.catalog_id,
+                          "status": "last_known_good" if error else "current"}
+            elif self._settings.catalog_path:
+                artifact = load_file(self._settings.catalog_path,
+                                    trusted_keys=parse_trusted_keys(self._settings.catalog_trusted_keys))
+                result = {**import_catalog(session, artifact), "status": "bundled"}
+            else:
+                result = {"status": "unavailable"}
+            if error:
+                result["error"] = error
+        if self._settings.catalog_feed_url:
+            record_catalog_refresh(session, self._tenant_id, result)
+        return result
+
+    def _log_catalog(self, result: dict) -> None:
+        if "error" in result:
+            self._failures.failed("price_catalog", RuntimeError(), status=result["status"],
+                                  catalog_id=result.get("catalog_id"))
+        else:
+            self._failures.recovered("price_catalog")
+        state = (result["status"], result.get("catalog_id"))
+        if state != self._last_catalog:
+            logger.info("catalog_changed", extra={"fields": {"status": state[0], "catalog_id": state[1]}})
+            self._last_catalog = state
+
+    def _acquire_diagnostics(self, _cursor: dict) -> dict:
+        with Session(self._engine) as session:
+            session.execute(text("SET TRANSACTION READ ONLY"))
+            return run_checks(session, self._settings, context="collector")
+
+    def start_workers(self) -> None:
+        if self._workers:
+            return
+        with Session(self._engine) as session:
+            for source in self._sources:
+                if source.adapter.source_name == "galaxy_db":
+                    continue
+                name = source.adapter.source_name
+                self._workers[name] = AcquisitionWorker(
+                    name, functools.partial(self._acquire, source), self._queue,
+                    cursor=read_cursor(session, self._tenant_id, name), interval=source.interval_seconds,
+                    backoff=self._backoff, clock=self._clock, continuous=source.continuous,
+                )
+        maintenance = [("price_catalog", self._acquire_catalog, self._settings.catalog_refresh_seconds)]
+        if self._settings.diagnostics_enabled:
+            maintenance.append(("diagnostics", self._acquire_diagnostics, self._settings.diagnostics_interval_seconds))
+        for name, acquire, interval in maintenance:
+            self._workers[name] = AcquisitionWorker(
+                name, acquire, self._queue, cursor={}, interval=interval,
+                backoff=self._backoff, clock=self._clock,
+            )
+        for worker in self._workers.values():
+            worker.start()
+
+    def _drain(self) -> list[Delivery]:
+        deliveries = []
+        for _ in range(self._queue.maxsize):
+            try:
+                deliveries.append(self._queue.get_nowait())
+            except Empty:
+                break
+        return deliveries
+
+    def coordinate_once(self) -> list[dict]:
+        deliveries = self._drain()
+        for source in self._sources:
+            if source.adapter.source_name != "galaxy_db" or self._clock() < source.due_at:
+                continue
+            started = self._clock()
+            with Session(self._engine) as session:
+                cursor = read_cursor(session, self._tenant_id, "galaxy_db")
+            try:
+                payload = self._acquire(source, cursor)
+                deliveries.append(Delivery("galaxy_db", started, self._clock(), payload=payload))
+            except Exception as error:  # noqa: BLE001 - preserve cursor and report failure
+                deliveries.append(Delivery("galaxy_db", started, self._clock(), error=error))
+        results = self.apply_deliveries(deliveries) if deliveries else []
+        stalled = []
+        for name, worker in self._workers.items():
+            if worker.stalled(self._clock(), self._settings.collect_worker_stall_seconds):
+                stalled.append(name)
+                self._failures.failed(f"{name}.worker", TimeoutError(), source=name, phase=worker.phase)
+            else:
+                self._failures.recovered(f"{name}.worker", source=name)
+        if not stalled:
+            self.heartbeat()
+        self.log_progress()
+        return results
 
     def log_progress(self, *, force: bool = False) -> None:
         now = self._clock()
@@ -392,11 +610,20 @@ class Collector:
         logger.info("collection_progress", extra={"fields": {
             "interval_seconds": round(now - self._summary_at, 1),
             "active": active, "sources": self._progress,
+            **self.queue_metrics(),
             "finished_batch_jobs_without_resources": self._missing_resources,
             "coverage_age_seconds": round(now - self._coverage_at, 1) if self._missing_resources is not None else None,
         }})
         self._progress = {}
         self._summary_at = now
+
+    def queue_metrics(self) -> dict:
+        with self._queue.mutex:
+            queued = list(self._queue.queue)
+        return {"queue_depth": len(queued), "queue_capacity": self._queue.maxsize,
+                "oldest_queued_seconds": round(max(
+                    (self._clock() - item.completed_at for item in queued), default=0,
+                ), 1)}
 
     def heartbeat(self) -> None:
         """Record that the loop is alive, independently of dependency health."""
@@ -409,52 +636,24 @@ class Collector:
             self._failures.failed("heartbeat", error)
 
     def record_capabilities(self) -> dict:
-        """Run and persist the checks only this process has credentials for."""
-        with Session(self._engine) as session:
-            report = run_checks(session, self._settings, context="collector")
-            record_report(session, self._tenant_id, report)
-            session.commit()
-        if report["overall_status"] != self._last_diagnostics:
-            logger.log(logging.WARNING if report["overall_status"] in {"warn", "fail"} else logging.INFO,
-                       "diagnostics_changed", extra={"fields": {"status": report["overall_status"]}})
-            self._last_diagnostics = report["overall_status"]
-        return {"source": "diagnostics", "status": report["overall_status"]}
+        started = self._clock()
+        payload = self._acquire_diagnostics({})
+        return self.apply_deliveries([Delivery(
+            "diagnostics", started, self._clock(), payload=payload,
+        )])[0]
 
     def refresh_catalog(self) -> dict:
-        with Session(self._engine) as session:
-            result = refresh_catalog(
-                session,
-                url=self._settings.catalog_feed_url,
-                bundled_path=self._settings.catalog_path,
-                require_signature=self._settings.catalog_require_signature,
-                trusted_keys=parse_trusted_keys(self._settings.catalog_trusted_keys),
-            )
-            if self._settings.catalog_feed_url:
-                record_catalog_refresh(session, self._tenant_id, result)
-                session.commit()
-            if "error" in result:
-                self._failures.failed("price_catalog", RuntimeError(), status=result["status"],
-                                      catalog_id=result.get("catalog_id"))
-            else:
-                self._failures.recovered("price_catalog")
-            state = (result["status"], result.get("catalog_id"))
-            if state != self._last_catalog:
-                logger.info("catalog_changed", extra={"fields": {
-                    "status": state[0], "catalog_id": state[1],
-                }})
-                self._last_catalog = state
-            if result["status"] in {"refreshed", "bundled"}:
-                # New prices change report facts, so recalculate rather than
-                # leaving pinned snapshots stale until the next source batch.
-                calculate_tenant(session, self._tenant_id, reason="price catalog refresh")
-                session.commit()
-            return result
+        started = self._clock()
+        payload = self._acquire_catalog({})
+        return self.apply_deliveries([Delivery(
+            "price_catalog", started, self._clock(), payload=payload,
+        )])[0]
 
     def run_once(self) -> list[dict]:
         now = self._clock()
         results = []
         self.heartbeat()
-        if now >= self._diagnostics_due:
+        if self._settings.diagnostics_enabled and now >= self._diagnostics_due:
             results.append(self.record_capabilities())
             self._diagnostics_due = now + self._settings.diagnostics_interval_seconds
         if now >= self._catalog_due:
@@ -476,14 +675,24 @@ class Collector:
 
     def run_forever(self, stop: Callable[[], bool] | None = None) -> None:
         should_stop = stop or (lambda: False)
-        while not should_stop():
-            self.run_once()
-            delay = min(self.next_delay(), 5.0)
-            if delay > 0:
-                self._sleep(delay)
-            # Sleeping does not mean stalled, and a failing dependency does not
-            # mean an unhealthy process.
-            self.heartbeat()
+        self.start_workers()
+        try:
+            while not should_stop():
+                self.coordinate_once()
+                self._sleep(0.2)
+        finally:
+            for worker in self._workers.values():
+                worker.stop()
+            # Workers never write, so a blocked network call cannot extend the
+            # writer lease indefinitely during shutdown.
+            for worker in self._workers.values():
+                worker.thread.join(timeout=0.2)
+        # Only a clean stop applies what is still queued. After a failed
+        # snapshot rolls back, later batches from the same sources carry
+        # cursors past it, and committing them would skip its observations.
+        remaining = self._drain()
+        if remaining:
+            self.apply_deliveries(remaining)
 
 
 def build_collector(settings: Settings | None = None) -> Collector:
@@ -557,6 +766,7 @@ def build_collector(settings: Settings | None = None) -> Collector:
                     watch_seconds=settings.kubernetes_watch_seconds,
                 ),
                 interval_seconds=1,
+                continuous=True,
             )
         )
 
@@ -565,7 +775,13 @@ def build_collector(settings: Settings | None = None) -> Collector:
 
         def targets() -> list[BatchTarget]:
             with Session(application_engine) as session:
+                session.execute(text("SET TRANSACTION READ ONLY"))
                 return batch_targets(session, tenant_id, settings)
+
+        def completed_lifetimes(source_ids: Sequence[str]) -> dict[str, tuple[NormalizedLifetime, ...]]:
+            with Session(application_engine) as session:
+                session.execute(text("SET TRANSACTION READ ONLY"))
+                return completed_batch_lifetimes(session, tenant_id, source_ids)
 
         sources.append(
             ScheduledSource(
@@ -573,6 +789,8 @@ def build_collector(settings: Settings | None = None) -> Collector:
                     HttpGcpClient(),
                     targets,
                     max_targets=settings.gcp_max_targets_per_cycle,
+                    budget_seconds=settings.gcp_collection_budget_seconds,
+                    completed_lifetimes=completed_lifetimes,
                     enrich_compute=settings.gcp_enrich_compute,
                     enrich_logging=settings.gcp_enrich_logging,
                 ),

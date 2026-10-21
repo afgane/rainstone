@@ -43,9 +43,8 @@ spec:
           env:
             {{- include "rainstone.env" . | nindent 12 }}
             {{- include "rainstone.collectorEnv" . | nindent 12 }}
-          # Liveness is a loop heartbeat, not dependency health: a denied cloud
-          # API or an unreachable source must degrade coverage and back off,
-          # not restart collection from healthy sources.
+          # The coordinator advances this heartbeat while workers make progress.
+          # Source errors back off; a stuck worker or writer stops the heartbeat.
           livenessProbe:
             exec:
               command: ["rainstone", "heartbeat", "--max-age", "300"]

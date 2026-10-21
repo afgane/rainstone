@@ -9,14 +9,37 @@ One writer per instance also keeps writes contention-free: advancing the
 report-generation marker takes a per-tenant row lock, so two concurrent
 ingestions of the same tenant would serialize.
 
-Each cycle collects one bounded batch per due source and commits that batch,
-its cursor and the recalculated costs together, so reports never see
-observations without a matching calculation revision and an interrupted cycle
-is simply re-collected. A failure records a visible source status with an error
-type, backs off with jitter, and leaves the cursor alone. An unchanged set of
-source facts keeps the existing revision. A changed one updates the tenant's
-cost lines in place, writing only the lines whose values changed, so storage
-follows the amount of work rather than the number of recalculations.
+Network acquisition runs independently: Kubernetes continuously reconnects its
+list/watch, while Batch, host observation, diagnostics and catalog downloads
+have separate workers. Workers perform no database writes. The Galaxy database
+source remains on the coordinator with its read-only statement timeout.
+
+Workers feed a bounded in-memory queue. The coordinator drains a finite queue
+snapshot, applies its batches, recalculates costs once, and commits the facts,
+source cursors and matching revision together. Explicit `collect --cycles N`
+uses bounded synchronous cycles for one-shot collection. A failure records a
+visible source status, backs off with jitter, and leaves its cursor alone.
+
+A worker can consume ahead of the committed cursor in memory. Restart recovery
+uses the durable cursor and replays observations safely. Queue size defaults to
+64 completed batches, plus at most one pending batch per worker. Queue depth,
+oldest batch age and collection-to-application delay are logged. There is no
+durable inbox: a process stopped with queued observations can still encounter
+expired watch history on restart, which records an unrecoverable gap. A clean
+stop applies the queue before exiting. A failed transaction exits without
+applying later queued batches, whose cursors would skip the rolled-back ones.
+
+The coordinator writes the heartbeat while making progress. A worker whose
+acquisition exceeds its progress deadline also stops heartbeat updates; normal
+source errors, retry waits and waiting on a full queue do not. A full queue
+means the writer is slow, and a stuck writer stops the heartbeat itself.
+The worker deadline defaults to 180 seconds and is separate from the chart's
+300-second heartbeat age limit. An unresponsive worker is eventually restarted
+with the process, while ordinary dependency failures leave other workers alive.
+
+An unchanged set of source facts keeps the existing revision. A changed one
+updates cost lines in place, writing only lines whose values changed, so
+storage follows work rather than the number of recalculations.
 
 ## Galaxy database extraction
 
@@ -80,6 +103,12 @@ Provider evidence for a job that has not been collected yet is held in
 `pending_attempt`, keeping only its latest observation, and applied when the
 job arrives. Evidence still waiting after a day is dropped and recorded as an
 unrecoverable `provider_evidence_without_galaxy_job` gap.
+
+Only watch Status code 410 with reason `Expired` or `Gone` is treated as
+expired history; other stream errors fail and retry the source. Gap starts
+use the previous watch's completion time. Legacy cursors without that field
+fall back to the previously recorded watch start until the next collection.
+Recovery means observation resumed; it never erases a historical gap.
 
 ## GCP Batch, Compute and Logging observation
 
@@ -171,6 +200,34 @@ Terminal reconciliation keeps reserved capacity; when the configured budget is
 too small to reserve any, the next cycle leads with reconciliation so neither
 list starves. A cycle that has not covered the active list reports itself
 unexhausted and is drained immediately instead of waiting a full interval.
+
+Batch acquisition has a 60-second default time budget and individual request
+deadlines. Only processed targets advance their active or terminal offsets.
+If time runs out before terminal work gets a slot, the next page leads with
+terminal work, so neither group is permanently starved. A timeout during VM
+enrichment retains acquired evidence with a recoverable gap and retries the
+incomplete lifetime on a later sweep. A target that cannot be read within the
+whole budget records a recoverable `batch_target_budget_exhausted` gap and is
+retried on a later pass, so it cannot block every target after it.
+
+Logging lifecycle reads explicitly bound timestamps from job creation with a
+one-hour provisioning margin through job completion with a one-hour deletion
+margin. Active jobs use the current poll as the upper
+bound. Terminal VM lifetimes with provider evidence for both
+boundaries reuse their saved observations instead of repeating Compute and
+Logging reads. Task-event fallback boundaries do not qualify as complete;
+late provider evidence continues to be collected. Complete lifetimes are
+loaded only for the terminal targets on the current page. A Logging HTTP 429
+stops Logging reads for that job, and a denied enrichment call stops its
+enrichment, each with one recoverable gap naming the Galaxy job instead of
+failing the entire Batch page.
+
+The chart exposes `collector.gcpBatch.collectionBudgetSeconds`,
+`collector.queueSize`, and `collector.workerStallSeconds`. Corresponding
+settings are `RAINSTONE_GCP_COLLECTION_BUDGET_SECONDS`,
+`RAINSTONE_COLLECT_QUEUE_SIZE`, and `RAINSTONE_COLLECT_WORKER_STALL_SECONDS`.
+Increase the worker deadline when deliberately increasing an acquisition
+budget beyond it; a larger deadline does not fix a slow or saturated writer.
 
 ## Price coverage
 

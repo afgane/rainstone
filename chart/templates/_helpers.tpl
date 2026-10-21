@@ -233,6 +233,10 @@ reader both arrive as one secret reference instead.
   value: {{ .Values.collector.intervalSeconds | quote }}
 - name: RAINSTONE_COLLECT_BATCH_REFRESH_SECONDS
   value: {{ .Values.collector.batchRefreshSeconds | quote }}
+- name: RAINSTONE_COLLECT_QUEUE_SIZE
+  value: {{ .Values.collector.queueSize | quote }}
+- name: RAINSTONE_COLLECT_WORKER_STALL_SECONDS
+  value: {{ .Values.collector.workerStallSeconds | quote }}
 - name: RAINSTONE_KUBERNETES_ENABLED
   value: {{ .Values.collector.kubernetes.enabled | quote }}
 - name: RAINSTONE_KUBERNETES_NAMESPACE
@@ -260,6 +264,8 @@ reader both arrive as one secret reference instead.
   value: {{ required "collector.gcpBatch.project is required" .Values.collector.gcpBatch.project | quote }}
 - name: RAINSTONE_GCP_LOCATION
   value: {{ required "collector.gcpBatch.location is required" .Values.collector.gcpBatch.location | quote }}
+- name: RAINSTONE_GCP_COLLECTION_BUDGET_SECONDS
+  value: {{ .Values.collector.gcpBatch.collectionBudgetSeconds | quote }}
 - name: RAINSTONE_GCP_ENRICH_COMPUTE
   value: {{ .Values.collector.gcpBatch.enrichCompute | quote }}
 - name: RAINSTONE_GCP_ENRICH_LOGGING

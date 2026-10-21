@@ -201,3 +201,30 @@ def test_a_held_attempt_survives_its_json_round_trip() -> None:
         ),),
     )
     assert attempt_from_json(json.loads(json.dumps(attempt_to_json(attempt)))) == attempt
+
+
+def test_stream_expiration_preserves_the_last_watch_end_as_gap_start():
+    from datetime import UTC, datetime
+
+    end = datetime(2026, 10, 21, 12, 0, 25, tzinfo=UTC)
+    collector = KubernetesCollector(FakeKubernetesClient(), now=end)
+    first = collector.collect({"resource_version": "4300", "watched_at": "2026-10-21T12:00:00Z"})
+    assert first.cursor["watch_ended_at"] == end.isoformat()
+    collector = KubernetesCollector(FakeKubernetesClient(events=[{
+        "type": "ERROR", "object": {"code": 410, "reason": "Expired", "message": "too old"},
+    }]), now=end)
+    second = collector.collect(first.cursor)
+    assert second.gaps[0].gap_start == end
+    assert second.gaps[0].recoverable is False
+
+
+def test_non_expiration_status_is_a_failure_without_relisting():
+    import pytest
+    from rainstone.adapters.kubernetes import WatchError
+
+    for code, reason in [(403, "Forbidden"), (429, "TooManyRequests"), (500, "InternalError")]:
+        client = FakeKubernetesClient(events=[{"type": "ERROR", "object": {"code": code, "reason": reason}}])
+        with pytest.raises(WatchError) as raised:
+            KubernetesCollector(client).collect({"resource_version": "4300"})
+        assert raised.value.code == code
+        assert client.list_calls == 0

@@ -95,6 +95,14 @@ class ResourceVersionExpired(RuntimeError):
     """The watch cannot resume from the stored resource version."""
 
 
+class WatchError(RuntimeError):
+    """A non-expiration Kubernetes Status returned by a watch stream."""
+
+    def __init__(self, status: dict) -> None:
+        self.code = status.get("code")
+        super().__init__(f"Kubernetes watch failed ({self.code}, {status.get('reason', 'Unknown')})")
+
+
 class HttpKubernetesClient:
     """In-cluster API access using the pod's own service-account credentials.
 
@@ -387,7 +395,7 @@ class KubernetesCollector:
                     "Relisted after an expired watch resource version; pods deleted while "
                     f"disconnected are unrecoverable ({expired})."
                 ),
-                gap_start=_time(state.get("watched_at")),
+                gap_start=_time(state.get("watch_ended_at") or state.get("watched_at")),
                 gap_end=started,
                 recoverable=False,
             )
@@ -422,7 +430,7 @@ class KubernetesCollector:
         state["relisted_at"] = started.isoformat()
         if not continue_token:
             state["resource_version"] = metadata.get("resourceVersion")
-            state["watched_at"] = started.isoformat()
+            state["watch_ended_at"] = self._clock().isoformat()
         return ObservationBatch(
             source=SOURCE_NAME,
             observed_at=started,
@@ -445,7 +453,9 @@ class KubernetesCollector:
             kind = event.get("type")
             item = event.get("object", {})
             if kind == "ERROR":
-                raise ResourceVersionExpired(str(item.get("message", "watch error")))
+                if item.get("code") == 410 and item.get("reason") in {"Expired", "Gone"}:
+                    raise ResourceVersionExpired(str(item.get("message", "watch error")))
+                raise WatchError(item)
             version = item.get("metadata", {}).get("resourceVersion")
             if version:
                 resource_version = version
@@ -462,7 +472,8 @@ class KubernetesCollector:
             if attempt is not None:
                 attempts.append(attempt)
         state["resource_version"] = resource_version
-        state["watched_at"] = started.isoformat()
+        state.pop("watched_at", None)
+        state["watch_ended_at"] = self._clock().isoformat()
         return ObservationBatch(
             source=SOURCE_NAME,
             observed_at=started,

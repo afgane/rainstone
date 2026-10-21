@@ -73,7 +73,8 @@ class Settings(BaseSettings):
     gcp_batch_enabled: bool = False
     gcp_project: str | None = None
     gcp_location: str | None = None
-    gcp_max_targets_per_cycle: int = 25
+    gcp_max_targets_per_cycle: int = Field(default=25, gt=0)
+    gcp_collection_budget_seconds: float = Field(default=60, gt=0)
     gcp_enrich_compute: bool = True
     gcp_enrich_logging: bool = True
 
@@ -110,6 +111,8 @@ class Settings(BaseSettings):
     collect_terminal_reconcile_seconds: int = 900
     collect_max_backoff_seconds: int = 300
     collector_lease_key: str = "rainstone-collector"
+    collect_queue_size: int = Field(default=64, ge=1)
+    collect_worker_stall_seconds: float = Field(default=180, gt=0)
 
     # Price catalog. Trusted keys are `key_id:base64-ed25519-public-key` pairs;
     # listing several at once is how key rotation works. The feed URL and key

@@ -14,11 +14,17 @@ process exits unsuccessfully.
 
 `collection_progress` summarizes completed pages since the previous summary.
 The default interval is 60 seconds when calculations changed, or 300 seconds
-otherwise. Summaries run between collection operations, so a slow provider
-call can delay one. Counts of jobs, attempts and invocations are observations,
+otherwise. Summaries run on the coordinator; slow network acquisition does
+not delay them. Database collection and accounting work can delay a summary.
+Counts of jobs, attempts and invocations are observations,
 not distinct jobs or a claim that every observed record changed.
 `changed_calculations` counts revised calculations. Collection and calculation
 durations, cycle and revision IDs describe the latest page for each source.
+`collection_ms` measures acquisition; `queue_delay_ms` measures the wait
+before applying a queued batch. `calculation_ms` is shared by batches in the
+same accounting transaction and must not be summed across those batches.
+`changed_calculations` counts each shared revision once per participating
+source. Queue depth, capacity and oldest queued batch age accompany summaries.
 
 Batch target counts, page sizes and offsets are latest-page gauges. A terminal
 sweep wrapping means its paging reached the end of the current target list;
@@ -36,8 +42,14 @@ Source failures and coverage problems log immediately on transition, then at
 most once per repeat interval for the same failure. Recovery logs once.
 Failure events carry the error class and, where available, operation, HTTP
 status, SQLSTATE or system error name. Catalog and diagnostic state changes
-also produce events. DEBUG adds individual page starts, completions and
-sanitized failure stack frames, without dumping cursors or provider payloads.
+also produce events. Coverage recovery explicitly says observation resumed
+and earlier gaps remain. Worker stalls log separately from source failures.
+DEBUG adds page completions and provider request durations without dumping
+cursors, request URLs or provider payloads. Batch completion fields include
+per-operation request counts and total milliseconds for `batch.jobs.get`,
+`batch.tasks.list`, `compute.instances.get`, and `logging.logEntries.list`.
+These include failed requests and credential acquisition time. A separate
+`batch_request_summary` also records totals for completed Batch pages.
 
 ## Web
 
