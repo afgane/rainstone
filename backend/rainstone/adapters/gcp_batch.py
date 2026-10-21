@@ -846,7 +846,9 @@ class BatchCollector:
         )
         completed = {item.resource_key: item for item in target.completed_lifetimes} if not target.active else {}
         return [replace(attempt, lifetimes=tuple(
-            completed.get(item.resource_key, item) for item in attempt.lifetimes
+            completed.get(item.resource_key, replace(
+                item, facts={**item.facts, "observed_at": started.isoformat()},
+            )) for item in attempt.lifetimes
         )) for attempt in attempts], gaps
 
     def _enrich(
