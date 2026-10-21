@@ -345,6 +345,7 @@ class Collector:
         self._last_diagnostics: str | None = None
         self._queue: Queue[Delivery] = Queue(maxsize=settings.collect_queue_size)
         self._workers: dict[str, AcquisitionWorker] = {}
+        self._guard_due = 0.0
 
     @property
     def tenant_id(self) -> uuid.UUID:
@@ -588,8 +589,23 @@ class Collector:
                 self._failures.recovered(f"{name}.worker", source=name)
         if not stalled:
             self.heartbeat()
+        self.evaluate_guard(force=bool(deliveries))
         self.log_progress()
         return results
+
+    def evaluate_guard(self, *, force: bool = False) -> None:
+        if not self._settings.guard_enabled or (not force and self._clock() < self._guard_due):
+            return
+        self._guard_due = self._clock() + self._settings.collect_interval_seconds
+        from rainstone.spend_guard import evaluate_collected
+
+        try:
+            with Session(self._engine) as session:
+                evaluate_collected(session, self._tenant_id, self._settings)
+                session.commit()
+            self._failures.recovered("spend_guard")
+        except Exception as error:  # noqa: BLE001 - accounting must continue
+            self._failures.failed("spend_guard", error)
 
     def log_progress(self, *, force: bool = False) -> None:
         now = self._clock()
@@ -662,6 +678,7 @@ class Collector:
         for source in self._sources:
             if now >= source.due_at:
                 results.append(self.collect_source(source))
+        self.evaluate_guard()
         self.log_progress()
         return results
 

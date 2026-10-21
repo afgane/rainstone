@@ -529,3 +529,30 @@ class ObservationGap(Base):
     gap_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     recoverable: Mapped[bool] = mapped_column(Boolean, default=False)
     detail: Mapped[str] = mapped_column(Text)
+
+
+class SpendGuard(Base):
+    """One deployment policy; enrollment prevents reuse against another source."""
+
+    __tablename__ = "spend_guard"
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), primary_key=True)
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("owner.id"))
+    enrollment: Mapped[str | None] = mapped_column(String(100))
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(24, 12))
+    stop_jobs: Mapped[bool] = mapped_column(Boolean, default=False)
+    triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class GuardAudit(Base):
+    __tablename__ = "guard_audit"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"))
+    revision: Mapped[int] = mapped_column(Integer)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    actor: Mapped[str] = mapped_column(String(200))
+    action: Mapped[str] = mapped_column(String(80))
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+    __table_args__ = (Index("ix_guard_audit_tenant_time", "tenant_id", "occurred_at"),)

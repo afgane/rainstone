@@ -1074,3 +1074,35 @@ export async function downloadExport(state: ReportState): Promise<void> {
   link.href = url; link.download = "rainstone-jobs.csv"; link.click();
   URL.revokeObjectURL(url);
 }
+
+/** All recorded Batch compute; independent of the selected report period. */
+export interface BatchSpendSnapshot {
+  amount: string | null;
+  hourly_rate: string;
+  observed_at: string | null;
+  coverage_start: string | null;
+  generation: string;
+  enrollment: string | null;
+  data_age_seconds: string;
+  incomplete_jobs: number;
+  unpriced_running_resources: number;
+  gaps: number;
+}
+export interface SpendGuard {
+  revision: number;
+  limit: string | null;
+  stop_jobs: boolean;
+  triggered_at: string | null;
+  source_changed: boolean;
+  margin: string;
+  snapshot: BatchSpendSnapshot;
+  stale: boolean;
+  cancellations: GuardCancellation[];
+}
+export interface GuardCancellation {
+  job_id: string;
+  requested_at: string | null;
+  verified_at: string | null;
+  attempts: number;
+  error: string | null;
+}

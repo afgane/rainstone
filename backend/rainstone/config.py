@@ -105,6 +105,11 @@ class Settings(BaseSettings):
     baseline_effective_from: datetime | None = None
     baseline_effective_to: datetime | None = None
 
+    # Optional Batch guard. Only the collector receives Galaxy control access.
+    guard_enabled: bool = False
+    guard_reaction_seconds: int = Field(default=300, ge=0)
+    guard_stale_seconds: int = Field(default=600, gt=0)
+
     # Collector scheduling.
     collect_interval_seconds: int = 30
     collect_batch_refresh_seconds: int = 30
