@@ -609,7 +609,8 @@ far back as the collected evidence, with its start and gaps explicit.
 
 The trigger margin is the greater of $0.25 and the current running-VM
 hourly rate multiplied by reaction time plus snapshot age. The default
-reaction time is 300 seconds. The collector evaluates after collection and
+reaction time is 600 seconds. Ea-dev cancellation while a VM was
+still provisioning exceeded the original 300-second allowance. The collector evaluates after collection and
 while waiting for sources, so age continues to grow during source errors.
 Missing data alone does not pause or cancel jobs. A triggered policy stays
 triggered until its limit is raised or disabled; corrections do not resume

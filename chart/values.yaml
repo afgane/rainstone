@@ -220,7 +220,7 @@ spendGuard:
   enabled: false
   stateSecret: ""                # shared with Galaxy TPV; required when enabled
   stateSecretKey: token
-  reactionSeconds: 300
+  reactionSeconds: 600
   staleSeconds: 600
   galaxyUrl: ""                  # internal Galaxy base, including any prefix
   galaxySecret: ""               # collector-only admin API key
