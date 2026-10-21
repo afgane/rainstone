@@ -50,7 +50,7 @@ def price(rate: str = "0.262028") -> PriceVersion:
 
 def test_recorded_join_calculation_uses_lifecycle_proxy() -> None:
     line = calculate_lifetime(lifetime(CapacityRelationship.dedicated), [], price())[0]
-    assert line.amount == Decimal("0.006110803244823333333333333334")
+    assert line.amount == Decimal("0.006110803245")
     assert line.quality == Quality.approximate
 
 

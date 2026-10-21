@@ -147,12 +147,31 @@ export interface Summary extends Meta {
 /** Whether a recorded workflow run holds a job; `unknown` when the record cannot say. */
 export type JobOrigin = "workflow" | "individual" | "unknown";
 
+export type ResourcePhaseName = "provisioning" | "execution" | "idle" | "teardown" | "unattributed";
+
+export interface ResourcePhase {
+  phase: ResourcePhaseName; started_at: string | null; finished_at: string | null;
+  observed_seconds: string | null; charged_seconds: string | null; amount: string | null;
+  reason?: string;
+}
+
+export interface PhaseTotal {
+  phase: ResourcePhaseName; amount: string | null; complete: boolean;
+  resource_count: number; incomplete_resource_count: number;
+}
+
+export interface OverheadStatistics {
+  amount: string | null; total_amount: string | null; share: string | null;
+  sample_count: number; excluded_count: number;
+}
+
 export interface Job {
   id: string; source_id: string; tool_id: string; tool_name: string;
   tool_key: string; tool_version: string | null;
   owner: string; owner_id: string; state: string; runner: string | null;
   destination: string | null; created_at: string; amount: string | null; currency: string;
   quality: string; reason: string; cost_lines: number; attempt_count: number;
+  phase_totals: PhaseTotal[];
   repeat_attempt_count: number; attempt_evidence: "provider" | "galaxy_record" | "none";
   capacities: string[]; temporally_unattributed: boolean;
   /** Set on job list rows only. */
@@ -299,6 +318,7 @@ export interface JobResource {
   requested_vcpu: string | null; requested_memory_mib: string | null;
   amount: string | null; quality: string; reason: string;
   shared_attempt_ids: string[]; shared_attempt_count: number;
+  phases: ResourcePhase[];
 }
 
 /** One observation of an execution; `observation` rows repeat one counted under another role. */
@@ -360,6 +380,7 @@ export interface JobDetail extends Job {
   /** The part of the job inside the selected period. */
   interval_amount: string | null;
   full_job_amount: string | null;
+  full_phase_totals: PhaseTotal[];
   full_quality: string; full_reason: string; full_capacities: string[];
   /** The union of reliable tool executions, matching the workflow run's job rows. */
   started_at: string | null; finished_at: string | null;
@@ -551,6 +572,7 @@ export interface ToolDetail {
     eligible_job_count: number; excluded_job_count: number; limit: number;
   };
   statistics: {
+    overhead: OverheadStatistics;
     sample_count: number; excluded_count: number;
     mean: string | null; median: string | null; p95: string | null;
   };

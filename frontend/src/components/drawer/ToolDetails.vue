@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import type { ToolDetail } from "../../api";
 import {
-  contributorsHeading, excludedFromRanking, formatCost, needsCostData, TECHNICAL_HEADING, pluralize,
+  contributorsHeading, excludedFromRanking, formatCost, formatShare, needsCostData, TECHNICAL_HEADING, pluralize,
   RANKING_NOTE, SERVER_TOOL_NOTE, showJobs, statusLine,
 } from "../../vocabulary";
 import ScopedJobRow from "./ScopedJobRow.vue";
@@ -87,6 +87,15 @@ const statistics = computed(() => props.detail.statistics);
     <p v-else>Not enough completed jobs with known costs for past-job statistics.</p>
     <p v-if="statistics.sample_count && statistics.excluded_count">
       {{ pluralize(statistics.excluded_count, "job") }} left out: not completed, or missing cost data.
+    </p>
+    <p v-if="statistics.overhead && statistics.overhead.share !== null">
+      Machine startup and shutdown accounted for
+      {{ Number(statistics.overhead.share) === 0 ? "0%" : formatShare(Number(statistics.overhead.share)) }}
+      of {{ formatCost(statistics.overhead.total_amount) }} across
+      {{ pluralize(statistics.overhead.sample_count, "completed job") }} with complete costs and phase timings.
+      <template v-if="statistics.overhead.excluded_count">
+        {{ pluralize(statistics.overhead.excluded_count, "other job") }} not included.
+      </template>
     </p>
     <p class="mono">{{ detail.tool_ids.join(", ") || detail.key }}</p>
   </details>

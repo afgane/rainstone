@@ -401,6 +401,64 @@ executions only. An execution's `amount` is set only when it alone used every
 resource it is credited with, and is the sum of those resources; a null amount
 does not mean it shared a charge, which `amount_shared_with_attempts` states.
 
+**Resource phases.** Each resource includes `phases`, calculated and stored
+with its cost lines. Phases are `provisioning` (resource start to first tool
+start), `execution` (the union of the linked attempts' execution windows),
+`idle` (gaps between those windows), and `teardown` (last tool finish to
+resource finish). Empty phases are omitted. There is one entry per phase;
+execution and idle can contain several disjoint windows. `started_at` and
+`finished_at` bound the phase's span, while `observed_seconds` counts only its
+windows, excluding gaps belonging to other phases.
+
+Each phase has `phase`, `started_at`, `finished_at`, `observed_seconds`,
+`charged_seconds`, and `amount`. Seconds and amounts are decimal strings;
+unavailable values are null. Phase boundaries and price-change boundaries
+split the same stored allocations. The 60-second minimum applies once per
+resource and its uplift is distributed over observed seconds, including
+provisioning, idle and teardown. Stored allocation rounding preserves the
+resource amount exactly at the cost line's 12-decimal precision. Phase amounts
+sum exactly to a priced resource's amount; reports never price phases.
+
+If any linked attempt lacks a tool start or finish, has reversed timing or
+falls outside the resource lifetime, one `unattributed` phase covers the whole
+resource and has a `reason`. The same applies to an incomplete resource or a
+resource shared across jobs without an allocation policy. Unknown timing is
+never inferred from job submission, another attempt, or the current time.
+An unpriced resource keeps null phase amounts and charged seconds. Existing
+Galaxy-host capacity has `phases: []`, on both cost bases, and is never divided
+among jobs. A phase is not evidence of billing accuracy beyond the resource's
+existing `quality` and `timing_method`.
+
+Job list rows and job details include `phase_totals` for their reported scope.
+In accrued mode these include only the selected period's share, using the same
+stored allocations as the job amount. Completed mode includes whole-job
+phases for jobs completed in range. Job details also include
+`full_phase_totals`, independent of the selected period, beside
+`full_job_amount`. Each total has `phase`, `amount`, `complete`,
+`resource_count` and `incomplete_resource_count`. A sum with unpriced resources
+is a known subtotal with `complete: false`; no known amount means null.
+No entry means the phase is not present, not a measured zero cost. Jobs
+without resource evidence have no phase totals and retain their existing
+incomplete-cost status.
+
+CSV appends `<phase>_amount_exact` and `<phase>_complete` columns for all five
+phase names, with the same scope as `amount_exact`. Empty cells mean absent
+or unavailable amounts; the completeness columns distinguish a missing cost
+from a recorded phase. Existing-server jobs have empty phase columns.
+
+Tool statistics add `overhead`: `amount` is provisioning plus teardown cost,
+`total_amount` is the corresponding full-job compute cost, and `share` is
+their cost-weighted ratio, not an average of job percentages. The cohort is
+complete successful jobs with all VM phase costs attributed; it excludes
+missing timing, incomplete pricing, and jobs using only existing capacity.
+`sample_count` and `excluded_count` describe that cohort. An empty cohort or
+a zero denominator has `share: null`. The tool drawer presents this as past
+machine startup and shutdown cost, without recommending different tools.
+
+The calculation version is `resource-phases-v1`. The next collector
+calculation rebuilds existing cost lines from retained observations, even
+when those observations have not changed. No database migration is needed.
+
 **Machine size.** A resource's `machine_capacity` gives the machine's own
 `vcpu` and `memory_mib`, read from the reviewed registry of priced GCP shapes
 (`catalog/gcp-machine-shapes.json`, `source` `published_machine_shape`). Its

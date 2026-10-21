@@ -133,6 +133,14 @@ class OriginRun(APIModel):
     workflow_name: str
 
 
+class PhaseTotal(APIModel):
+    phase: Literal["provisioning", "execution", "idle", "teardown", "unattributed"]
+    amount: str | None
+    complete: bool
+    resource_count: int
+    incomplete_resource_count: int
+
+
 class JobItem(APIModel):
     id: str
     source_id: str
@@ -153,6 +161,7 @@ class JobItem(APIModel):
     quality: str
     reason: str
     cost_lines: int
+    phase_totals: list[PhaseTotal] = []
     attempt_count: int
     repeat_attempt_count: int
     attempt_evidence: Literal["provider", "galaxy_record", "none"]
@@ -228,6 +237,7 @@ class JobDetailResponse(JobItem):
     # The period's share of the job; everything below `full_` is the whole job.
     interval_amount: str | None
     full_job_amount: str | None
+    full_phase_totals: list[PhaseTotal]
     full_quality: str
     full_reason: str
     full_capacities: list[str]
@@ -246,7 +256,16 @@ class JobDetailResponse(JobItem):
     cost: dict[str, Any]
 
 
+class OverheadStatistics(APIModel):
+    amount: str | None
+    total_amount: str | None
+    share: str | None
+    sample_count: int
+    excluded_count: int
+
+
 class ToolStatistics(APIModel):
+    overhead: OverheadStatistics
     cohort: str
     sample_count: int
     excluded_count: int

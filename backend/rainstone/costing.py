@@ -1,8 +1,8 @@
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -22,8 +22,9 @@ from rainstone.models import (
     ResourceLifetime,
     ResourceSegment,
 )
+from rainstone.resource_phases import PhaseWindow, phase_windows, summarize_phases
 
-CALCULATION_VERSION = "phase2b-v2"
+CALCULATION_VERSION = "resource-phases-v1"
 SERVER_CALCULATION_VERSION = "galaxy-server-v1"
 MINIMUM_BILLED_SECONDS = Decimal("60")
 
@@ -36,6 +37,7 @@ class CalculatedLine:
     reason: str
     billed_seconds: Decimal | None = None
     allocations: tuple[dict, ...] = ()
+    phases: tuple[dict, ...] = ()
 
 
 def _unavailable(reason: str, quality: Quality = Quality.partial) -> list[CalculatedLine]:
@@ -101,7 +103,8 @@ class PricedWindows:
 
 
 def price_windows(
-    windows: Sequence[tuple[datetime, datetime]], prices: Sequence[PriceVersion]
+    windows: Sequence[tuple[datetime, datetime]], prices: Sequence[PriceVersion],
+    *, phases: Sequence[PhaseWindow] = (),
 ) -> PricedWindows:
     """Price positive-duration windows that are charged together.
 
@@ -121,6 +124,10 @@ def price_windows(
                 if value.effective_from and window_start < value.effective_from < window_end
             }
         )
+        boundaries = sorted(set(boundaries) | {
+            point for phase in phases for point in (phase.start, phase.end)
+            if point is not None and window_start < point < window_end
+        })
         points = [window_start, *boundaries, window_end]
         for start, end in zip(points, points[1:], strict=False):
             active = _active_price(prices, start)
@@ -133,6 +140,10 @@ def price_windows(
             amount += segment_amount
             allocations.append(
                 {
+                    **({"phase": next((phase.phase for phase in phases
+                                           if phase.start is not None and phase.end is not None
+                                           and phase.start <= start and end <= phase.end), "unattributed")}
+                       if phases else {}),
                     "start": start.isoformat(),
                     "end": end.isoformat(),
                     "observed_seconds": str(segment_seconds),
@@ -155,11 +166,36 @@ def price_windows(
 
 
 def calculate_lifetime(
+    lifetime: ResourceLifetime, segments: Sequence[ResourceSegment],
+    price: PriceVersion | Sequence[PriceVersion] | None, *, shared_job_count: int = 1,
+    attempts: Sequence[ExecutionAttempt] = (),
+) -> list[CalculatedLine]:
+    """Calculate storage-ready amounts, allocations and phases for both bases."""
+    phases = phase_windows(lifetime.observed_start, lifetime.observed_end, attempts,
+                           shared_job_count=shared_job_count)
+    windows = _windows(lifetime, segments)
+    if lifetime.observed_start and lifetime.observed_end and any(
+        lower < lifetime.observed_start or upper > lifetime.observed_end for lower, upper in windows
+    ):
+        phases = [PhaseWindow("unattributed", lifetime.observed_start, lifetime.observed_end,
+                              "An accounting window falls outside the resource lifetime.")]
+    lines = _calculate_lifetime(lifetime, windows, price, shared_job_count=shared_job_count, phases=phases)
+    if lifetime.capacity_relationship == CapacityRelationship.existing:
+        return lines
+    # Outside existing capacity both bases describe the same lifetime charge.
+    summary = tuple(summarize_phases(
+        phases, windows, lines[0].allocations, priced=lines[0].amount is not None,
+    ))
+    return [replace(line, phases=summary) for line in lines]
+
+
+def _calculate_lifetime(
     lifetime: ResourceLifetime,
-    segments: Sequence[ResourceSegment],
+    windows: Sequence[tuple[datetime, datetime]],
     price: PriceVersion | Sequence[PriceVersion] | None,
     *,
     shared_job_count: int = 1,
+    phases: Sequence[PhaseWindow] = (),
 ) -> list[CalculatedLine]:
     """Price one chargeable resource lifetime once per basis.
 
@@ -196,7 +232,6 @@ def calculate_lifetime(
             "More than one Galaxy job used this resource; an explicit allocation policy and "
             "occupancy coverage are required before charging it.",
         )
-    windows = _windows(lifetime, segments)
     if not windows:
         return _unavailable("Resource lifetime is incomplete.")
     prices = list(price) if isinstance(price, Sequence) else ([price] if price is not None else [])
@@ -204,7 +239,7 @@ def calculate_lifetime(
         return _unavailable("No applicable machine price was found.", Quality.unpriced)
     if _observed_seconds(windows) <= 0:
         return _unavailable("Resource lifetime is not positive.")
-    priced = price_windows(windows, prices)
+    priced = price_windows(windows, prices, phases=phases)
     if priced.uncovered:
         return _unavailable(
             "No published price covers this machine and region when it ran: the "
@@ -212,7 +247,9 @@ def calculate_lifetime(
             "never applied to earlier work.",
             Quality.unpriced,
         )
-    amount, billed_seconds, allocations = priced.amount, priced.billed_seconds, priced.allocations
+    amount = _stored_amount(priced.amount)
+    billed_seconds = priced.billed_seconds
+    allocations = tuple(_stored_allocations(priced.allocations, amount))
     quality = Quality.complete if lifetime.timing_method == "provider_billable" else Quality.approximate
     reason = (
         "Dedicated VM compute from provider billable lifetime."
@@ -495,6 +532,22 @@ def _stored_amount(amount: Decimal | None) -> Decimal | None:
     return None if amount is None else amount.quantize(AMOUNT_SCALE, rounding=ROUND_HALF_UP)
 
 
+def _stored_allocations(allocations: Sequence[dict], amount: Decimal | None) -> list[dict]:
+    """Round once at storage precision, preserving the exact resource total."""
+    result = [dict(allocation) for allocation in allocations]
+    if amount is None or not result:
+        return result
+    values = [Decimal(allocation["amount"]) for allocation in result]
+    rounded = [value.quantize(AMOUNT_SCALE, rounding=ROUND_DOWN) for value in values]
+    remainder = int((amount - sum(rounded, Decimal("0"))) / AMOUNT_SCALE)
+    order = sorted(range(len(values)), key=lambda index: values[index] - rounded[index], reverse=True)
+    for index in order[:remainder]:
+        rounded[index] += AMOUNT_SCALE
+    for allocation, value in zip(result, rounded, strict=True):
+        allocation["amount"] = str(value)
+    return result
+
+
 def _calculate_lines(session: Session, tenant_id: uuid.UUID) -> dict[LineKey, dict]:
     """Every cost line the tenant's facts call for, keyed by what it charges."""
     policy = session.scalar(
@@ -531,7 +584,8 @@ def _calculate_lines(session: Session, tenant_id: uuid.UUID) -> dict[LineKey, di
             continue
         jobs = {job.id: job for _, _, job in links}
         prices = _applicable_prices(session, lifetime)
-        lines = calculate_lifetime(lifetime, segments, prices, shared_job_count=len(jobs))
+        lines = calculate_lifetime(lifetime, segments, prices, shared_job_count=len(jobs),
+                                   attempts=[attempt for _, attempt, _ in links])
         for job_id in jobs:
             attempts = [
                 attempt for _, attempt, attempt_job in links if attempt_job.id == job_id
@@ -551,7 +605,7 @@ def _calculate_lines(session: Session, tenant_id: uuid.UUID) -> dict[LineKey, di
                     # A charge shared by retries belongs to the lifetime, not
                     # to one attempt row.
                     "attempt_id": attempts[0].id if len(attempts) == 1 else None,
-                    "amount": _stored_amount(line.amount),
+                    "amount": line.amount,
                     "currency": prices[0].currency if prices else "USD",
                     "quality": line.quality,
                     "reason": line.reason,
@@ -570,6 +624,7 @@ def _calculate_lines(session: Session, tenant_id: uuid.UUID) -> dict[LineKey, di
                         "shared_attempt_count": len(attempts),
                         "shared_job_count": len(jobs),
                         "allocations": list(line.allocations),
+                        "phases": list(line.phases),
                     },
                 }
     return calculated

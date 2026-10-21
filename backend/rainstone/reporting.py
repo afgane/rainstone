@@ -46,6 +46,7 @@ from rainstone.models import (
     Tenant,
 )
 from rainstone.report_query import ReportQuery, RunReportQuery, as_run_query
+from rainstone.resource_phases import PHASES
 from rainstone.server_activity import activity as server_activity
 
 ZERO = Decimal("0")
@@ -247,13 +248,9 @@ def _line_slices(
 ) -> list[tuple[datetime, datetime, Decimal | None]]:
     allocations = (line.details or {}).get("allocations") or []
     if allocations:
-        amounts = [Decimal(value["amount"]) for value in allocations]
-        if line.amount is not None:
-            rounded = [value.quantize(Decimal("0.000000000001")) for value in amounts[:-1]]
-            amounts = [*rounded, line.amount - sum(rounded, ZERO)]
         return [
-            (datetime.fromisoformat(value["start"]), datetime.fromisoformat(value["end"]), amount)
-            for value, amount in zip(allocations, amounts, strict=True)
+            (datetime.fromisoformat(value["start"]), datetime.fromisoformat(value["end"]), Decimal(value["amount"]))
+            for value in allocations
         ]
     if lifetime.observed_start:
         end = lifetime.observed_end or as_of
@@ -273,6 +270,48 @@ def _slice_fraction(start: datetime, end: datetime, query: ReportQuery) -> Decim
     lower, upper = query.from_time or start, query.to_time or end
     overlap = max(0.0, (min(end, upper) - max(start, lower)).total_seconds())
     return Decimal(str(overlap)) / Decimal(str((end - start).total_seconds()))
+
+
+def _phase_totals(pairs: list[tuple], query: ReportQuery | None = None) -> list[dict]:
+    """Aggregate stored allocations only; the report never prices phases."""
+    totals = {}
+    for line, _lifetime in pairs:
+        details = line.details or {}
+        for phase in details.get("phases", []):
+            name = phase["phase"]
+            amount = None
+            hit = False
+            if query is None or query.mode == "completed" or not (query.from_time or query.to_time):
+                hit = True
+                amount = Decimal(phase["amount"]) if phase["amount"] is not None else None
+            else:
+                for allocation in details.get("allocations", []):
+                    if allocation.get("phase") != name:
+                        continue
+                    fraction = _slice_fraction(datetime.fromisoformat(allocation["start"]),
+                                               datetime.fromisoformat(allocation["end"]), query)
+                    if fraction > 0:
+                        hit = True
+                        if line.amount is not None:
+                            amount = (amount or ZERO) + Decimal(allocation["amount"]) * fraction
+                if line.amount is None and not details.get("allocations"):
+                    # Missing prices are still missing in a clipped period.
+                    if phase["started_at"] and phase["finished_at"]:
+                        hit = _slice_fraction(datetime.fromisoformat(phase["started_at"]),
+                                              datetime.fromisoformat(phase["finished_at"]), query) > 0
+                    else:
+                        hit = True
+            if not hit:
+                continue
+            total = totals.setdefault(name, {"phase": name, "amount": None,
+                                             "resource_count": 0, "incomplete_resource_count": 0})
+            total["resource_count"] += 1
+            total["incomplete_resource_count"] += int(amount is None)
+            if amount is not None:
+                total["amount"] = (total["amount"] or ZERO) + amount
+    return [{**totals[name], "amount": _money(totals[name]["amount"]),
+             "complete": totals[name]["incomplete_resource_count"] == 0}
+            for name in PHASES if name in totals]
 
 
 def _authorized_invocations(session: Session, identity: Identity):
@@ -705,8 +744,8 @@ def _meta(
     }
 
 
-def _public(record: dict) -> dict:
-    return {
+def _public(record: dict, query: ReportQuery | None = None) -> dict:
+    result = {
         key: _money(value) if isinstance(value, Decimal) else value
         for key, value in record.items()
         if key not in {
@@ -714,6 +753,8 @@ def _public(record: dict) -> dict:
             "repeat_amount", "repeat_shared_amount", "repeat_amount_complete",
         }
     }
+
+    return {**result, "phase_totals": _phase_totals(record.get("pairs", []), query)}
 
 
 def _repeated_work(records: list[dict]) -> dict:
@@ -878,7 +919,8 @@ def job_origins(session: Session, identity: Identity, jobs: list) -> dict[uuid.U
     return origins
 
 
-def _job_summaries(session: Session, identity: Identity, records: list[dict], as_of: datetime) -> list[dict]:
+def _job_summaries(session: Session, identity: Identity, records: list[dict], as_of: datetime,
+                   query: ReportQuery) -> list[dict]:
     """Public rows with the facts a job list states beside each cost, read in bulk."""
     origins = job_origins(session, identity, [record["job"] for record in records])
     rows = []
@@ -890,7 +932,7 @@ def _job_summaries(session: Session, identity: Identity, records: list[dict], as
         origin = origins[record["job"].id]
         first = origin.runs[0] if origin.runs else None
         rows.append({
-            **_public(record), "origin": origin.kind,
+            **_public(record, query), "origin": origin.kind,
             # The run the job is named under, and how many other runs also hold it.
             "origin_run": {"id": str(first.id), "workflow_name": first.workflow_name} if first else None,
             "origin_run_count": len(origin.runs),
@@ -908,11 +950,11 @@ def list_jobs(session: Session, identity: Identity, query: ReportQuery, paginate
     undated_page = _sorted(undated, query)[query.undated_offset:query.undated_offset + query.limit]
     if paginate:
         as_of = revision.created_at if revision else datetime.now(UTC)
-        items = _job_summaries(session, identity, records[query.offset:query.offset + query.limit], as_of)
-        undated_items = _job_summaries(session, identity, undated_page, as_of)
+        items = _job_summaries(session, identity, records[query.offset:query.offset + query.limit], as_of, query)
+        undated_items = _job_summaries(session, identity, undated_page, as_of, query)
     else:
-        items = [_public(r) for r in records]
-        undated_items = [_public(r) for r in undated_page]
+        items = [_public(r, query) for r in records]
+        undated_items = [_public(r, query) for r in undated_page]
     return {
         "items": items, "total": len(records),
         "limit": query.limit, "offset": query.offset,
@@ -1009,6 +1051,7 @@ def job_detail(session: Session, identity: Identity, job_id: uuid.UUID, query: R
             "quality": _quality([line]),
             "reason": line.reason,
             "provenance": line.details,
+            "phases": (line.details or {}).get("phases", []),
             "shared_attempt_ids": [str(attempt.id) for attempt in sharing],
             "shared_attempt_count": len(sharing),
         }
@@ -1064,12 +1107,13 @@ def job_detail(session: Session, identity: Identity, job_id: uuid.UUID, query: R
             )
         )
     }
-    result = _public(record)
+    result = _public(record, unrestricted)
     result.update({
         "interval_amount": result["amount"],
         "full_job_amount": _money(full["amount"]) if full["amount"] is not None else None,
         "full_quality": full["quality"], "full_reason": full["reason"],
         "full_capacities": full["capacities"],
+        "full_phase_totals": _phase_totals(full["pairs"]),
         "started_at": span["started_at"], "finished_at": span["finished_at"],
         "duration_seconds": span["duration_seconds"], "duration_running": span["duration_running"],
         "duration_cutoff": as_of if span["duration_running"] else None,
@@ -1106,8 +1150,27 @@ def tool_statistics(rows: list[dict]) -> dict:
         p95 = values[lower] + (values[min(lower + 1, len(values) - 1)] - values[lower]) * fraction
     else:
         p95 = None
+    overhead_rows = []
+    for row in complete_rows:
+        pairs = row.get("pairs", [])
+        phases = _phase_totals(pairs)
+        dedicated = [line for line, lifetime in pairs if lifetime.capacity_relationship.value != "existing"]
+        if (not dedicated or any(not (line.details or {}).get("phases") for line in dedicated)
+                or any(phase["phase"] == "unattributed" or not phase["complete"] for phase in phases)):
+            continue
+        overhead_rows.append((row, phases))
+    overhead_total = sum((row["full_amount"] for row, _ in overhead_rows), ZERO)
+    overhead_amount = sum((Decimal(phase["amount"]) for _, phases in overhead_rows for phase in phases
+                           if phase["phase"] in {"provisioning", "teardown"}), ZERO)
+    overhead = {
+        "amount": _money(overhead_amount) if overhead_rows else None,
+        "total_amount": _money(overhead_total) if overhead_rows else None,
+        "share": str(overhead_amount / overhead_total) if overhead_total > 0 else None,
+        "sample_count": len(overhead_rows), "excluded_count": len(rows) - len(overhead_rows),
+    }
     return {
         "cohort": "complete successful jobs", "sample_count": len(values),
+        "overhead": overhead,
         "excluded_count": len(rows) - len(values),
         "mean": _money(statistics.mean(values)) if values else None,
         "median": _money(statistics.median(values)) if values else None,
@@ -2311,6 +2374,8 @@ def export_csv(session: Session, identity: Identity, query: ReportQuery):
         "job_id", "source_id", "tool_id", "tool_version", "owner", "state", "runner",
         "destination", "basis", "currency", "time_semantics", "amount_exact", "quality",
         "reason", "revision_id",
+        *[f"{phase}_amount_exact" for phase in PHASES],
+        *[f"{phase}_complete" for phase in PHASES],
     ])
     yield output.getvalue()
     output.seek(0)
@@ -2335,10 +2400,11 @@ def export_csv(session: Session, identity: Identity, query: ReportQuery):
                 candidate_offset=candidate_offset, candidate_limit=batch_size,
                 candidate_count=raw_count,
             )
-            records = [_public(record) for record in batch]
+            records = [_public(record, export_query) for record in batch]
             revision_id = str(revision.id) if revision else None
             exhausted = raw_count[0] < batch_size
         for row in records:
+            phases = {phase["phase"]: phase for phase in row.get("phase_totals", [])}
             writer.writerow([
                 *[safe(row.get(key)) for key in (
                     "id", "source_id", "tool_id", "tool_version", "owner", "state",
@@ -2347,6 +2413,8 @@ def export_csv(session: Session, identity: Identity, query: ReportQuery):
                 query.basis, "USD",
                 "accrued [from,to)" if query.mode == "accrued" else "completed in range",
                 safe(row["amount"]), row["quality"], safe(row["reason"]), revision_id,
+                *[safe(phases.get(phase, {}).get("amount")) for phase in PHASES],
+                *[phases[phase]["complete"] if phase in phases else "" for phase in PHASES],
             ])
             yield output.getvalue()
             output.seek(0)

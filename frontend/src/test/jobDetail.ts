@@ -19,7 +19,7 @@ export function resource(overrides: Partial<JobResource> = {}): JobResource {
     capacity_relationship: "dedicated", resource_started_at: "2026-09-29T01:05:00Z",
     resource_finished_at: "2026-09-29T01:20:00Z", timing_method: "compute_insert_complete_to_delete_request",
     requested_vcpu: "8.000000000000", requested_memory_mib: "32768.000000", amount: "0.77",
-    quality: "complete", reason: "", shared_attempt_ids: ["a1"], shared_attempt_count: 1, ...overrides,
+    phases: [], quality: "complete", reason: "", shared_attempt_ids: ["a1"], shared_attempt_count: 1, ...overrides,
   };
 }
 
@@ -45,6 +45,7 @@ export function job(overrides: Partial<JobDetail> = {}): JobDetail {
     created_at: "2026-09-29T00:51:00Z", amount: "0.77", currency: "USD", quality: "complete", reason: "",
     cost_lines: 1, attempt_count: 1, repeat_attempt_count: 0, attempt_evidence: "provider",
     capacities: ["dedicated"], temporally_unattributed: false, revision_id: "r1", basis: "additional",
+    phase_totals: [], full_phase_totals: [],
     interval_amount: "0.77", full_job_amount: "0.77", full_quality: "complete", full_reason: "",
     full_capacities: ["dedicated"], started_at: "2026-09-29T01:06:00Z", finished_at: "2026-09-29T01:16:00Z",
     duration_seconds: 600, duration_running: false, duration_cutoff: null, before_start_seconds: 900,
