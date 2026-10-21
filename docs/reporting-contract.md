@@ -615,3 +615,13 @@ Missing data alone does not pause or cancel jobs. A triggered policy stays
 triggered until its limit is raised or disabled; corrections do not resume
 it. Control changes and trigger decisions are audited with policy revision
 and source identity.
+
+`GET /api/internal/batch-dispatch` accepts only a provisioned shared Bearer
+credential and returns exactly `{"paused": true|false}`. It exposes no
+costs, account identity or policy. It resolves the configured deployment
+and checks its enrollment against the latched policy. Galaxy's TPV helper
+caches the answer for five seconds, bounds requests to two seconds, and
+admits jobs on a missing credential, timeout or invalid response. It raises
+`TryNextDestinationOrWait` only for a paused Batch destination, allowing
+server fallback or deferral. Galaxy 26.2 or later is required for fair
+ready-job dispatch while jobs are deferred.
