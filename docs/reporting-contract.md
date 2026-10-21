@@ -625,3 +625,11 @@ admits jobs on a missing credential, timeout or invalid response. It raises
 `TryNextDestinationOrWait` only for a paused Batch destination, allowing
 server fallback or deferral. Galaxy 26.2 or later is required for fair
 ready-job dispatch while jobs are deferred.
+
+The guard status also includes `notifications`, each with a `condition`
+(`triggered`, `stale` or `unpriced`) and a nullable sanitized `error`.
+Broadcast identities and retries are durable collector state. The
+collector reconciles source-marked active broadcasts to recover a lost
+POST response without duplicating notices. Resuming or disabling expires
+them through Galaxy; errors remain visible and retry with bounded backoff.
+Only the collector receives the administrator API key.

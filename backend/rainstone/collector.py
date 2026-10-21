@@ -601,8 +601,17 @@ class Collector:
 
         try:
             with Session(self._engine) as session:
-                evaluate_collected(session, self._tenant_id, self._settings)
+                guard = evaluate_collected(session, self._tenant_id, self._settings)
                 session.commit()
+                if guard:
+                    from rainstone.galaxy_control import GalaxyControl, reconcile_notifications
+
+                    client = GalaxyControl(self._settings)
+                    try:
+                        reconcile_notifications(session, guard, self._settings, client)
+                        session.commit()
+                    finally:
+                        client.close()
             self._failures.recovered("spend_guard")
         except Exception as error:  # noqa: BLE001 - accounting must continue
             self._failures.failed("spend_guard", error)

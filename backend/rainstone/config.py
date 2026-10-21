@@ -108,6 +108,9 @@ class Settings(BaseSettings):
     # Optional Batch guard. Only the collector receives Galaxy control access.
     guard_enabled: bool = False
     guard_token: SecretStr = SecretStr("")
+    guard_galaxy_url: str | None = None
+    guard_galaxy_api_key: SecretStr = SecretStr("")
+    guard_page_url: str = "/galaxy/costs/?view=limit"
     guard_reaction_seconds: int = Field(default=300, ge=0)
     guard_stale_seconds: int = Field(default=600, gt=0)
 

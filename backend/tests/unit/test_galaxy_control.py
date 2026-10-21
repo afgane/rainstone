@@ -1,0 +1,36 @@
+import httpx
+import pytest
+from rainstone.config import Settings
+from rainstone.galaxy_control import GalaxyControl, GalaxyControlError
+
+
+def test_control_request_scopes_url_and_never_exposes_key_in_errors():
+    key = "private-test-key"
+    def handler(request):
+        assert request.url.path == "/galaxy/api/notifications/broadcast"
+        assert request.headers["x-api-key"] == key
+        return httpx.Response(403, text="secret body " + key)
+    client = GalaxyControl(Settings(guard_galaxy_url="http://galaxy/galaxy", guard_galaxy_api_key=key),
+                           transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(GalaxyControlError) as error:
+            client.broadcasts()
+        assert str(error.value) == "Galaxy returned HTTP 403"
+        assert key not in repr(Settings(guard_galaxy_api_key=key))
+    finally:
+        client.close()
+
+
+def test_admin_broadcast_listing_excludes_expired_and_scheduled_notices():
+    def handler(request):
+        return httpx.Response(200, json=[
+            {"id": "expired", "expiration_time": "2000-01-01T00:00:00"},
+            {"id": "scheduled", "publication_time": "2100-01-01T00:00:00"},
+            {"id": "active", "publication_time": "2000-01-01T00:00:00"},
+        ])
+    client = GalaxyControl(Settings(guard_galaxy_url="http://galaxy", guard_galaxy_api_key="test"),
+                           transport=httpx.MockTransport(handler))
+    try:
+        assert [item["id"] for item in client.broadcasts()] == ["active"]
+    finally:
+        client.close()

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from rainstone.batch_spend import BatchSpend, batch_spend, utcnow
 from rainstone.config import Settings
-from rainstone.models import GuardAudit, SpendGuard, Tenant
+from rainstone.models import GuardAudit, GuardNotification, SpendGuard, Tenant
 
 
 class PolicyConflict(ValueError):
@@ -95,6 +95,9 @@ def status(session: Session, tenant_id: uuid.UUID, owner_id: uuid.UUID, settings
         "snapshot": snapshot.payload(now),
         "stale": snapshot.observed_at is None or snapshot.data_age(now) > settings.guard_stale_seconds,
         "cancellations": [],
+        "notifications": [{"condition": row.condition, "error": row.error}
+                          for row in session.scalars(select(GuardNotification).where(
+                              GuardNotification.tenant_id == tenant_id))],
     }
 
 

@@ -556,3 +556,13 @@ class GuardAudit(Base):
     action: Mapped[str] = mapped_column(String(80))
     details: Mapped[dict] = mapped_column(JSON, default=dict)
     __table_args__ = (Index("ix_guard_audit_tenant_time", "tenant_id", "occurred_at"),)
+
+
+class GuardNotification(Base):
+    __tablename__ = "guard_notification"
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), primary_key=True)
+    condition: Mapped[str] = mapped_column(String(40), primary_key=True)
+    notification_id: Mapped[str | None] = mapped_column(String(100))
+    error: Mapped[str | None] = mapped_column(String(200))
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)

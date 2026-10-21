@@ -235,6 +235,19 @@ reader both arrive as one secret reference instead.
 
 {{/* Settings the collector alone needs, beyond the source connection. */}}
 {{- define "rainstone.collectorEnv" -}}
+{{- if .Values.spendGuard.enabled }}
+- name: RAINSTONE_GUARD_GALAXY_URL
+  value: {{ .Values.spendGuard.galaxyUrl | quote }}
+- name: RAINSTONE_GUARD_PAGE_URL
+  value: {{ printf "%s/?view=limit" (trimSuffix "/" .Values.basePath) | quote }}
+{{- if .Values.spendGuard.galaxySecret }}
+- name: RAINSTONE_GUARD_GALAXY_API_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.spendGuard.galaxySecret }}
+      key: {{ .Values.spendGuard.galaxySecretKey }}
+{{- end }}
+{{- end }}
 {{- include "rainstone.sourceEnv" . }}
 - name: RAINSTONE_COLLECTOR_HEARTBEAT_PATH
   value: /tmp/rainstone-collector.heartbeat
