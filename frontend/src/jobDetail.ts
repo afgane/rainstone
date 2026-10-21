@@ -4,9 +4,11 @@
  * ordered. Eligibility for a comparison is decided by the backend; nothing here
  * divides a measurement by a request.
  */
-import type { JobDetail, JobExecution, JobResourceUse, MachineCapacity } from "./api";
+import type {
+  JobDetail, JobExecution, JobResource, JobResourceUse, MachineCapacity, ResourcePhaseName,
+} from "./api";
 import {
-  AVERAGE_CPU, comparisonNote, PEAK_MEMORY, pluralize, jobStateLabel, TIMING_NOTE,
+  AVERAGE_CPU, comparisonNote, PEAK_MEMORY, PHASE_LABEL, pluralize, jobStateLabel, TIMING_NOTE,
 } from "./vocabulary";
 
 const BYTES_PER_MIB = 1024 ** 2;
@@ -291,6 +293,73 @@ export interface Lanes {
   compute: Lane;
   /** The compute lane ends at the snapshot because the machine was still in use. */
   computeOngoing: boolean;
+  /** Positions within the compute bar, not the lane; empty when the bar stays whole. */
+  phases: PhaseSegment[];
+}
+
+export interface PhaseSegment { phase: ResourcePhaseName; startPercent: number; endPercent: number }
+
+/**
+ * The machine's phases across its own bar. Drawn only when every phase has a
+ * span and the spans follow one another, so no part of the bar is guessed.
+ */
+function phaseSegments(resource: JobResource): PhaseSegment[] {
+  const phases = resource.phases ?? [];
+  if (!phases.length || !resource.resource_started_at || !resource.resource_finished_at) return [];
+  if (phases.some(phase => phase.phase === "unattributed" || !phase.started_at || !phase.finished_at)) return [];
+  const from = Date.parse(resource.resource_started_at);
+  const span = Date.parse(resource.resource_finished_at) - from;
+  if (!(span > 0)) return [];
+  const ordered = [...phases].sort((first, second) => Date.parse(first.started_at!) - Date.parse(second.started_at!));
+  const ends = ordered.map(phase => Date.parse(phase.finished_at!));
+  if (ordered.some((phase, index) => index > 0 && Date.parse(phase.started_at!) < ends[index - 1])) return [];
+  return ordered.map(phase => ({
+    phase: phase.phase,
+    startPercent: ((Date.parse(phase.started_at!) - from) / span) * 100,
+    endPercent: ((Date.parse(phase.finished_at!) - from) / span) * 100,
+  }));
+}
+
+export interface PhaseRow {
+  phase: ResourcePhaseName;
+  label: string;
+  /** Observed time summed over the job's machines; null when any machine's is unknown. */
+  seconds: number | null;
+  amount: string | null;
+  complete: boolean;
+  /** The phase's part of the job's full cost; null unless both are known. */
+  share: number | null;
+}
+
+export interface PhaseBreakdown { rows: PhaseRow[]; unattributedReasons: string[] }
+
+/**
+ * Where a job's machine time and cost went, as Rainstone reports it: amounts
+ * from the job's phase totals, durations from its machines' phases.
+ */
+export function phaseBreakdown(detail: JobDetail): PhaseBreakdown | null {
+  const totals = detail.full_phase_totals ?? [];
+  if (!totals.length) return null;
+  const phases = detail.resources.flatMap(resource => resource.phases ?? []);
+  const unattributedReasons = [...new Set(
+    phases.filter(phase => phase.phase === "unattributed" && phase.reason).map(phase => phase.reason!),
+  )];
+  const whole = Number(detail.full_job_amount);
+  const rows = totals
+    .filter(total => total.phase !== "unattributed")
+    .map(total => {
+      const matching = phases.filter(phase => phase.phase === total.phase);
+      const seconds = matching.some(phase => phase.observed_seconds === null)
+        ? null : matching.reduce((sum, phase) => sum + Number(phase.observed_seconds), 0);
+      const share = total.complete && total.amount !== null && detail.full_job_amount !== null && whole > 0
+        ? Number(total.amount) / whole : null;
+      return {
+        phase: total.phase, label: PHASE_LABEL[total.phase], seconds,
+        amount: total.amount, complete: total.complete, share,
+      };
+    });
+  if (!rows.length && !unattributedReasons.length) return null;
+  return { rows, unattributedReasons };
 }
 
 /**
@@ -318,7 +387,10 @@ export function buildLanes(detail: JobDetail): Lanes | null {
     endPercent: ((Date.parse(end) - from) / span) * 100,
   });
   if (Date.parse(toolEnd) < Date.parse(detail.started_at) || Date.parse(computeEnd) < Date.parse(resource.resource_started_at)) return null;
-  return { tool: lane(detail.started_at, toolEnd), compute: lane(resource.resource_started_at, computeEnd), computeOngoing };
+  return {
+    tool: lane(detail.started_at, toolEnd), compute: lane(resource.resource_started_at, computeEnd), computeOngoing,
+    phases: computeOngoing ? [] : phaseSegments(resource),
+  };
 }
 
 /* Executions. */

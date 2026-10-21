@@ -1,5 +1,29 @@
 /** Builders for a job's drawer tests: a finished, single-execution job on its own machine. */
-import type { JobDetail, JobExecution, JobResource, JobResourceUse } from "../api";
+import type { JobDetail, JobExecution, JobResource, JobResourceUse, PhaseTotal, ResourcePhase } from "../api";
+
+/** The default machine's phases: 1 min startup, 10 min running, 4 min shutdown, summing to 0.77. */
+export function phases(): ResourcePhase[] {
+  const phase = (name: ResourcePhase["phase"], start: string, end: string, seconds: number, amount: string) => ({
+    phase: name, started_at: `2026-09-29T${start}:00Z`, finished_at: `2026-09-29T${end}:00Z`,
+    observed_seconds: String(seconds), charged_seconds: String(seconds), amount,
+  });
+  return [
+    phase("provisioning", "01:05", "01:06", 60, "0.0513"),
+    phase("execution", "01:06", "01:16", 600, "0.5133"),
+    phase("teardown", "01:16", "01:20", 240, "0.2054"),
+  ];
+}
+
+export function phaseTotals(): PhaseTotal[] {
+  return phases().map(phase => ({
+    phase: phase.phase, amount: phase.amount, complete: true, resource_count: 1, incomplete_resource_count: 0,
+  }));
+}
+
+/** The default job with its machine's phases recorded. */
+export function phasedJob(overrides: Partial<JobDetail> = {}): JobDetail {
+  return job({ resources: [resource({ phases: phases() })], full_phase_totals: phaseTotals(), ...overrides });
+}
 
 export function execution(overrides: Partial<JobExecution> = {}): JobExecution {
   return {

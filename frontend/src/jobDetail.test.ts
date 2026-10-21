@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   barGeometry, buildLanes, buildTimeline, executionHistory, formatCores, formatMachineCapacity, formatRequestPercent,
-  logicalExecutions, resourceUseView, sameAmount,
+  logicalExecutions, phaseBreakdown, resourceUseView, sameAmount,
 } from "./jobDetail";
-import { emptyUse, execution, job, resource } from "./test/jobDetail";
+import { emptyUse, execution, job, phasedJob, phases, resource } from "./test/jobDetail";
 
 describe("sameAmount", () => {
   it("compares numbers, not spellings", () => {
@@ -189,6 +189,57 @@ describe("buildLanes", () => {
       resources: [resource({ resource_finished_at: null })],
     }))!;
     expect(lanes.computeOngoing).toBe(true);
+    expect(lanes.phases).toEqual([]);
+  });
+
+  it("splits the compute bar at the recorded phase boundaries, relative to the bar", () => {
+    const segments = buildLanes(phasedJob())!.phases;
+    expect(segments.map(segment => segment.phase)).toEqual(["provisioning", "execution", "teardown"]);
+    expect(segments[0].startPercent).toBe(0);
+    expect(segments[1].startPercent).toBeCloseTo((1 / 15) * 100);
+    expect(segments[2].startPercent).toBeCloseTo((11 / 15) * 100);
+    expect(segments[2].endPercent).toBe(100);
+  });
+
+  it("keeps the bar whole rather than guessing at unattributed or overlapping phases", () => {
+    const unattributed = [{ ...phases()[0], phase: "unattributed" as const, reason: "Unknown start." }];
+    expect(buildLanes(phasedJob({ resources: [resource({ phases: unattributed })] }))!.phases).toEqual([]);
+    const overlapping = phases().map(phase => (
+      phase.phase === "teardown" ? { ...phase, started_at: "2026-09-29T01:10:00Z" } : phase
+    ));
+    expect(buildLanes(phasedJob({ resources: [resource({ phases: overlapping })] }))!.phases).toEqual([]);
+  });
+});
+
+describe("phaseBreakdown", () => {
+  it("reports Rainstone's phase amounts with durations and shares of the full cost", () => {
+    const { rows, unattributedReasons } = phaseBreakdown(phasedJob())!;
+    expect(rows.map(row => [row.label, row.seconds, row.amount])).toEqual([
+      ["Startup", 60, "0.0513"], ["Running", 600, "0.5133"], ["Shutdown", 240, "0.2054"],
+    ]);
+    expect(rows[0].share).toBeCloseTo(0.0513 / 0.77);
+    expect(unattributedReasons).toEqual([]);
+  });
+
+  it("is absent without phase totals, such as a job on the Galaxy server", () => {
+    expect(phaseBreakdown(job())).toBeNull();
+  });
+
+  it("states why phases could not be separated instead of listing them", () => {
+    const unattributed = [{ ...phases()[0], phase: "unattributed" as const, reason: "Unknown start." }];
+    const breakdown = phaseBreakdown(phasedJob({
+      resources: [resource({ phases: unattributed })],
+      full_phase_totals: [{ phase: "unattributed", amount: "0.77", complete: true, resource_count: 1, incomplete_resource_count: 0 }],
+    }))!;
+    expect(breakdown.rows).toEqual([]);
+    expect(breakdown.unattributedReasons).toEqual(["Unknown start."]);
+  });
+
+  it("gives no share for a partial subtotal or an unknown duration", () => {
+    const totals = phasedJob().full_phase_totals.map(total => ({ ...total, complete: false }));
+    const unknown = phases().map(phase => ({ ...phase, observed_seconds: null }));
+    const { rows } = phaseBreakdown(phasedJob({ full_phase_totals: totals, resources: [resource({ phases: unknown })] }))!;
+    expect(rows.every(row => row.share === null && row.seconds === null)).toBe(true);
   });
 });
 

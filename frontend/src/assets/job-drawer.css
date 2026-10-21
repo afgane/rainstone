@@ -100,6 +100,20 @@
 .lane[data-lane="compute"] .lane-bar { background: #9cc0de; }
 .lane-bar[data-ongoing="true"] { background: repeating-linear-gradient(90deg, #9cc0de 0 6px, #c9d9e8 6px 10px); }
 .lane-times { grid-column: 2; color: #58585a; font-size: .85rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* Phase colours are shared by the compute bar's segments and the legend's swatches. */
+.lane-bar[data-phased="true"] { overflow: hidden; }
+.lane-phase { position: absolute; top: 0; bottom: 0; }
+[data-phase="provisioning"] { --phase-colour: #9cc0de; }
+[data-phase="execution"] { --phase-colour: #3477a9; }
+[data-phase="idle"] { --phase-colour: #d5dee8; }
+[data-phase="teardown"] { --phase-colour: #6d8fae; }
+.lane-phase, .phase-swatch { background: var(--phase-colour); }
+.phase-breakdown { margin: .6rem 0; }
+.phase-rows { display: grid; grid-template-columns: max-content max-content max-content minmax(0, 1fr); gap: .2rem .8rem; margin: 0; padding: 0; list-style: none; }
+.phase-rows li { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; }
+.phase-name { display: inline-flex; align-items: center; gap: .4rem; font-weight: 700; }
+.phase-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.phase-duration, .phase-cost, .phase-share { font-variant-numeric: tabular-nums; color: #3a3a3c; }
 
 /* Technical details. */
 .technical-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .3rem .8rem; margin: .5rem 0; }
@@ -115,11 +129,14 @@
   .timeline-events time { grid-column: 2; text-align: left; }
   .lanes { grid-template-columns: minmax(0, 1fr); }
   .lane-times { grid-column: 1; }
+  .phase-rows { grid-template-columns: max-content minmax(0, 1fr); }
+  .phase-cost, .phase-share { grid-column: 2; }
 }
 
 @media (forced-colors: active) {
   .use-track, .lane-track { forced-color-adjust: none; border: 1px solid CanvasText; background: Canvas; }
   .use-fill, .lane-bar, .timeline-tool { forced-color-adjust: none; background: Highlight; }
+  .lane-phase, .phase-swatch { forced-color-adjust: none; background: Highlight; border-right: 2px solid Canvas; }
   .use-marker { forced-color-adjust: none; background: CanvasText; }
   .timeline-mark, .timeline-key { forced-color-adjust: none; border-color: CanvasText; }
   .execution-row[aria-expanded="true"] { border: 3px solid Highlight; }

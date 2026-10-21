@@ -524,6 +524,15 @@ export const COST_EXCLUSIONS = "Costs are compute only, in USD. Storage, network
 export const COST_COMPONENTS_NOTE = "These amounts are parts of the job's cost above, not additional costs.";
 export const TIMING_ESTIMATE_NOTE =
   "Timing comes from recorded events. The machine can be held before and after the tool runs.";
+export const PHASE_LABEL = {
+  provisioning: "Startup",
+  execution: "Running",
+  idle: "Idle between runs",
+  teardown: "Shutdown",
+  unattributed: "Not separated",
+} as const;
+export const PHASES_HEADING = "Where the machine time went";
+export const UNATTRIBUTED_PHASES_NOTE = "Startup, running and shutdown could not be separated:";
 
 export const TIMING_NOTE = {
   finished_before_started: "The recorded finish is earlier than the recorded start, so no duration is shown.",

@@ -1,16 +1,23 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { JobDetail } from "../../api";
-import { buildLanes } from "../../jobDetail";
+import { buildLanes, phaseBreakdown, type PhaseRow } from "../../jobDetail";
 import {
   COST_COMPONENTS_NOTE, COST_ESTIMATE_HEADING, COST_EXCLUSIONS, COST_METHOD, dayKey, environmentLabel,
-  formatClock, formatCost, formatDateTime, GPU_PRICE_NOTE, purchaseModelLabel, SERVER_GROUP_NOTE,
-  TIMING_ESTIMATE_NOTE,
+  formatClock, formatCompactCost, formatCost, formatDateTime, formatJobDuration, formatShare, GPU_PRICE_NOTE,
+  PHASES_HEADING, purchaseModelLabel, SERVER_GROUP_NOTE, TIMING_ESTIMATE_NOTE, UNATTRIBUTED_PHASES_NOTE,
 } from "../../vocabulary";
 
 const props = defineProps<{ detail: JobDetail; timezone: string }>();
 const lanes = computed(() => buildLanes(props.detail));
 const serverOnly = computed(() => props.detail.full_quality === "known_zero");
+const phases = computed(() => (serverOnly.value ? null : phaseBreakdown(props.detail)));
+
+function phaseSentence(row: PhaseRow): string {
+  const cost = row.amount === null ? "cost not available" : `${formatCost(row.amount)}${row.complete ? "" : " known so far"}`;
+  const share = row.share === null ? "" : `, ${formatShare(row.share)} of the job's cost`;
+  return `${row.label}: ${formatJobDuration(row.seconds)}, ${cost}${share}`;
+}
 const method = computed(() => {
   if (serverOnly.value) return SERVER_GROUP_NOTE;
   const usedGpus = props.detail.resources.some(resource => resource.machine_capacity?.gpu);
@@ -57,7 +64,8 @@ function timeSpan(start: string | null, end: string | null, ongoing = false): st
     </template>
 
     <div v-if="lanes" class="lanes">
-      <div class="lane" data-lane="tool">
+      <!-- The compute bar's Running segment already is the tool run, so the separate lane is only drawn without phases. -->
+      <div v-if="!lanes.phases.length" class="lane" data-lane="tool">
         <span class="lane-label">Tool run</span>
         <span class="lane-track" aria-hidden="true">
           <span
@@ -70,13 +78,36 @@ function timeSpan(start: string | null, end: string | null, ongoing = false): st
         <span class="lane-label">Compute lifetime</span>
         <span class="lane-track" aria-hidden="true">
           <span
-            class="lane-bar" :data-ongoing="lanes.computeOngoing"
+            class="lane-bar" :data-ongoing="lanes.computeOngoing" :data-phased="lanes.phases.length > 0"
             :style="{ left: `${lanes.compute.startPercent}%`, width: `${lanes.compute.endPercent - lanes.compute.startPercent}%` }"
-          />
+          >
+            <span
+              v-for="segment in lanes.phases" :key="segment.phase" class="lane-phase" :data-phase="segment.phase"
+              :style="{ left: `${segment.startPercent}%`, width: `${segment.endPercent - segment.startPercent}%` }"
+            />
+          </span>
         </span>
         <span class="lane-times">{{ timeSpan(lanes.compute.start, lanes.compute.end, lanes.computeOngoing) }}</span>
       </div>
       <p class="dialog-meta">{{ TIMING_ESTIMATE_NOTE }}</p>
+    </div>
+
+    <div v-if="phases" class="phase-breakdown">
+      <h4 class="technical-heading">{{ PHASES_HEADING }}</h4>
+      <ul v-if="phases.rows.length" class="phase-rows">
+        <li v-for="row in phases.rows" :key="row.phase" :data-phase="row.phase">
+          <span class="phase-name" aria-hidden="true"><span class="phase-swatch" />{{ row.label }}</span>
+          <span class="phase-duration" aria-hidden="true">{{ formatJobDuration(row.seconds) }}</span>
+          <span class="phase-cost" aria-hidden="true" :title="row.amount ? `${row.amount} USD` : undefined">
+            {{ formatCompactCost(row.amount) }}<template v-if="row.amount !== null && !row.complete"> known so far</template>
+          </span>
+          <span class="phase-share" aria-hidden="true">{{ row.share === null ? "" : formatShare(row.share) }}</span>
+          <span class="sr-only">{{ phaseSentence(row) }}</span>
+        </li>
+      </ul>
+      <p v-for="reason in phases.unattributedReasons" :key="reason" class="dialog-meta">
+        {{ UNATTRIBUTED_PHASES_NOTE }} {{ reason }}
+      </p>
     </div>
 
     <p v-if="detail.full_job_amount !== null" class="mono">Exact amount: {{ detail.full_job_amount }} USD</p>

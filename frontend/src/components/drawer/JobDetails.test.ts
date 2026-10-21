@@ -1,7 +1,7 @@
 import { mount } from "@vue/test-utils";
 import { afterEach, describe, expect, it } from "vitest";
 import type { JobDetail } from "../../api";
-import { emptyUse, execution, job, resource } from "../../test/jobDetail";
+import { emptyUse, execution, job, phasedJob, phases, resource } from "../../test/jobDetail";
 import JobDetails from "./JobDetails.vue";
 
 const mounted: Array<ReturnType<typeof mount>> = [];
@@ -149,6 +149,38 @@ describe("JobDetails cost", () => {
     expect(wrapper.find("details.job-disclosure").text()).toContain("parts of the job's cost above");
     expect(wrapper.findAll(".resource-amount").map(each => each.text())).toEqual(["$0.50", "$0.27"]);
     expect(wrapper.find(".lanes").exists()).toBe(false);
+  });
+
+  it("segments the compute lifetime and lists each phase's time, cost and share", () => {
+    const wrapper = view(phasedJob());
+    // The Running segment is the tool run, so it is not drawn twice.
+    expect(wrapper.findAll(".lane").map(each => each.attributes("data-lane"))).toEqual(["compute"]);
+    const compute = wrapper.find('.lane[data-lane="compute"]');
+    expect(compute.findAll(".lane-phase").map(each => each.attributes("data-phase")))
+      .toEqual(["provisioning", "execution", "teardown"]);
+    const cells = wrapper.findAll(".phase-rows li").map(each => (
+      [".phase-name", ".phase-duration", ".phase-cost", ".phase-share"].map(cell => each.find(cell).text())
+    ));
+    expect(cells).toEqual([
+      ["Startup", "1m 00s", "$0.05", "6.7%"], ["Running", "10m 00s", "$0.51", "67%"], ["Shutdown", "4m 00s", "$0.21", "27%"],
+    ]);
+    expect(wrapper.find(".phase-rows li .sr-only").text()).toBe("Startup: 1m 00s, $0.05, 6.7% of the job's cost");
+    expect(wrapper.find('.phase-rows li[data-phase="execution"] [title]').attributes("title")).toBe("0.5133 USD");
+  });
+
+  it("explains unseparated phases with Rainstone's reason and keeps the bar whole", () => {
+    const unattributed = [{ ...phases()[0], phase: "unattributed" as const, reason: "Unknown start." }];
+    const wrapper = view(phasedJob({
+      resources: [resource({ phases: unattributed })],
+      full_phase_totals: [{ phase: "unattributed", amount: "0.77", complete: true, resource_count: 1, incomplete_resource_count: 0 }],
+    }));
+    expect(wrapper.find(".lane-phase").exists()).toBe(false);
+    expect(wrapper.find(".phase-rows").exists()).toBe(false);
+    expect(wrapper.find(".phase-breakdown").text()).toContain("could not be separated: Unknown start.");
+  });
+
+  it("shows no phases for a job without them", () => {
+    expect(view().find(".phase-breakdown").exists()).toBe(false);
   });
 });
 
