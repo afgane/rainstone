@@ -16,6 +16,14 @@ spec:
       app.kubernetes.io/component: web
   policyTypes: ["Ingress"]
   ingress:
+    {{- if .Values.spendGuard.enabled }}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: galaxy
+      ports:
+        - port: 8000
+    {{- end }}
     - from:
         - namespaceSelector:
             matchLabels:

@@ -3,7 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
 
@@ -107,6 +107,7 @@ class Settings(BaseSettings):
 
     # Optional Batch guard. Only the collector receives Galaxy control access.
     guard_enabled: bool = False
+    guard_token: SecretStr = SecretStr("")
     guard_reaction_seconds: int = Field(default=300, ge=0)
     guard_stale_seconds: int = Field(default=600, gt=0)
 

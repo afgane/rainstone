@@ -214,3 +214,11 @@ serviceAccounts:
 networkPolicy:
   enabled: false
   ingressNamespace: ingress-nginx
+
+# Optional control of this deployment's Batch compute, inert until configured.
+spendGuard:
+  enabled: false
+  stateSecret: ""                # shared with Galaxy TPV; required when enabled
+  stateSecretKey: token
+  reactionSeconds: 300
+  staleSeconds: 600

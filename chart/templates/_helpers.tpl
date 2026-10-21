@@ -60,6 +60,19 @@ different one.
 
 {{/* Settings shared by the web and collector workloads. */}}
 {{- define "rainstone.env" -}}
+- name: RAINSTONE_GUARD_ENABLED
+  value: {{ .Values.spendGuard.enabled | quote }}
+- name: RAINSTONE_GUARD_REACTION_SECONDS
+  value: {{ .Values.spendGuard.reactionSeconds | quote }}
+- name: RAINSTONE_GUARD_STALE_SECONDS
+  value: {{ .Values.spendGuard.staleSeconds | quote }}
+{{- if .Values.spendGuard.enabled }}
+- name: RAINSTONE_GUARD_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: {{ required "spendGuard.stateSecret is required when enabled" .Values.spendGuard.stateSecret }}
+      key: {{ .Values.spendGuard.stateSecretKey }}
+{{- end }}
 - name: RAINSTONE_LOG_LEVEL
   value: {{ .Values.logging.level | quote }}
 - name: RAINSTONE_LOG_PROGRESS_SECONDS

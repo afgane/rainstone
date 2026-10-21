@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from rainstone.api.guard import internal_router
 from rainstone.api.guard import router as guard_router
 from rainstone.api.routes import router
 from rainstone.config import get_settings
@@ -28,6 +29,7 @@ app = FastAPI(title="Rainstone", version="2.0.0b1", root_path=settings.root_path
 app.add_middleware(RequestLogging, slow_seconds=settings.log_slow_request_seconds)
 app.include_router(router)
 app.include_router(guard_router)
+app.include_router(internal_router)
 
 static_dir = settings.static_dir
 
