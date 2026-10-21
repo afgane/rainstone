@@ -111,7 +111,7 @@ class Settings(BaseSettings):
     guard_galaxy_url: str | None = None
     guard_galaxy_api_key: SecretStr = SecretStr("")
     guard_page_url: str = "/galaxy/costs/?view=limit"
-    guard_reaction_seconds: int = Field(default=300, ge=0)
+    guard_reaction_seconds: int = Field(default=600, ge=0)
     guard_stale_seconds: int = Field(default=600, gt=0)
 
     # Collector scheduling.
