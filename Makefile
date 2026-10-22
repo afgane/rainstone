@@ -1,5 +1,5 @@
 .PHONY: dev dev-down dev-reset test test-unit test-integration e2e build migrate seed benchmark \
-	collect doctor catalog chart-lint
+	collect doctor catalog chart-lint test-chart-publish
 
 COMPOSE := docker compose
 
@@ -60,3 +60,6 @@ CHART_VALUES := --set instance.slug=local --set auth.workspaceOwner=local-accoun
 chart-lint:
 	helm lint chart $(CHART_VALUES)
 	helm template rainstone chart $(CHART_VALUES) >/dev/null
+
+test-chart-publish:
+	scripts/test_publish_chart.sh

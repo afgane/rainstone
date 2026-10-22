@@ -236,6 +236,8 @@ reader both arrive as one secret reference instead.
 {{/* Settings the collector alone needs, beyond the source connection. */}}
 {{- define "rainstone.collectorEnv" -}}
 {{- if .Values.spendGuard.enabled }}
+- name: RAINSTONE_GUARD_CONTROL_BUDGET_SECONDS
+  value: {{ .Values.spendGuard.controlBudgetSeconds | quote }}
 - name: RAINSTONE_GUARD_GALAXY_URL
   value: {{ .Values.spendGuard.galaxyUrl | quote }}
 - name: RAINSTONE_GUARD_PAGE_URL

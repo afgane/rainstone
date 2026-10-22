@@ -9,9 +9,11 @@ no remote kubeconfig, SSH access, developer cloud login or externally hosted
 monitoring is required, and none of them is a prerequisite for support.
 
 Installing Rainstone adds Rainstone's own workloads, storage, route and
-observation permissions. It does not change Galaxy's runner configuration, VM
-identity, IAM bindings, metadata access, cluster topology or Leonardo, and
-Leonardo remains the only production entry point.
+observation permissions. The default reporting chart does not change Galaxy's runner configuration,
+VM identity, IAM bindings, metadata access, cluster topology or Leonardo.
+AnVIL's optional [Batch spend limit](spend-limit.md) adds a TPV rule and
+collector-only Galaxy API access through k8s-boot. Leonardo remains the
+production entry point.
 
 ## Identity modes
 
@@ -47,14 +49,27 @@ platform explicitly when the build host is an Apple Silicon machine:
 
 ```console
 docker buildx build --platform linux/amd64 --target runtime \
-    -t afgane/rainstone:2.0.0b1 --push .
+    -t afgane/rainstone:2.0.0b2 --push .
 ```
 
 Every commit to `main` whose CI run passes publishes this image automatically
 (`.github/workflows/publish-image.yml`), under the `appVersion` tag and a
 `sha-<commit>` tag. It needs the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`
-secrets on the repository. Until `appVersion` is bumped per release, each
-publish replaces the `appVersion` tag.
+secrets on the repository. The version tag is published only when it does not exist; later commits
+still receive their own SHA tag. Bump `appVersion` for a new application
+release. A branch dispatch publishes only its SHA tag for validation.
+
+After the image is available, the image workflow calls the chart publisher
+for the same tested commit. Chart versions are immutable: publishing
+changed contents under an existing version is refused. Bump the chart
+version for chart changes. The release containing Batch spend limits is
+chart `0.4.0`, application `2.0.0b2`.
+
+Coordinate deployment changes in linked PRs. Merge Rainstone first, wait
+for CI, image publication and chart publication, and verify the published
+package. Only then merge a k8s-boot change that selects the new chart.
+Galaxy prerequisites must be available in its selected image before
+turning the guard on; see [Batch spend limits](spend-limit.md).
 
 `make build` produces the same image locally as `rainstone:local` for the host's
 own architecture; it is for local checks, not for the cluster.

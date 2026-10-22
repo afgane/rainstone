@@ -1,16 +1,9 @@
 name: Publish image
 
-# Every commit to main whose CI run passes rebuilds the release image and
-# pushes it to Docker Hub as afgane/rainstone. The chart pulls the tag equal to
-# its appVersion, and appVersion is not bumped per commit yet, so each publish
-# replaces that tag; the sha- tag keeps every build addressable.
-#
-# A workflow_run trigger always runs the workflow file from the default branch,
-# so the commit that CI tested is checked out explicitly. A manual dispatch
-# skips the CI gate and builds the branch it is dispatched on.
-#
-# Add DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (an access token with write access
-# to afgane/rainstone) as secrets of this repository.
+# Main commits publish a SHA image after CI, and publish the application
+# version tag only once. Bump appVersion for a new application release.
+# Manual branch dispatches publish only a SHA image for PR validation.
+# The chart publisher runs afterward for the same tested main commit.
 on:
   workflow_run:
     workflows: [CI]
@@ -39,6 +32,8 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push')
+    outputs:
+      main_release: ${{ steps.version.outputs.main_release }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -50,6 +45,7 @@ jobs:
           app_version=$(sed -n 's/^appVersion: "\(.*\)"$/\1/p' chart/Chart.yaml)
           test -n "$app_version"
           echo "app_version=$app_version" >> "$GITHUB_OUTPUT"
+          echo "main_release=${{ github.ref == 'refs/heads/main' }}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -57,6 +53,22 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Check whether the version tag is already published
+        id: release
+        if: steps.version.outputs.main_release == 'true'
+        env:
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
+        run: |
+          if docker buildx imagetools inspect "$IMAGE:$APP_VERSION" > /tmp/image.json 2> /tmp/image-error; then
+            echo "Version $APP_VERSION already exists; publishing the SHA image only."
+            echo "publish_tag=false" >> "$GITHUB_OUTPUT"
+          elif grep -Eiq 'not found|manifest unknown' /tmp/image-error; then
+            echo "publish_tag=true" >> "$GITHUB_OUTPUT"
+          else
+            cat /tmp/image-error >&2
+            exit 1
+          fi
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -66,7 +78,15 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ${{ env.IMAGE }}:${{ steps.version.outputs.app_version }}
             ${{ env.IMAGE }}:sha-${{ env.SOURCE_SHA }}
+            ${{ steps.release.outputs.publish_tag == 'true' && format('{0}:{1}', env.IMAGE, steps.version.outputs.app_version) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  publish-chart:
+    needs: publish
+    if: needs.publish.outputs.main_release == 'true'
+    uses: ./.github/workflows/publish-chart.yml
+    with:
+      source_sha: ${{ github.event.workflow_run.head_sha || github.sha }}
+    secrets: inherit

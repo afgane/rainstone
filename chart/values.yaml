@@ -222,6 +222,7 @@ spendGuard:
   stateSecretKey: token
   reactionSeconds: 600
   staleSeconds: 600
+  controlBudgetSeconds: 10
   galaxyUrl: ""                  # internal Galaxy base, including any prefix
   galaxySecret: ""               # collector-only admin API key
   galaxySecretKey: api-key

@@ -1,6 +1,6 @@
 apiVersion: v2
 name: rainstone
-description: Galaxy compute cost reporting, deployed alongside Galaxy
+description: Galaxy compute cost reporting and optional Batch spend limits
 type: application
-version: 0.3.0
-appVersion: "2.0.0b1"
+version: 0.4.0
+appVersion: "2.0.0b2"

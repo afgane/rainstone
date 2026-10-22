@@ -3,13 +3,10 @@
 #
 #   scripts/publish_chart.sh CHART_DIR HELM_CHARTS_DIR
 #
-# The chart version is not bumped yet, so publishing replaces the package and
-# index entry for the same version rather than adding one. `helm repo index
-# --merge` keeps an existing entry for a version it already lists, digest
-# included, so the old entry is removed before merging. Prints "unchanged" and
-# leaves the checkout untouched when the chart's contents are the same as the
-# published package; otherwise prints the package name. Committing and pushing
-# are left to the caller.
+# Prints "unchanged" when the contents match an existing version. Changed
+# contents require a new version, so a published package is never replaced.
+# Otherwise prints the new package name. Committing and pushing are left
+# to the caller.
 set -euo pipefail
 
 chart_dir=$(cd "$1" && pwd)
@@ -32,11 +29,11 @@ if [[ -f "$repo_dir/$package" ]]; then
     echo unchanged
     exit 0
   fi
+  echo "Chart $name $version is already published with different contents; bump the chart version." >&2
+  exit 1
 fi
 
 cp "$work/$package" "$repo_dir/$package"
 cd "$repo_dir"
-yq -i "del(.entries.\"$name\"[] | select(.version == \"$version\"))" index.yaml
-yq -i "del(.entries.\"$name\" | select(length == 0))" index.yaml
 TZ=UTC helm repo index . --merge index.yaml 2>/dev/null
 echo "$package"

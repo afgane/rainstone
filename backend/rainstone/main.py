@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from rainstone import __version__
 from rainstone.api.guard import internal_router
 from rainstone.api.guard import router as guard_router
 from rainstone.api.routes import router
@@ -25,7 +26,7 @@ async def lifespan(app: FastAPI):
     logger.info("web_stopped")
 
 
-app = FastAPI(title="Rainstone", version="2.0.0b1", root_path=settings.root_path, lifespan=lifespan)
+app = FastAPI(title="Rainstone", version=__version__, root_path=settings.root_path, lifespan=lifespan)
 app.add_middleware(RequestLogging, slow_seconds=settings.log_slow_request_seconds)
 app.include_router(router)
 app.include_router(guard_router)

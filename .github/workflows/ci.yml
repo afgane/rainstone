@@ -21,3 +21,12 @@ jobs:
           name: playwright-report
           path: frontend/playwright-report
           if-no-files-found: ignore
+
+  chart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Validate chart and immutable publication
+        run: make chart-lint test-chart-publish
