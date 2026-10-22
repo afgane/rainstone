@@ -68,8 +68,8 @@ chart `0.4.0`, application `2.0.0b2`.
 Coordinate deployment changes in linked PRs. Merge Rainstone first, wait
 for CI, image publication and chart publication, and verify the published
 package. Only then merge a k8s-boot change that selects the new chart.
-Galaxy prerequisites must be available in its selected image before
-turning the guard on; see [Batch spend limits](spend-limit.md).
+The default AnVIL deployment needs no Galaxy patch; custom resubmission
+rules require the correction described in [Batch spend limits](spend-limit.md).
 
 `make build` produces the same image locally as `rainstone:local` for the host's
 own architecture; it is for local checks, not for the cluster.

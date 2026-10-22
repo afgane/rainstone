@@ -37,20 +37,22 @@ Use chart `0.4.0` / Rainstone `2.0.0b2` or later with:
 
 - The `anvil-workspace` identity mode and one fixed Galaxy account. People
   admitted by the workspace's existing route may change the shared limit.
-- Galaxy 26.2 or later, with fair dispatch past deferred ready jobs and
-  the generic resubmission-deferral correction described below.
+- Galaxy 26.2 or later, with fair dispatch past deferred ready jobs.
+  Deployments adding resubmission rules also need the correction below.
 - GCP Batch observations and prices for this deployment's Galaxy jobs.
 - One existing Rainstone collector; no additional process or pod.
 - A shared dispatch-state Secret and a collector-only Galaxy API key
   belonging to an administrator account.
 
-Galaxy must catch `JobNotReadyException` while recovering a resubmission's
-mapped destination. The 26.2.rc1 handler used in validation did not do so:
-a waiting retry interrupted the poll and prevented other ready jobs from
-running. The generic correction and regression test are prepared as
-Galaxy commit `284a6a6dbd`, pending review and publication. A fresh Galaxy
-image must include that correction before the guard is enabled. A live
-ConfigMap override used in validation is not a release substitute.
+The default AnVIL job configuration and shared TPV database do not define
+resubmission rules, so the default guard does not require a Galaxy patch.
+Before adding such rules, use a Galaxy image that catches
+`JobNotReadyException` while recovering a resubmission's mapped
+destination. Without that generic correction a waiting retry interrupts
+the poll and prevents other ready jobs from running. The correction and
+regression test are prepared as Galaxy commit `284a6a6dbd`, pending review
+and publication. Keep that prerequisite explicit for custom deployments;
+a live ConfigMap override is not a release substitute.
 
 ## Configuration
 
@@ -182,7 +184,7 @@ policy or reconstruct all missing history automatically.
 
 Use linked Rainstone and k8s-boot PRs. The Rainstone PR must be merged,
 tested, and publish its image followed by its immutable chart package
-before the playbook PR selecting that chart is merged. The Galaxy image
-prerequisite must also be available first. Validate the published package
+before the playbook PR selecting that chart is merged. For a deployment enabling resubmissions, the Galaxy image correction
+must also be available first. Validate the published package
 on a fresh installation, with no source or static-file overlays, and
 verify that all active Kubernetes CPU requests remain below three cores.
