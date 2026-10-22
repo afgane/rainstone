@@ -186,7 +186,8 @@ policy or reconstruct all missing history automatically.
 
 Use linked Rainstone and k8s-boot PRs. The Rainstone PR must be merged,
 tested, and publish its image followed by its immutable chart package
-before the playbook PR selecting that chart is merged. For a deployment enabling resubmissions, the Galaxy image correction
-must also be available first. Validate the published package
+before the playbook PR selecting that chart is merged. For a deployment
+enabling resubmissions, the Galaxy image correction must also be available
+first. Validate the published package
 on a fresh installation, with no source or static-file overlays, and
 verify that all active Kubernetes CPU requests remain below three cores.
