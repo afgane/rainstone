@@ -129,9 +129,6 @@ export interface Summary extends Meta {
   repeat_attempt_spend: string;
   repeat_attempt_shared_spend: string;
   repeat_attempt_spend_complete: boolean;
-  baseline_infrastructure_amount: string | null;
-  /** When the server was actually observed, not the window that was asked for. */
-  baseline_infrastructure_observed: { from: string; to: string } | null;
   current_launch: CurrentLaunch | null;
   can_view_infrastructure: boolean;
   demo: boolean;
@@ -192,9 +189,7 @@ export interface JobList {
 }
 
 export interface Infrastructure {
-  items: Array<Record<string, string>>; amount: string | null; scope: string;
-  allocation_reason: string; observation_window: Record<string, string>;
-  observed_coverage: { from: string; to: string } | null;
+  revision_id: string | null; as_of: string | null;
   current_launch: CurrentLaunch;
   activity: ServerActivity | null;
 }
@@ -1066,7 +1061,7 @@ export function figuresDiffer(shown: Summary, latest: Summary): boolean {
   const figures = (summary: Summary) => [
     summary.amount, summary.job_count, summary.priced_job_count, summary.unpriced_job_count,
     summary.known_zero_job_count, summary.failed_spend, summary.failed_job_count,
-    summary.baseline_infrastructure_amount, summary.current_launch?.total_since_launch ?? null,
+    summary.current_launch?.total_since_launch ?? null,
   ];
   const before = figures(shown);
   return figures(latest).some((value, index) => value !== before[index]);

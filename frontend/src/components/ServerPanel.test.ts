@@ -21,9 +21,7 @@ const LAUNCH: CurrentLaunch = {
 function panel(overrides: Partial<CurrentLaunch> | null = {}, imported = true, timezone = "UTC") {
   return mount(ServerPanel, { props: {
     server: overrides === null ? null : {
-      current_launch: { ...LAUNCH, ...overrides }, items: [], amount: null, scope: "Whole server",
-      allocation_reason: "", observation_window: {}, observed_coverage: null,
-      activity: null,
+      revision_id: null, as_of: null, current_launch: { ...LAUNCH, ...overrides }, activity: null,
     } as Infrastructure,
     imported, timezone, now: new Date("2026-10-04T15:42:10Z"),
   } });

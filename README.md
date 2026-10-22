@@ -23,11 +23,10 @@ The bundled demonstration starts with sanitized observations recorded on
 2026-09-19 from a deployed Galaxy. It includes the three recorded dedicated
 Batch calculations, a cross-runner retry, a mixed Kubernetes/Batch invocation, a
 nested collection invocation, known-zero existing capacity, unknown execution
-topology, two owners, and a separate baseline-VM interval. Clearly marked
-synthetic cases add a DST boundary, in-progress and awaiting-calculation work,
-output reuse, and a same-VM provider retry whose one lifetime is charged once
-across two attempts. No operational endpoint, credential, raw log, or user
-dataset is included.
+topology, and two owners. Clearly marked synthetic cases add a DST boundary,
+in-progress and awaiting-calculation work, output reuse, and a same-VM provider
+retry whose one lifetime is charged once across two attempts. No operational
+endpoint, credential, raw log, or user dataset is included.
 
 ## Run locally
 

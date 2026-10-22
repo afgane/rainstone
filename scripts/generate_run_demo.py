@@ -382,7 +382,6 @@ def build() -> dict:
         "prices": base["prices"],
         "jobs": builder.jobs,
         "invocations": builder.invocations,
-        "infrastructure_intervals": [],
     }
 
 

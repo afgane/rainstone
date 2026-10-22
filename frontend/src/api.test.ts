@@ -112,7 +112,7 @@ describe("newer figures", () => {
   const shown = {
     revision_id: "rev-1", as_of: "2026-09-29T12:00:00Z", amount: "1.00", job_count: 2,
     priced_job_count: 2, unpriced_job_count: 0, known_zero_job_count: 0, failed_spend: "0",
-    failed_job_count: 0, baseline_infrastructure_amount: null, current_launch: null,
+    failed_job_count: 0, current_launch: null,
   } as unknown as Summary;
 
   it("differ when anything the view counts changes", () => {

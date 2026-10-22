@@ -25,16 +25,16 @@ The summary request chooses a calculation revision. The browser pins that
 revision into every table, chart, detail, and export request and serializes it
 in the URL. A revision records the tenant's report-generation marker, which
 database triggers advance whenever tenant, owner, job, attempt, resource
-lifetime, segment, association, policy, price, workflow membership, or
-infrastructure facts change, including through a write that bypasses the
-application. Each tenant has exactly one calculation, whose cost lines are
-updated in place; a recalculation gives it a new revision ID, and earlier
-revisions are not kept. A pinned revision that is no longer current, or whose
-marker has moved, returns a conflict instead of mixing figures from two
-calculations. The revision also records a content digest, so replaying
-identical facts keeps the current revision rather than recalculating. Report
-requests use a repeatable-read database snapshot so validation and aggregation
-see one state, including while a recalculation is being written.
+lifetime, segment, association, policy, price or workflow membership facts
+change, including through a write that bypasses the application. Each tenant has
+exactly one calculation, whose cost lines are updated in place; a recalculation
+gives it a new revision ID, and earlier revisions are not kept. A pinned
+revision that is no longer current, or whose marker has moved, returns a
+conflict instead of mixing figures from two calculations. The revision also
+records a content digest, so replaying identical facts keeps the current
+revision rather than recalculating. Report requests use a repeatable-read
+database snapshot so validation and aggregation see one state, including while a
+recalculation is being written.
 
 The default accrued mode clips each observed resource interval to the selected
 half-open range. A resource lifetime is split at catalog price boundaries. A
@@ -370,13 +370,10 @@ recalculating alone cannot recover observations that were never collected.
 A price that takes effect after work ran is never applied to it. Such work is
 unpriced, and its reason names when the earliest published price takes effect.
 
-The summary distinguishes the requested window from what was observed:
-`observation_window` echoes the report bounds, while
-`baseline_infrastructure_observed` (and the infrastructure report's
-`observed_coverage`) is the span of server observations inside them, or null
-when there are none. A tenant restored from a captured snapshot carries an
-`imported_snapshot` capability, returned by the summary with its capture time,
-source cutoffs and digest; it is real data and is not marked as a demo.
+The summary's `observation_window` echoes the report bounds. A tenant restored
+from a captured snapshot carries an `imported_snapshot` capability, returned by
+the summary with its capture time, source cutoffs and digest; it is real data
+and is not marked as a demo.
 
 Every report's `meta.price_list` names the active price catalog and when its
 prices were read from Google Cloud (`observed_at`), or is null when no catalog
@@ -547,8 +544,9 @@ observations and restarts cannot add to it, and it is marked stale when the
 last observation is more than five minutes old or the tenant is an imported
 snapshot. Report filters, basis, mode and dates never change it; the timezone
 only affects how clients format its timestamps. It is never added to job
-totals, and job baseline occupancy is never added to it. The period-based
-`items`, `amount` and `observed_coverage` fields remain for compatibility.
+totals, and job baseline occupancy is never added to it. Besides
+`current_launch` and `activity`, `/api/infrastructure` returns only the
+pinned `revision_id` and its `as_of` time.
 
 `GET /api/infrastructure` also carries `activity` for the current server
 session. It is null when its start or cutoff is unknown. Activity ignores

@@ -6,7 +6,9 @@ Revises:
 One revision creates the whole schema. Rainstone has not been deployed, so
 there is no installed database whose history these revisions would have to
 preserve; carrying the development cycle's steps forward would only make the
-first real installation replay work that never ran anywhere.
+first real installation replay work that never ran anywhere. The tables are
+built from the current models; once a database is installed, freeze them
+here as explicit definitions and give later changes their own revisions.
 
 Report-affecting writes advance a per-tenant marker through statement-level
 triggers, so a write that bypasses the application still invalidates pinned
@@ -61,7 +63,6 @@ TENANT_SOURCES: dict[str, str] = {
         "JOIN tenant t ON t.id = i.tenant_id"
     ),
     "deployment_policy": _DIRECT,
-    "infrastructure_interval": _DIRECT,
     "price_version": "SELECT id AS tenant_id FROM tenant WHERE EXISTS (SELECT 1 FROM changed)",
 }
 
@@ -118,10 +119,7 @@ def _create_trigger(table: str, suffix: str, operation: str, transitions: str, s
 
 
 def upgrade() -> None:
-    # Guard tables belong to their later revisions, including on a fresh DB.
-    reporting = [table for table in Base.metadata.sorted_tables
-                 if not table.name.startswith("guard_") and table.name != "spend_guard"]
-    Base.metadata.create_all(bind=op.get_bind(), tables=reporting, checkfirst=True)
+    Base.metadata.create_all(bind=op.get_bind(), checkfirst=True)
     op.execute(FUNCTION)
     for table, source in TENANT_SOURCES.items():
         for suffix, operation, transition in OPERATIONS:

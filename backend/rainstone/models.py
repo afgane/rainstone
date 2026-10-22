@@ -373,22 +373,6 @@ class CostLine(Base):
     )
 
 
-class InfrastructureInterval(Base):
-    __tablename__ = "infrastructure_interval"
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"))
-    source_id: Mapped[str] = mapped_column(String(300))
-    resource_uid: Mapped[str] = mapped_column(String(300))
-    machine_type: Mapped[str] = mapped_column(String(100))
-    region: Mapped[str] = mapped_column(String(100))
-    observed_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    observed_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    amount: Mapped[Decimal] = mapped_column(Numeric(24, 12))
-    currency: Mapped[str] = mapped_column(String(3))
-    quality: Mapped[Quality] = mapped_column(Enum(Quality, name="infra_quality"))
-    __table_args__ = (UniqueConstraint("tenant_id", "source_id"),)
-
-
 class GalaxyServerSession(Base):
     """The Galaxy host VM's current running session, one per tenant.
 

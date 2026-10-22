@@ -397,9 +397,6 @@ FINGERPRINT = text("""
                     FROM invocation_job t
                     JOIN invocation i ON i.id = t.invocation_id
                    WHERE i.tenant_id = :tenant
-        UNION ALL SELECT md5(t::text)
-                    FROM infrastructure_interval t
-                   WHERE t.tenant_id = :tenant
     )
     SELECT coalesce(md5(string_agg(h, '' ORDER BY h)), 'empty') AS digest FROM parts
 """)

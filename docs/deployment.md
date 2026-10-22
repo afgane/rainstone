@@ -414,15 +414,6 @@ automatically; submitting synthetic jobs is an opt-in development action.
   requires `catalog.trustedKeys`; the chart refuses to render a feed URL
   without one, and a downloaded artifact always needs a verified signature
   regardless of settings.
-- The Galaxy server's own running cost is never reported on a real
-  installation. That server runs whether or not anyone submits a job, and the
-  Server view exists to show what it costs over the period being viewed.
-  Nothing in collection produces those figures, though: they come only from the
-  bundled demonstration data, so on a real installation the view is empty
-  rather than wrong. This is a missing feature, not a missing price — the
-  server's own shape is in the catalog. Job reporting is unaffected: work that
-  ran on that server is still reported as adding no extra compute cost, which
-  is calculated separately and does come from live observation.
 - A fresh packaged chart installation and a populated upgrade have been
   verified on a development deployment, including migration, enrollment,
   readiness, an initially inactive spend limit and preserved policy on
