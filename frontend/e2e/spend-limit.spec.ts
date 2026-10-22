@@ -20,20 +20,30 @@ test("set, trigger, raise and turn off a Batch limit with the keyboard", async (
     await expect(page.getByRole("heading", { name: "Batch spend limit", exact: true })).toBeVisible();
     const state = await (await page.request.get(endpoint, { headers })).json();
     const nearLimit = (Math.ceil(Number(state.snapshot.amount) * 100) / 100 + .10).toFixed(2);
-    const input = page.getByLabel("Batch spend limit (USD)");
-    await input.focus(); await page.keyboard.type(nearLimit);
-    const finish = page.getByRole("radio", { name: /Let jobs already on Batch finish/ });
-    await finish.focus(); await page.keyboard.press("Space");
+    const input = page.getByLabel("Total limit (USD)", { exact: true });
+    const slider = page.getByRole("slider", { name: "Adjust total limit (USD)" });
+    await slider.focus(); await page.keyboard.press("Home");
+    expect(Number(await slider.inputValue())).toBeGreaterThan(Number(state.snapshot.amount));
+    await input.fill("100.00");
+    const save = page.getByRole("button", { name: "Save limit", exact: true });
+    const beforeNote = await save.boundingBox();
+    const formBeforeNote = await page.locator(".limit-form").boundingBox();
+    await input.fill(nearLimit);
+    await expect(page.getByText(/new Batch jobs will pause immediately/)).toBeVisible();
+    expect(await save.boundingBox()).toEqual(beforeNote);
+    expect(await page.locator(".limit-form").boundingBox()).toEqual(formBeforeNote);
+    const stop = page.getByRole("switch", { name: "Stop running jobs when the limit is reached" });
+    await expect(stop).not.toBeChecked();
+    await stop.focus(); await page.keyboard.press("Space");
+    await expect(page.getByText(/Unfinished work is lost/)).toBeVisible();
+    await page.keyboard.press("Space");
+    await expect(stop).not.toBeChecked();
     await input.focus(); await page.keyboard.press("Enter");
-    await expect(page.getByRole("heading", { name: "Save this Batch limit?" })).toBeFocused();
-    await expect(page.getByText(/already within the current margin/)).toBeVisible();
-    await page.keyboard.press("Tab"); await page.keyboard.press("Enter");
     await expect(page.getByRole("link", { name: "New Batch jobs paused", exact: true })).toBeVisible();
     await expect(page.locator(".limit-result")).toContainText("New Batch jobs are paused");
+    await expect(page.getByRole("button", { name: "Update limit", exact: true })).toBeVisible();
 
     await input.focus(); await input.fill("5.00"); await page.keyboard.press("Enter");
-    await expect(page.getByRole("heading", { name: "Save this Batch limit?" })).toBeFocused();
-    await page.keyboard.press("Tab"); await page.keyboard.press("Enter");
     await expect(page.getByRole("link", { name: /Batch limit \$5.00/ })).toBeVisible();
     await page.getByRole("button", { name: "Overview", exact: true }).focus(); await page.keyboard.press("Enter");
     await expect(page.locator(".figure.featured .figure-amount")).toHaveText(original);
@@ -50,8 +60,6 @@ test("set, trigger, raise and turn off a Batch limit with the keyboard", async (
     await page.screenshot({ path: info.outputPath("spend-limit-mobile.png"), fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.getByRole("button", { name: "Turn off limit", exact: true }).focus(); await page.keyboard.press("Enter");
-    await expect(page.getByRole("heading", { name: "Turn off your Batch limit?" })).toBeFocused();
-    await page.keyboard.press("Tab"); await page.keyboard.press("Enter");
     await expect(page.locator(".limit-result")).toContainText("turned off");
     await expect(page.getByRole("link", { name: "Set a Batch spend limit", exact: true })).toBeVisible();
   } finally {

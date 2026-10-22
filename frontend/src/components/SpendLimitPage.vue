@@ -1,59 +1,72 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { ApiError, put, type SpendGuard } from "../api";
-import { triggersImmediately } from "../spendGuard";
-import {
-  BATCH_FINISH_EFFECT, BATCH_LIMIT_BEST_EFFORT, BATCH_LIMIT_SCOPE, BATCH_STOP_EFFECT,
-  formatCost, formatDate, formatDateTime,
-} from "../vocabulary";
+import { minimumSpendLimit, triggersImmediately } from "../spendGuard";
+import { BATCH_LIMIT_SCOPE, formatCost, formatDate, formatDateTime } from "../vocabulary";
 
 const props = defineProps<{ guard: SpendGuard | null; error: string; timezone: string }>();
 const emit = defineEmits<{ saved: [guard: SpendGuard]; reload: [] }>();
 const amount = ref("");
-const choice = ref("");
+const stopJobs = ref(false);
 const dirty = ref(false);
 const saving = ref(false);
 const message = ref("");
 const failure = ref("");
 const conflict = ref(false);
 const revision = ref(0);
-const confirmation = ref<{ limit: string | null; stop_jobs: boolean; revision: number } | null>(null);
-const confirmationHeading = ref<HTMLElement | null>(null);
+const sliderMaximum = ref(100);
 const resultMessage = ref<HTMLElement | null>(null);
-watch(() => props.guard, guard => {
-  if (!guard || dirty.value || confirmation.value) return;
-  revision.value = guard.revision;
-  amount.value = guard.limit === null ? "" : (guard.limit.includes(".") ? guard.limit.replace(/(\.\d{2})\d*$/, "$1") : `${guard.limit}.00`);
-  choice.value = guard.limit === null ? "" : guard.stop_jobs ? "stop" : "finish";
-}, { immediate: true });
+const minimum = computed(() => minimumSpendLimit(props.guard?.snapshot.amount ?? null));
+const spent = computed(() => Number(props.guard?.snapshot.amount ?? 0));
+const validAmount = computed(() => /^\d+(\.\d{1,2})?$/.test(amount.value) && Number.isFinite(Number(amount.value)));
+const sliderValue = computed(() => Math.max(Number(minimum.value), validAmount.value ? Number(amount.value) : Number(minimum.value)));
+const spentPercent = computed(() => Math.min(100, spent.value / sliderMaximum.value * 100));
+const selectedPercent = computed(() => Math.min(100, sliderValue.value / sliderMaximum.value * 100));
+const remaining = computed(() => validAmount.value && props.guard?.snapshot.amount !== null
+  ? Math.max(0, Number(amount.value) - spent.value).toFixed(2) : null);
+const immediate = computed(() => validAmount.value && props.guard
+  ? triggersImmediately(props.guard.snapshot.amount, props.guard.margin, amount.value) : false);
 const outstanding = computed(() => props.guard?.cancellations.filter(item => !item.verified_at) ?? []);
 const completed = computed(() => props.guard?.cancellations.filter(item => item.verified_at) ?? []);
-const immediate = computed(() => confirmation.value?.limit && props.guard
-  ? triggersImmediately(props.guard.snapshot.amount, props.guard.margin, confirmation.value.limit) : false);
-
-async function review(disable = false) {
-  if (!props.guard) return;
+function expandSlider() {
+  // Keep the scale steady while dragging; typed amounts can extend it.
+  sliderMaximum.value = Math.max(sliderMaximum.value, Math.ceil(Math.max(spent.value * 2, Number(amount.value) * 1.25 || 0, 100) / 10) * 10);
+}
+function load(guard: SpendGuard) {
+  revision.value = guard.revision;
+  amount.value = guard.limit === null ? "" : Number(guard.limit).toFixed(2);
+  stopJobs.value = guard.stop_jobs;
+  expandSlider();
+}
+watch(() => props.guard, guard => {
+  if (!guard) return;
+  expandSlider();
+  if (!dirty.value) load(guard);
+}, { immediate: true });
+function slide(event: Event) {
+  amount.value = Math.max(Number(minimum.value), Number((event.target as HTMLInputElement).value)).toFixed(2);
+  (event.target as HTMLInputElement).value = amount.value;
+  dirty.value = true;
+}
+async function save(disable = false) {
+  if (!props.guard || saving.value) return;
   failure.value = ""; message.value = "";
-  if (!disable && (!/^\d+(\.\d{1,2})?$/.test(amount.value) || BigInt(amount.value.replace(".", "")) <= 0n)) {
+  if (!disable && (!validAmount.value || Number(amount.value) <= 0)) {
     failure.value = "Enter a positive USD amount with at most two decimal places.";
     return;
   }
-  if (!disable && !choice.value) { failure.value = "Choose whether existing Batch jobs should finish or stop."; return; }
-  confirmation.value = { limit: disable ? null : amount.value, stop_jobs: !disable && choice.value === "stop", revision: revision.value };
-  await nextTick(); confirmationHeading.value?.focus();
-}
-async function save() {
-  if (!confirmation.value || saving.value) return;
-  saving.value = true; failure.value = "";
+  if (!disable && (props.guard.snapshot.amount === null || triggersImmediately(props.guard.snapshot.amount, "0", amount.value))) {
+    failure.value = props.guard.snapshot.amount === null ? "Spending is not available yet. Try again when cost data is available."
+      : `Enter a total limit of at least $${minimum.value}, above estimated spending.`;
+    return;
+  }
+  saving.value = true;
   try {
-    const saved = await put<SpendGuard>("/spend-guard", confirmation.value);
+    const saved = await put<SpendGuard>("/spend-guard", { limit: disable ? null : amount.value, stop_jobs: !disable && stopJobs.value, revision: revision.value });
     dirty.value = false;
-    confirmation.value = null;
     conflict.value = false;
+    load(saved);
     emit("saved", saved);
-    revision.value = saved.revision;
-    amount.value = saved.limit === null ? "" : (saved.limit.includes(".") ? saved.limit.replace(/(\.\d{2})\d*$/, "$1") : `${saved.limit}.00`);
-    choice.value = saved.limit === null ? "" : saved.stop_jobs ? "stop" : "finish";
     message.value = saved.limit === null ? "Batch spend limit turned off. Waiting jobs may now run on Batch."
       : saved.triggered_at ? "Limit saved. New Batch jobs are paused."
         : "Batch spend limit saved. Waiting jobs may now run on Batch.";
@@ -63,12 +76,8 @@ async function save() {
     conflict.value = error instanceof ApiError && error.status === 409;
   } finally { saving.value = false; }
 }
-async function backToEdit() {
-  confirmation.value = null;
-  await nextTick(); document.getElementById("batch-limit-amount")?.focus();
-}
 function reload() {
-  dirty.value = false; confirmation.value = null; conflict.value = false; failure.value = "";
+  dirty.value = false; conflict.value = false; failure.value = "";
   emit("reload");
 }
 </script>
@@ -76,8 +85,14 @@ function reload() {
 <template>
   <div class="spend-limit-page">
     <p class="limit-scope">
-      {{ BATCH_LIMIT_SCOPE }}
+      Set a total ceiling for Batch compute spending, including what you’ve already spent.
+      New Batch jobs stop being submitted as spending approaches it.
     </p>
+    <details class="limit-help">
+      <summary>More</summary>
+      <p>{{ BATCH_LIMIT_SCOPE }} Jobs that fit on your Galaxy server still run.</p>
+      <p>The ceiling covers recorded Batch history, not a monthly allowance. Saving a limit does not reset spending.</p>
+    </details>
     <div
       v-if="error"
       class="error"
@@ -97,194 +112,115 @@ function reload() {
       Loading Batch spend…
     </p>
     <template v-if="guard">
-      <section
-        class="panel limit-status"
-        aria-labelledby="limit-status-title"
-      >
-        <h2 id="limit-status-title">
-          {{ guard.source_changed ? 'Batch limit needs attention' : guard.limit === null ? 'No Batch spend limit set' : guard.triggered_at ? 'New Batch jobs are paused' : 'Batch spend limit active' }}
-        </h2>
-        <p v-if="guard.triggered_at && !guard.source_changed">
-          Jobs that fit on your Galaxy server still run. Raise the limit or turn it off to resume sending jobs to Batch.
-        </p>
-        <dl class="limit-facts">
-          <div><dt>Estimated Batch compute recorded so far</dt><dd>{{ formatCost(guard.snapshot.amount) }}</dd></div>
-          <div v-if="guard.limit !== null">
-            <dt>Your total Batch limit</dt><dd>{{ formatCost(guard.limit) }}</dd>
-          </div>
-        </dl>
-        <p>{{ guard.snapshot.coverage_start ? `Batch compute since ${formatDate(guard.snapshot.coverage_start, timezone)}` : 'No Batch history recorded yet' }}. Earlier costs that Rainstone could not reconstruct are left out.</p>
-        <p>Calculated: {{ guard.snapshot.observed_at ? formatDateTime(guard.snapshot.observed_at, timezone) : 'Not available' }}.</p>
-        <p v-if="guard.snapshot.incomplete_jobs">
-          {{ guard.snapshot.incomplete_jobs }} {{ guard.snapshot.incomplete_jobs === 1 ? 'job needs' : 'jobs need' }} cost data. The recorded amount leaves out costs that are not available.
-        </p>
-        <p v-if="guard.snapshot.gaps">
-          {{ guard.snapshot.gaps === 1 ? 'A gap' : `${guard.snapshot.gaps} gaps` }} in Batch observations may leave costs out.
-        </p>
-        <p
-          v-if="guard.stale"
-          class="limit-condition"
-        >
-          Cost data is out of date, so your spend limit may not be enforced.
-        </p>
-        <p
-          v-if="guard.snapshot.unpriced_running_resources"
-          class="limit-condition"
-        >
-          Some Batch compute can't be priced, so your spend limit may be exceeded.
-        </p>
-        <p
-          v-if="guard.source_changed"
-          class="error"
-        >
-          The enrolled Galaxy source changed. This limit does not apply to the new source. Turn off the old limit before setting a new one.
-        </p>
-        <p
-          v-for="notice in guard.notifications.filter(item => item.error)"
-          :key="notice.condition"
-          class="limit-condition"
-        >
-          Galaxy notification could not be updated: {{ notice.error }}. Rainstone will retry.
-        </p>
-        <div
-          v-if="guard.triggered_at && guard.stop_jobs || guard.cancellations.length"
-          class="limit-stops"
-        >
-          <h3>Batch stop requests</h3>
-          <p
-            v-if="guard.cancellation_error"
-            class="error"
-          >
-            {{ guard.cancellation_error }}. Rainstone will retry.
-          </p>
-          <p v-if="!guard.cancellations.length">
-            {{ guard.cancellation_checked_at && guard.cancellation_checked_at >= (guard.triggered_at || '') ? 'No outstanding Batch jobs were found.' : 'Checking for outstanding Batch jobs…' }}
-          </p>
-          <p v-if="outstanding.length">
-            {{ outstanding.length }} {{ outstanding.length === 1 ? 'stop request is' : 'stop requests are' }} still being checked. Spending may continue until their Batch VMs are gone.
-          </p>
-          <ul v-if="outstanding.length">
-            <li
-              v-for="item in outstanding"
-              :key="item.job_id"
-            >
-              {{ item.error || 'Stop requested; checking Batch VM cleanup.' }}
-            </li>
-          </ul>
-          <p v-if="completed.length">
-            Batch VM cleanup verified for {{ completed.length }} {{ completed.length === 1 ? 'stop request' : 'stop requests' }}.
-          </p>
-          <p v-if="completed.some(item => !item.cost_reconciled)">
-            Final cost evidence is still being checked.
-          </p>
-          <p>Stopped jobs are not restarted. Workflow runs containing them stay failed.</p>
-        </div>
-      </section>
-
       <form
-        v-if="!confirmation"
         class="panel limit-form"
-        @submit.prevent="review()"
+        @submit.prevent="save()"
         @input="dirty = true"
       >
-        <h2>{{ guard.limit === null ? 'Set a total limit' : 'Change your total limit' }}</h2>
-        <p>The limit includes costs already accrued. It does not start a new allowance when you save it.</p>
-        <label for="batch-limit-amount">Batch spend limit (USD)</label>
-        <input
-          id="batch-limit-amount"
-          v-model="amount"
-          type="text"
-          inputmode="decimal"
-          autocomplete="off"
-          required
-          aria-describedby="limit-amount-help"
-        >
-        <p id="limit-amount-help">
-          Enter more than the current recorded cost. Rainstone checks the latest estimate when you save.
+        <div class="limit-form-heading">
+          <h2>{{ guard.limit === null ? 'Set your ceiling' : 'Your spending ceiling' }}</h2>
+          <span class="limit-state">{{ guard.source_changed ? 'Needs attention' : guard.limit === null ? 'No limit set' : guard.triggered_at ? 'New Batch jobs paused' : 'Limit active' }}</span>
+        </div>
+        <p v-if="guard.triggered_at && !guard.source_changed">
+          Raise the limit or turn it off to resume sending jobs to Batch.
         </p>
-        <fieldset>
-          <legend>When the limit is reached</legend>
-          <label><input
-            v-model="choice"
-            type="radio"
-            value="finish"
-            name="batch-existing"
-            required
-          >{{ BATCH_FINISH_EFFECT }}</label>
-          <label><input
-            v-model="choice"
-            type="radio"
-            value="stop"
-            name="batch-existing"
-            required
-          >{{ BATCH_STOP_EFFECT }}</label>
-        </fieldset>
-        <p>New jobs stop being sent to Batch when estimated spend approaches the limit. Jobs that fit on your Galaxy server still run.</p>
-        <p>{{ BATCH_LIMIT_BEST_EFFORT }}</p>
+        <div class="limit-amount-row">
+          <label for="batch-limit-amount">Total limit <span>(USD)</span></label>
+          <div class="limit-currency-input">
+            <span aria-hidden="true">$</span>
+            <input
+              id="batch-limit-amount"
+              v-model="amount"
+              type="text"
+              inputmode="decimal"
+              autocomplete="off"
+              placeholder="Enter amount"
+              required
+              aria-describedby="limit-amount-help"
+              :disabled="saving"
+              @input="expandSlider"
+            >
+          </div>
+        </div>
+        <div
+          class="limit-slider"
+          :style="{ '--spent-position': `${spentPercent}%`, '--selected-position': `${selectedPercent}%` }"
+        >
+          <label
+            class="sr-only"
+            for="batch-limit-slider"
+          >Adjust total limit (USD)</label>
+          <input
+            id="batch-limit-slider"
+            type="range"
+            min="0"
+            :max="sliderMaximum"
+            step="0.01"
+            :value="sliderValue"
+            :disabled="saving || guard.snapshot.amount === null"
+            :aria-valuetext="`${formatCost(String(sliderValue))} total limit`"
+            aria-describedby="limit-amount-help"
+            @input="slide"
+          >
+          <span
+            v-if="guard.snapshot.amount !== null"
+            class="limit-spent-marker"
+            aria-hidden="true"
+          />
+        </div>
+        <div
+          class="limit-slider-scale"
+          aria-hidden="true"
+        >
+          <span>$0</span><span>{{ formatCost(String(sliderMaximum)) }}</span>
+        </div>
+        <p
+          id="limit-amount-help"
+          class="limit-budget-readout"
+        >
+          <span>Estimated spent <strong>{{ formatCost(guard.snapshot.amount) }}</strong></span>
+          <span v-if="remaining !== null">Remaining <strong>{{ formatCost(remaining) }}</strong></span>
+        </p>
+        <div class="limit-job-choice">
+          <input
+            id="batch-stop-jobs"
+            v-model="stopJobs"
+            type="checkbox"
+            role="switch"
+            :disabled="saving"
+            aria-describedby="limit-job-effect"
+          >
+          <label for="batch-stop-jobs">Stop running jobs when the limit is reached</label>
+          <p id="limit-job-effect">
+            {{ stopJobs ? 'Unfinished work is lost; affected workflow runs remain failed.' : 'Running jobs can finish and continue adding costs.' }}
+          </p>
+        </div>
         <div class="limit-actions">
           <button
             type="submit"
             class="primary"
-            :disabled="guard.source_changed || guard.snapshot.amount === null"
+            :disabled="saving || guard.source_changed || guard.snapshot.amount === null"
           >
-            Review limit
+            {{ saving ? 'Saving…' : guard.limit === null ? 'Save limit' : 'Update limit' }}
           </button>
+          <p
+            class="limit-inline-note"
+            :class="{ 'is-hidden': !immediate }"
+            :aria-hidden="!immediate"
+          >
+            This amount is close enough to current spending that new Batch jobs will pause immediately.
+          </p>
           <button
             v-if="guard.limit !== null"
             type="button"
             class="secondary"
-            @click="review(true)"
+            :disabled="saving"
+            @click="save(true)"
           >
             Turn off limit
           </button>
         </div>
       </form>
-      <section
-        v-else
-        class="panel limit-confirmation"
-        aria-labelledby="limit-confirm-title"
-      >
-        <h2
-          id="limit-confirm-title"
-          ref="confirmationHeading"
-          tabindex="-1"
-        >
-          {{ confirmation.limit === null ? 'Turn off your Batch limit?' : 'Save this Batch limit?' }}
-        </h2>
-        <template v-if="confirmation.limit !== null">
-          <p>Total limit: <strong>{{ formatCost(confirmation.limit) }}</strong>, including <strong>{{ formatCost(guard.snapshot.amount) }}</strong> recorded so far.</p>
-          <p>{{ confirmation.stop_jobs ? BATCH_STOP_EFFECT : BATCH_FINISH_EFFECT }}</p>
-          <p
-            v-if="immediate"
-            class="limit-condition"
-          >
-            This is already within the current margin. New Batch jobs will pause immediately.
-          </p>
-          <p>The guard leaves a margin for observation and shutdown delays. The margin grows when Batch is spending faster or cost data is older.</p>
-          <p>{{ BATCH_LIMIT_SCOPE }} {{ BATCH_LIMIT_BEST_EFFORT }}</p>
-        </template>
-        <p v-else>
-          Waiting jobs may now run on Batch. Stop requests already sent cannot be undone, and stopped jobs will not restart.
-        </p>
-        <div class="limit-actions">
-          <button
-            type="button"
-            class="primary"
-            :disabled="saving"
-            @click="save"
-          >
-            {{ saving ? 'Saving…' : confirmation.limit === null ? 'Turn off Batch limit' : 'Save Batch limit' }}
-          </button>
-          <button
-            type="button"
-            class="secondary"
-            :disabled="saving"
-            @click="backToEdit"
-          >
-            Back to edit
-          </button>
-        </div>
-      </section>
       <p
         v-if="failure"
         role="alert"
@@ -307,6 +243,92 @@ function reload() {
       >
         {{ message }}
       </p>
+      <div class="limit-notes">
+        <p v-if="guard.snapshot.incomplete_jobs || guard.snapshot.gaps || guard.snapshot.unpriced_running_resources || guard.snapshot.amount === null">
+          Some costs are missing. Actual spending may be higher.
+        </p>
+        <p>The limit uses estimated spending and may be exceeded.</p>
+        <p
+          v-if="guard.stale"
+          class="limit-condition"
+        >
+          Cost data is out of date, so your spend limit may not be enforced.
+        </p>
+        <p
+          v-if="guard.source_changed"
+          class="error"
+        >
+          The enrolled Galaxy source changed. This limit does not apply to the new source. Turn off the old limit before setting a new one.
+        </p>
+        <p
+          v-if="guard.cancellation_error"
+          class="error"
+        >
+          {{ guard.cancellation_error }}. Rainstone will retry.
+        </p>
+        <p
+          v-if="outstanding.length"
+          class="limit-condition"
+        >
+          {{ outstanding.length }} {{ outstanding.length === 1 ? 'stop request is' : 'stop requests are' }} still being checked. Spending may continue until their Batch VMs are gone.
+        </p>
+        <p
+          v-for="notice in guard.notifications.filter(item => item.error)"
+          :key="notice.condition"
+          class="limit-condition"
+        >
+          Galaxy notification could not be updated: {{ notice.error }}. Rainstone will retry.
+        </p>
+        <details class="limit-details">
+          <summary>Spending details</summary>
+          <p>{{ guard.snapshot.coverage_start ? `Batch compute since ${formatDate(guard.snapshot.coverage_start, timezone)}` : 'No Batch history recorded yet' }}. Earlier costs that Rainstone could not reconstruct are left out.</p>
+          <p>Calculated: {{ guard.snapshot.observed_at ? formatDateTime(guard.snapshot.observed_at, timezone) : 'Not available' }}.</p>
+          <p v-if="guard.snapshot.incomplete_jobs">
+            {{ guard.snapshot.incomplete_jobs }} {{ guard.snapshot.incomplete_jobs === 1 ? 'job needs' : 'jobs need' }} cost data. The recorded amount leaves out costs that are not available.
+          </p>
+          <p v-if="guard.snapshot.gaps">
+            {{ guard.snapshot.gaps }} gaps in Batch observations may leave costs out.
+          </p>
+          <p v-if="guard.snapshot.unpriced_running_resources">
+            Some running Batch compute cannot be priced.
+          </p>
+          <p>Rainstone checks the latest estimate when you save. New Batch jobs pause before the ceiling to allow for observation and shutdown delays. This margin grows when Batch is spending faster or cost data is older.</p>
+          <p>Turning off the limit allows waiting jobs to run on Batch. Stop requests already sent cannot be undone, and stopped jobs will not restart.</p>
+          <div
+            v-if="guard.triggered_at && guard.stop_jobs || guard.cancellations.length"
+            class="limit-stops"
+          >
+            <h3>Batch stop requests</h3>
+            <p
+              v-if="guard.cancellation_error"
+              class="error"
+            >
+              {{ guard.cancellation_error }}. Rainstone will retry.
+            </p>
+            <p v-if="!guard.cancellations.length">
+              {{ guard.cancellation_checked_at && guard.cancellation_checked_at >= (guard.triggered_at || '') ? 'No outstanding Batch jobs were found.' : 'Checking for outstanding Batch jobs…' }}
+            </p>
+            <p v-if="outstanding.length">
+              {{ outstanding.length }} {{ outstanding.length === 1 ? 'stop request is' : 'stop requests are' }} still being checked. Spending may continue until their Batch VMs are gone.
+            </p>
+            <ul v-if="outstanding.length">
+              <li
+                v-for="item in outstanding"
+                :key="item.job_id"
+              >
+                {{ item.error || 'Stop requested; checking Batch VM cleanup.' }}
+              </li>
+            </ul>
+            <p v-if="completed.length">
+              Batch VM cleanup verified for {{ completed.length }} {{ completed.length === 1 ? 'stop request' : 'stop requests' }}.
+            </p>
+            <p v-if="completed.some(item => !item.cost_reconciled)">
+              Final cost evidence is still being checked.
+            </p>
+            <p>Stopped jobs are not restarted. Workflow runs containing them stay failed.</p>
+          </div>
+        </details>
+      </div>
     </template>
   </div>
 </template>

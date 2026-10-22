@@ -15,3 +15,10 @@ export async function readGuard(signal?: AbortSignal): Promise<SpendGuard> {
   if (typeof guard.revision !== "number" || !guard.snapshot) throw new ApiError("Batch limit status is unavailable", 503);
   return guard;
 }
+
+/** The server requires a ceiling strictly above spend, including sub-cent costs. */
+export function minimumSpendLimit(spend: string | null): string {
+  const [whole, fraction = ""] = (spend ?? "0").replace(/^0E[-+]\d+$/, "0").split(".");
+  const cents = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, "0").slice(0, 2)) + 1n;
+  return `${cents / 100n}.${String(cents % 100n).padStart(2, "0")}`;
+}

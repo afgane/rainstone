@@ -6,27 +6,59 @@ import SpendLimitPage from "./SpendLimitPage.vue";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Batch limit page", () => {
-  it("requires an explicit choice and confirmation before saving a cumulative limit", async () => {
-    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ...GUARD, revision: 1, limit: "5.00" })));
+  it("saves the cumulative ceiling directly with the selected job behavior", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ...GUARD, revision: 1, limit: "5.00", stop_jobs: true })));
     vi.stubGlobal("fetch", fetch);
     const page = mount(SpendLimitPage, { props: { guard: GUARD, error: "", timezone: "UTC" } });
-    expect(page.text()).toContain("Batch compute only");
+    expect(page.text()).toContain("including what you’ve already spent");
     expect(page.text()).toContain("$3.12");
-    expect(page.text()).toContain("Earlier costs");
-    expect(page.text()).toContain("Workflow runs containing stopped jobs stay failed");
+    expect(page.get("details").attributes("open")).toBeUndefined();
     await page.get("#batch-limit-amount").setValue("5.00");
+    expect(page.get(".limit-budget-readout").text()).toContain("Remaining $1.88");
+    expect((page.get("#batch-limit-slider").element as HTMLInputElement).value).toBe("5");
+    await page.get('[role="switch"]').setValue(true);
+    expect(page.get("#limit-job-effect").text()).toContain("Unfinished work is lost");
     await page.get("form").trigger("submit");
-    expect(page.get('[role="alert"]').text()).toContain("Choose whether");
-    await page.get('input[value="finish"]').setValue();
-    await page.get("form").trigger("submit");
-    expect(fetch).not.toHaveBeenCalled();
-    expect(page.get(".limit-confirmation").text()).toContain("including $3.12 recorded so far");
-    expect(page.get(".limit-confirmation").text()).toContain("without an upper bound");
-    await page.get(".limit-confirmation .primary").trigger("click");
     await flushPromises();
-    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ revision: 0, limit: "5.00", stop_jobs: false });
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ revision: 0, limit: "5.00", stop_jobs: true });
     expect(page.emitted("saved")?.[0][0]).toMatchObject({ limit: "5.00" });
     expect(page.get('[role="status"]').text()).toContain("saved");
+    await page.setProps({ guard: { ...GUARD, limit: "5.00", revision: 1 } });
+    expect(page.get('button[type="submit"]').text()).toBe("Update limit");
+    page.unmount();
+  });
+
+  it("clamps dragging above spend and extends the scale for typed ceilings", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const page = mount(SpendLimitPage, { props: { guard: GUARD, error: "", timezone: "UTC" } });
+    await page.get("#batch-limit-slider").setValue("0");
+    expect((page.get("#batch-limit-amount").element as HTMLInputElement).value).toBe("3.13");
+    expect((page.get("#batch-limit-slider").element as HTMLInputElement).value).toBe("3.13");
+    await page.get("#batch-limit-amount").setValue("3.12");
+    await page.get("form").trigger("submit");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(page.get('[role="alert"]').text()).toContain("at least $3.13");
+    await page.get("#batch-limit-amount").setValue("5000");
+    expect(Number(page.get("#batch-limit-slider").attributes("max"))).toBeGreaterThan(5000);
+    const maximum = page.get("#batch-limit-slider").attributes("max");
+    await page.get("#batch-limit-slider").setValue("4000");
+    expect(page.get("#batch-limit-slider").attributes("max")).toBe(maximum);
+    expect((page.get("#batch-limit-amount").element as HTMLInputElement).value).toBe("4000.00");
+    page.unmount();
+  });
+
+  it("preserves edits and the original revision when refreshed data conflicts", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: "Limit changed" }), { status: 409 }));
+    vi.stubGlobal("fetch", fetch);
+    const page = mount(SpendLimitPage, { props: { guard: GUARD, error: "", timezone: "UTC" } });
+    await page.get("#batch-limit-amount").setValue("10");
+    await page.setProps({ guard: { ...GUARD, revision: 2, limit: "20" } });
+    await page.get("form").trigger("submit");
+    await flushPromises();
+    expect(JSON.parse(fetch.mock.calls[0][1].body).revision).toBe(0);
+    expect(page.get('[role="alert"]').text()).toContain("Reload saved limit");
+    expect((page.get("#batch-limit-amount").element as HTMLInputElement).value).toBe("10");
     page.unmount();
   });
 

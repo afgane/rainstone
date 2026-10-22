@@ -673,7 +673,11 @@ and filters for returning to a report. The masthead shows the current
 policy independently of the report's selected period. Overview's limit
 progress is separately labelled as recorded Batch history and is never
 combined with its period headline or the Galaxy VM cost. Configuration
-requires an explicit stop-or-finish choice and a separate confirmation.
+uses a synchronized slider and amount field for a total ceiling, including
+recorded spending. The slider starts at $0 but cannot select a ceiling at
+or below recorded spending. A switch controls stopping running jobs; off
+lets them finish. Changes save directly without a separate review step.
+Accounting and stop-request history are available in Spending details.
 Limits accept up to twelve whole-number digits and two fractional digits,
 matching database precision. Concurrent policy saves have one winner;
 other writers receive 409 and must reload the saved revision.

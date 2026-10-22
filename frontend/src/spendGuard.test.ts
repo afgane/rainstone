@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { stateFromUrl, urlQuery } from "./api";
-import { triggersImmediately } from "./spendGuard";
+import { minimumSpendLimit, triggersImmediately } from "./spendGuard";
 import { batchLimitLabel } from "./vocabulary";
 
 import { GUARD } from "./test/spendGuard";
 
 describe("Batch limit presentation", () => {
+  it("selects the first whole-cent ceiling strictly above recorded spend", () => {
+    expect(minimumSpendLimit("3.120000000001")).toBe("3.13");
+    expect(minimumSpendLimit("3.129999999999")).toBe("3.13");
+    expect(minimumSpendLimit("3.13")).toBe("3.14");
+    expect(minimumSpendLimit("0E-12")).toBe("0.01");
+    expect(minimumSpendLimit(null)).toBe("0.01");
+  });
   it("compares projected spend without rounding away sub-cent differences", () => {
     expect(triggersImmediately("4.749999999999", "0.25", "5.00")).toBe(false);
     expect(triggersImmediately("4.750000000000", "0.25", "5.00")).toBe(true);
