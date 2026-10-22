@@ -3,7 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
 
@@ -104,6 +104,18 @@ class Settings(BaseSettings):
     # is saved with the policy version; changing it means a new version.
     baseline_effective_from: datetime | None = None
     baseline_effective_to: datetime | None = None
+
+    # Optional Batch guard. Only the collector receives Galaxy control access.
+    guard_enabled: bool = False
+    guard_token: SecretStr = SecretStr("")
+    guard_galaxy_url: str | None = None
+    guard_galaxy_api_key: SecretStr = SecretStr("")
+    guard_page_url: str = "/galaxy/costs/?view=limit"
+    guard_reaction_seconds: int = Field(default=600, ge=0)
+    guard_stale_seconds: int = Field(default=600, gt=0)
+    # Galaxy and Batch calls share the collector loop; a pass stops issuing
+    # them after this long and continues on the next pass.
+    guard_control_budget_seconds: int = Field(default=10, gt=0)
 
     # Collector scheduling.
     collect_interval_seconds: int = 30

@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 # The generated demonstration runs load into a tenant of their own, so the
-# scenarios the phase 1 fixture pins down keep meaning exactly what they say.
+# scenarios `fixtures/phase1.json` pins down keep meaning exactly what they say.
 RUNS_TENANT = "runs-demo"
 
 

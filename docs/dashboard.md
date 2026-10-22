@@ -17,8 +17,7 @@ taller than the window.
 
 Navigation is **Overview**, **Workflow runs** and **Jobs**, with **Galaxy
 accounts** (administrator only), **Galaxy server** (when authorized) and
-**Status** in a secondary group. Status carries no report controls. The former
-Tools page is the Jobs page's By tool chart; `view=tools` links open it.
+**Status** in a secondary group. Status carries no report controls.
 
 Advanced filters that are active remain visible as removable chips while the
 section is collapsed, so a hidden selection can never quietly change an easy

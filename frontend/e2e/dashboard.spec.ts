@@ -1171,13 +1171,6 @@ test("a column opens its interval's jobs without filtering the page", async ({ p
   await expect(drawer.getByText("Jobs, highest cost first")).toBeVisible();
 });
 
-test("the Tools page's links open the Jobs page by tool", async ({ page }) => {
-  await page.goto(`${BASE}?view=tools&${RUNS_PERIOD}`);
-  await expect(page.getByRole("heading", { name: "Jobs", exact: true })).toBeVisible();
-  await expect(page).toHaveURL(/view=tool-runs/);
-  await expect(page.getByRole("tab", { name: "By tool" })).toHaveAttribute("aria-selected", "true");
-});
-
 test("the Jobs page has no accessibility violations, drawers included", async ({ page }) => {
   await openJobs(page);
   const scan = async () => {

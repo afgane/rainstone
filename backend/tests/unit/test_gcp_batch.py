@@ -472,3 +472,21 @@ def test_completed_lifetimes_are_loaded_only_for_the_terminal_page():
     assert len(requested) == 1
     assert 0 < len(requested[0]) <= 5
     assert all(source_id.startswith("t") for source_id in requested[0])
+
+
+def test_cleanup_inventory_follows_pages_and_rejects_partial_results(monkeypatch):
+    from rainstone.adapters.gcp_batch import CloudAccessDenied, HttpGcpClient
+
+    client = HttpGcpClient(token_provider=lambda: "never-displayed")
+    pages = iter([
+        {"items": {"zones/a": {"instances": [{"id": "1"}]}}, "nextPageToken": "next"},
+        {"items": {"zones/b": {"warning": {"code": "NO_RESULTS_ON_PAGE"}}}},
+    ])
+    monkeypatch.setattr(client, "_get", lambda *args, **kwargs: next(pages))
+    assert client.list_batch_instances("project", "job", "uid") == [{"id": "1"}]
+    monkeypatch.setattr(client, "_get", lambda *args, **kwargs: {"warning": {"code": "NO_RESULTS_ON_PAGE"}})
+    assert client.list_batch_instances("project", "job", "uid") == []
+    monkeypatch.setattr(client, "_get", lambda *args, **kwargs: {"items": {"zones/a": {"warning": {"code": "UNREACHABLE"}}}})
+    import pytest
+    with pytest.raises(CloudAccessDenied):
+        client.list_batch_instances("project", "job", "uid")

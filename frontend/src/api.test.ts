@@ -112,7 +112,7 @@ describe("newer figures", () => {
   const shown = {
     revision_id: "rev-1", as_of: "2026-09-29T12:00:00Z", amount: "1.00", job_count: 2,
     priced_job_count: 2, unpriced_job_count: 0, known_zero_job_count: 0, failed_spend: "0",
-    failed_job_count: 0, baseline_infrastructure_amount: null, current_launch: null,
+    failed_job_count: 0, current_launch: null,
   } as unknown as Summary;
 
   it("differ when anything the view counts changes", () => {
@@ -297,14 +297,6 @@ describe("what each view requests", () => {
 });
 
 describe("the Jobs page's state", () => {
-  it("opens a Tools link as the Jobs page's By tool chart", () => {
-    const restored = stateFromUrl("?view=tools&period=last-week&tool_id=cat1&timezone=Europe/Paris&chart=time");
-    expect(restored).toMatchObject({
-      view: "tool-runs", jobsChart: "tool", period: "last-week", toolId: "cat1", timezone: "Europe/Paris",
-    });
-    expect(urlQuery(restored).get("view")).toBe("tool-runs");
-  });
-
   it("lists the costliest jobs first unless a link asks for another order", () => {
     expect(stateFromUrl("?view=tool-runs")).toMatchObject({ sort: "amount", direction: "desc" });
     expect(stateFromUrl("?view=tool-runs&sort=created_at&direction=asc"))

@@ -691,6 +691,5 @@
     {"source_id":"run-demo-0149","owner_source_id":"alice","parent_source_id":null,"workflow_id":"wf-variant-calling-v1","workflow_family_id":"wf-family-variant-calling","workflow_name":"Variant calling, one sample","workflow_version":"wf-variant-calling-v1","state":"scheduled","created_at":"2026-09-29T10:25:00Z","jobs":[{"job_source_id":"1485","step_key":"quality","relationship":"direct"},{"job_source_id":"1486","step_key":"align","relationship":"direct"}]},
     {"source_id":"run-demo-0150","owner_source_id":"bob","parent_source_id":null,"workflow_id":"wf-variant-calling-v2","workflow_family_id":"wf-family-variant-calling","workflow_name":"Variant calling, one sample","workflow_version":"wf-variant-calling-v2","state":"scheduled","created_at":"2026-09-29T11:00:00Z","jobs":[{"job_source_id":"1487","step_key":"quality","relationship":"direct"},{"job_source_id":"1488","step_key":"align","relationship":"direct"}]},
     {"source_id":"run-demo-0151","owner_source_id":"alice","parent_source_id":null,"workflow_id":"wf-variant-calling-v1","workflow_family_id":"wf-family-variant-calling","workflow_name":"Variant calling, one sample","workflow_version":"wf-variant-calling-v1","state":"scheduled","created_at":"2026-09-29T11:35:00Z","jobs":[{"job_source_id":"1489","step_key":"quality","relationship":"direct"},{"job_source_id":"1490","step_key":"align","relationship":"direct"}]}
-  ],
-  "infrastructure_intervals": []
+  ]
 }

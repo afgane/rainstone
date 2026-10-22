@@ -1,4 +1,18 @@
-# Phase 2A reporting contract
+# Reporting API contract
+
+This is the contract between Rainstone's web service and its browser
+interface. It defines the query fields every report accepts, how costs are
+calculated and pinned to one calculation revision, and what each page's
+endpoints return. [`frontend/src/api.ts`](../frontend/src/api.ts) mirrors
+these shapes; change the two together. The last section covers the optional
+Batch spend limit's endpoints, including the one Galaxy's job routing reads.
+
+Related documents: [`collection.md`](collection.md) describes how the facts
+behind these reports are collected, [`dashboard.md`](dashboard.md) how the
+interface presents them, and [`spend-limit.md`](spend-limit.md) how the
+spend limit behaves for users.
+
+## Shared report rules
 
 All report endpoints accept the same query fields: cost basis, USD currency,
 mode, half-open time interval, IANA timezone, search, full tool identity,
@@ -11,16 +25,16 @@ The summary request chooses a calculation revision. The browser pins that
 revision into every table, chart, detail, and export request and serializes it
 in the URL. A revision records the tenant's report-generation marker, which
 database triggers advance whenever tenant, owner, job, attempt, resource
-lifetime, segment, association, policy, price, workflow membership, or
-infrastructure facts change, including through a write that bypasses the
-application. Each tenant has exactly one calculation, whose cost lines are
-updated in place; a recalculation gives it a new revision ID, and earlier
-revisions are not kept. A pinned revision that is no longer current, or whose
-marker has moved, returns a conflict instead of mixing figures from two
-calculations. The revision also records a content digest, so replaying
-identical facts keeps the current revision rather than recalculating. Report
-requests use a repeatable-read database snapshot so validation and aggregation
-see one state, including while a recalculation is being written.
+lifetime, segment, association, policy, price or workflow membership facts
+change, including through a write that bypasses the application. Each tenant has
+exactly one calculation, whose cost lines are updated in place; a recalculation
+gives it a new revision ID, and earlier revisions are not kept. A pinned
+revision that is no longer current, or whose marker has moved, returns a
+conflict instead of mixing figures from two calculations. The revision also
+records a content digest, so replaying identical facts keeps the current
+revision rather than recalculating. Report requests use a repeatable-read
+database snapshot so validation and aggregation see one state, including while a
+recalculation is being written.
 
 The default accrued mode clips each observed resource interval to the selected
 half-open range. A resource lifetime is split at catalog price boundaries. A
@@ -60,8 +74,8 @@ scope in the local multi-user profile. Infrastructure represents a separate
 whole-resource scope; job, tool, and owner filters do not apportion it. CSV
 exports read database-sortable reports in bounded 500-job batches, stream the
 complete authorized filtered result, and neutralize cells that spreadsheet
-software could interpret as formulas. Cost-sorted exports retain the in-memory
-compatibility path because their ordering depends on calculated report amounts.
+software could interpret as formulas. Cost-sorted exports read the whole
+result in memory, because their order depends on calculated report amounts.
 
 ## Workflow run reports
 
@@ -305,7 +319,7 @@ of its cost, beside its whole duration. Totals describe every such job and do
 not change with `limit` and `offset`. A job can be in several intervals, so
 interval job counts need not add up to the period's.
 
-## Resource lifetimes in reports (Phase 2B)
+## Resource lifetimes in reports
 
 Cost lines are keyed by chargeable resource lifetime and attributed job, not by
 attempt. A job detail therefore reports two lists: `resources`, each with its
@@ -356,13 +370,10 @@ recalculating alone cannot recover observations that were never collected.
 A price that takes effect after work ran is never applied to it. Such work is
 unpriced, and its reason names when the earliest published price takes effect.
 
-The summary distinguishes the requested window from what was observed:
-`observation_window` echoes the report bounds, while
-`baseline_infrastructure_observed` (and the infrastructure report's
-`observed_coverage`) is the span of server observations inside them, or null
-when there are none. A tenant restored from a captured snapshot carries an
-`imported_snapshot` capability, returned by the summary with its capture time,
-source cutoffs and digest; it is real data and is not marked as a demo.
+The summary's `observation_window` echoes the report bounds. A tenant restored
+from a captured snapshot carries an `imported_snapshot` capability, returned by
+the summary with its capture time, source cutoffs and digest; it is real data
+and is not marked as a demo.
 
 Every report's `meta.price_list` names the active price catalog and when its
 prices were read from Google Cloud (`observed_at`), or is null when no catalog
@@ -533,8 +544,9 @@ observations and restarts cannot add to it, and it is marked stale when the
 last observation is more than five minutes old or the tenant is an imported
 snapshot. Report filters, basis, mode and dates never change it; the timezone
 only affects how clients format its timestamps. It is never added to job
-totals, and job baseline occupancy is never added to it. The period-based
-`items`, `amount` and `observed_coverage` fields remain for compatibility.
+totals, and job baseline occupancy is never added to it. Besides
+`current_launch` and `activity`, `/api/infrastructure` returns only the
+pinned `revision_id` and its `as_of` time.
 
 `GET /api/infrastructure` also carries `activity` for the current server
 session. It is null when its start or cutoff is unknown. Activity ignores
@@ -563,8 +575,7 @@ equal time intervals in `steps`. Each `count` is the maximum exact concurrency
 within that half-open interval, preserving brief peaks; it does not mean that
 many jobs ran throughout the interval. The UI labels these interval peaks and
 offers a table alternative. Distinct `job_count` remains exact, and `intervals`
-is omitted. Clients still accept `kind=hidden` from older servers. The summary
-does not compute activity.
+is omitted. The summary does not compute activity.
 
 Raw job metrics are not part of the revision content digest: they reach reports
 only through attempts, lifetimes and job resource hints, which are covered.
@@ -577,3 +588,128 @@ sanitized for download through the normal authenticated route.
 report requested now would be pinned to, or null while changed facts await
 recalculation. It is cheap to read, so an open page polls it to learn that
 newer figures exist without asking for the report itself.
+
+## Batch spend guard
+
+The optional guard is available to the fixed `anvil-workspace` identity and
+fixture development identities, never trusted-proxy multi-user deployments.
+`GET /api/spend-guard` returns the current policy and cumulative Batch
+snapshot. `PUT /api/spend-guard` accepts `revision`, `limit` (a positive USD
+amount with at most two decimals, or null to disable), and `stop_jobs`.
+Revision 0 creates the first policy; stale revisions return 409. Activation
+and edits validate against the latest recorded snapshot, including accrued
+cost before activation. Unknown cost cannot be represented as zero. Only
+raising the limit resumes a triggered policy: changing the stop choice or
+lowering the limit keeps it triggered, so a user who let jobs finish can
+still choose to stop them. Saving records the limit page URL from the
+request's `Referer` for links in Galaxy notifications.
+
+The response mirrors `SpendGuard` in `frontend/src/api.ts`. It includes the
+policy revision, limit, stop choice, latched trigger time, source-change
+flag, current margin, stale-data flag and cancellation progress. Its
+`snapshot` contains `amount` (nullable decimal string), `hourly_rate`,
+`observed_at`, `coverage_start`, `generation`, `enrollment`,
+`data_age_seconds`, `incomplete_jobs`, `unpriced_running_resources` and
+`gaps`. Timestamps are UTC instants or null; rates are USD/hour. The amount
+is the known subtotal when coverage is partial, or null when Batch work
+exists but none can be priced. An empty observed history has amount zero.
+
+The snapshot covers only Batch compute attributable to the fixed owner's
+Galaxy jobs in the enrolled deployment. It counts VM lifetimes once across
+retries and uses the same prices and minimum billing as reports. Each
+active lifetime accrues through its own last observation without closing
+source facts; `observed_at` is the oldest of these. Closed lifetimes use
+the stored cost lines, so they reconcile with job reports; one whose
+calculation has not caught up is unknown. Neither the host cost
+nor browser report dates enter the guard total. History extends only as
+far back as the collected evidence, with its start and gaps explicit.
+
+The trigger margin is the greater of $0.25 and, summed over running VMs,
+each VM's hourly rate multiplied by reaction time plus the time since that
+VM was last observed. One stale VM widens the margin by its own rate only.
+The default reaction time is 600 seconds: on a test deployment, stopping a
+VM that was still provisioning took longer than the earlier 300 seconds. The
+collector evaluates after new facts and while waiting for sources, so age
+continues to grow during source errors. Galaxy and Batch calls run at most
+once per collection interval, or at once on a new trigger. Cancellation
+and cleanup calls stop after `guard_control_budget_seconds` (10 by default)
+to resume on the next pass; notifications run afterward with their own
+five-second request timeout.
+Missing data alone does not pause or cancel jobs. A triggered policy stays
+triggered until its limit is raised or disabled; corrections do not resume
+it. Control changes and trigger decisions are audited with policy revision
+and source identity.
+
+`GET /api/internal/batch-dispatch` accepts only a provisioned shared Bearer
+credential and returns exactly `{"paused": true|false}`. It exposes no
+costs, account identity or policy. It resolves the configured deployment
+and checks its enrollment against the latched policy. Galaxy's TPV helper
+caches the answer for five seconds, bounds requests to two seconds, and
+admits jobs on a missing credential, timeout or invalid response. It raises
+`TryNextDestinationOrWait` only for a paused Batch destination, allowing
+server fallback or deferral. Galaxy 26.2 or later is required for fair
+ready-job dispatch while jobs are deferred.
+
+The guard status also includes `notifications`, each with a `condition`
+(`triggered`, `stale` or `unpriced`) and a nullable sanitized `error`.
+Broadcast identities and retries are durable collector state. The
+collector reconciles source-marked active broadcasts to recover a lost
+POST response without duplicating notices. Resuming or disabling expires
+them through Galaxy; errors remain visible and retry with bounded backoff.
+A notice links to the recorded limit page URL, because Galaxy routes a
+path-only link inside its own client; a notice with an outdated link is
+replaced. One failed listing marks every due notice failed for that pass.
+Only the collector receives the administrator API key.
+
+`cancellation_error` reports a sanitized failure to discover outstanding
+Batch jobs. Each `cancellations` entry has the Rainstone `job_id`,
+`requested_at`, `verified_at`, `attempts`, `error` and `cost_reconciled`.
+Accepted Galaxy cancellation does not imply cleanup: verification checks
+Batch state and Compute instances, including the provider's Batch labels.
+Deletion evidence feeds the same cost calculation as reports. If deletion
+timing is unavailable, observed VM absence bounds the estimate and is
+explicitly recorded as an upper bound; cleanup may be verified while final
+cost evidence is still pending.
+
+The collector pages through every outstanding Batch job, durably records
+intent, and sends every pending stop before checking any cleanup; Batch
+records are not exported first, since collection has observed the running
+jobs. It rechecks the active policy and source before each destructive
+call. Jobs that have moved to a server destination are not cancelled.
+Resuming drops stops that were never sent. Disabling a guard does not undo
+sent requests; their cleanup continues to be checked, and `cancellations`
+lists the current revision's entries plus sent stops still being accounted.
+No provider write permission is added to Rainstone.
+
+The limit page is addressed by `view=limit`, preserving the report period
+and filters for returning to a report. The masthead shows the current
+policy independently of the report's selected period. Overview's limit
+progress is separately labelled as recorded Batch history and is never
+combined with its period headline or the Galaxy VM cost. Configuration
+uses a synchronized slider and amount field for a total ceiling, including
+recorded spending. The slider starts at $0 but cannot select a ceiling at
+or below recorded spending. A switch controls stopping running jobs; off
+lets them finish. Changes save directly without a separate review step.
+Accounting and stop-request history are available in Spending details.
+Limits accept up to twelve whole-number digits and two fractional digits,
+matching database precision. Concurrent policy saves have one winner;
+other writers receive 409 and must reload the saved revision.
+
+Source replacement is refused while the old enrolled source has an active
+limit. Turn it off explicitly before re-enrolling; a new fact namespace
+must not silently reset an active guard. The old policy and audit history
+remain with the archived source.
+
+Verified guard cancellations with reconciled final cost are no longer
+polled as Batch targets: Galaxy has deleted those provider records, so
+their absence is expected. Cleanup with incomplete cost evidence continues
+to be checked; it is not treated as complete accounting.
+
+Galaxy 26.2 aborts a handler poll when a dynamic mapper defers a
+resubmitted job, and it handles resubmissions first, so one deferred
+resubmission stops all dispatch from that handler. Only destinations with
+`resubmit` rules produce resubmissions. The default AnVIL configuration and
+the shared TPV database define none, so the guard does not depend on a fix.
+Before adding resubmission rules to a deployment with the guard, run a
+Galaxy release that catches `JobNotReadyException` around resubmission
+destination recovery; the correction is prepared upstream.

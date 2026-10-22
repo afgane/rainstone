@@ -31,7 +31,6 @@ from rainstone.models import (
     CostRevision,
     ExecutionAttempt,
     GalaxyServerSession,
-    InfrastructureInterval,
     IngestionState,
     Invocation,
     InvocationJob,
@@ -815,10 +814,7 @@ def summary(session: Session, identity: Identity, query: ReportQuery) -> dict:
         ).first()
         if window and window[0] and window[1]:
             demo_period = {"from": window[0].isoformat(), "to": window[1].isoformat()}
-    infra = infrastructure(
-        session, identity, query, revision=revision, snapshot_validated=True
-    ) if identity.can_view_infrastructure else None
-    launch = infra["current_launch"] if infra else None
+    launch = current_launch(session, identity) if identity.can_view_infrastructure else None
     as_of = revision.created_at if revision else datetime.now(UTC)
     incomplete = [r for r in records if r["quality"] in INCOMPLETE_QUALITIES]
     in_progress = sum(_cost_pending(r, as_of) for r in incomplete)
@@ -833,8 +829,6 @@ def summary(session: Session, identity: Identity, query: ReportQuery) -> dict:
         "unrecorded_job_count": len(incomplete) - in_progress
         + sum(not _cost_pending(r, as_of) for r in undated),
         **_repeated_work(records),
-        "baseline_infrastructure_amount": infra["amount"] if infra else None,
-        "baseline_infrastructure_observed": infra["observed_coverage"] if infra else None,
         "current_launch": launch,
         "can_view_infrastructure": identity.can_view_infrastructure,
         "demo": demo,
@@ -2134,62 +2128,16 @@ def users(session: Session, identity: Identity, query: ReportQuery) -> dict:
     }
 
 
-def infrastructure(
-    session: Session,
-    identity: Identity,
-    query: ReportQuery,
-    revision: CostRevision | None = None,
-    snapshot_validated: bool = False,
-    include_activity: bool = False,
-) -> dict:
+def infrastructure(session: Session, identity: Identity, query: ReportQuery) -> dict:
     if not identity.can_view_infrastructure:
         raise HTTPException(403, "Infrastructure reporting is not authorized for this scope")
-    if not snapshot_validated:
-        revision = _revision(session, identity, query.revision)
-    rows = session.scalars(
-        select(InfrastructureInterval)
-        .where(InfrastructureInterval.tenant_id == identity.tenant_id)
-        .order_by(InfrastructureInterval.observed_start)
-    ).all()
-    items = []
-    covered: list[tuple[datetime, datetime]] = []
-    for row in rows:
-        start, end = row.observed_start, row.observed_end
-        overlap_start, overlap_end = max(start, query.from_time or start), min(end, query.to_time or end)
-        fraction = max(0.0, (overlap_end - overlap_start).total_seconds()) / (end - start).total_seconds()
-        if fraction > 0:
-            covered.append((overlap_start, overlap_end))
-            items.append({
-                "id": str(row.id), "resource_uid": row.resource_uid,
-                "machine_type": row.machine_type, "region": row.region,
-                "observed_start": start, "observed_end": end,
-                "amount": _money(row.amount * Decimal(str(fraction))),
-                "currency": row.currency, "quality": row.quality.value,
-            })
+    revision = _revision(session, identity, query.revision)
     launch = current_launch(session, identity)
     return {
-        "items": items,
-        "amount": _money(sum((Decimal(item["amount"]) for item in items), ZERO)) if items else None,
-        "currency": "USD", "scope": "Whole baseline resources; job filters do not apportion this total.",
-        "allocation_supported": False,
-        "allocation_reason": "T2D allocation is unavailable without a valid component policy.",
         "revision_id": str(revision.id) if revision else None,
         "as_of": revision.created_at.isoformat() if revision else None,
-        "observation_window": {
-            "from": (query.from_time or (min((row.observed_start for row in rows), default=None))).isoformat()
-            if (query.from_time or rows) else None,
-            "to": (query.to_time or (max((row.observed_end for row in rows), default=None))).isoformat()
-            if (query.to_time or rows) else None,
-            "timezone": query.timezone, "semantics": "[from, to)", "mode": query.mode,
-        },
-        # What the server was actually observed doing inside the requested
-        # window; the window itself is only what was asked for.
-        "observed_coverage": {
-            "from": min(start for start, _ in covered).isoformat(),
-            "to": max(end for _, end in covered).isoformat(),
-        } if covered else None,
         "current_launch": launch,
-        "activity": server_activity(session, identity, launch) if include_activity else None,
+        "activity": server_activity(session, identity, launch),
     }
 
 
@@ -2387,7 +2335,8 @@ def export_csv(session: Session, identity: Identity, query: ReportQuery):
     candidate_offset = 0
     export_query = query.model_copy(update={"offset": 0, "limit": 200})
     while True:
-        # Cost sorting depends on calculated lines, so preserve its global order as a compatibility fallback.
+        # Cost order depends on calculated amounts, which the database cannot
+        # sort by, so cost-sorted exports read the whole list in memory.
         if query.sort == "amount":
             result = list_jobs(session, identity, export_query, paginate=False)
             records = result["items"]

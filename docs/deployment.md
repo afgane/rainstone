@@ -9,9 +9,11 @@ no remote kubeconfig, SSH access, developer cloud login or externally hosted
 monitoring is required, and none of them is a prerequisite for support.
 
 Installing Rainstone adds Rainstone's own workloads, storage, route and
-observation permissions. It does not change Galaxy's runner configuration, VM
-identity, IAM bindings, metadata access, cluster topology or Leonardo, and
-Leonardo remains the only production entry point.
+observation permissions. The default reporting chart does not change Galaxy's runner configuration,
+VM identity, IAM bindings, metadata access, cluster topology or Leonardo.
+AnVIL's optional [Batch spend limit](spend-limit.md) adds a TPV rule and
+collector-only Galaxy API access through k8s-boot. Leonardo remains the
+production entry point.
 
 ## Identity modes
 
@@ -47,14 +49,27 @@ platform explicitly when the build host is an Apple Silicon machine:
 
 ```console
 docker buildx build --platform linux/amd64 --target runtime \
-    -t afgane/rainstone:2.0.0b1 --push .
+    -t afgane/rainstone:2.0.0b2 --push .
 ```
 
 Every commit to `main` whose CI run passes publishes this image automatically
 (`.github/workflows/publish-image.yml`), under the `appVersion` tag and a
 `sha-<commit>` tag. It needs the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`
-secrets on the repository. Until `appVersion` is bumped per release, each
-publish replaces the `appVersion` tag.
+secrets on the repository. The version tag is published only when it does not exist; later commits
+still receive their own SHA tag. Bump `appVersion` for a new application
+release. A branch dispatch publishes only its SHA tag for validation.
+
+After the image is available, the image workflow calls the chart publisher
+for the same tested commit. Chart versions are immutable: publishing
+changed contents under an existing version is refused. Bump the chart
+version for chart changes. The release containing Batch spend limits is
+chart `0.4.0`, application `2.0.0b2`.
+
+Coordinate deployment changes in linked PRs. Merge Rainstone first, wait
+for CI, image publication and chart publication, and verify the published
+package. Only then merge a k8s-boot change that selects the new chart.
+The default AnVIL deployment needs no Galaxy patch; custom resubmission
+rules require the correction described in [Batch spend limits](spend-limit.md).
 
 `make build` produces the same image locally as `rainstone:local` for the host's
 own architecture; it is for local checks, not for the cluster.
@@ -399,19 +414,11 @@ automatically; submitting synthetic jobs is an opt-in development action.
   requires `catalog.trustedKeys`; the chart refuses to render a feed URL
   without one, and a downloaded artifact always needs a verified signature
   regardless of settings.
-- The Galaxy server's own running cost is never reported on a real
-  installation. That server runs whether or not anyone submits a job, and the
-  Server view exists to show what it costs over the period being viewed.
-  Nothing in collection produces those figures, though: they come only from the
-  bundled demonstration data, so on a real installation the view is empty
-  rather than wrong. This is a missing feature, not a missing price — the
-  server's own shape is in the catalog. Job reporting is unaffected: work that
-  ran on that server is still reported as adding no extra compute cost, which
-  is calculated separately and does come from live observation.
-- The AnVIL dev pilot, live Leo-route validation, and stop/resume and reinstall
-  recovery exercises are not yet done. The chart is verified by rendering,
-  linting and the test suite: a real `helm install --wait`, a populated upgrade,
-  recovery from an interrupted initialization, and a re-enrolment that keeps two
-  histories apart are still outstanding against a live deployment.
+- A fresh packaged chart installation and a populated upgrade have been
+  verified on a development deployment, including migration, enrollment,
+  readiness, an initially inactive spend limit and preserved policy on
+  upgrade. Testing through the Leonardo proxy, a full fresh AnVIL VM,
+  stop/resume and reinstall recovery, interrupted initialization, and
+  re-enrollment that keeps two source histories apart remain outstanding.
 - Billing reconciliation, Spot and preemption completeness, and hosted transport
   remain separately scoped.

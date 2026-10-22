@@ -80,7 +80,7 @@ def tenant_client(tmp_path_factory):
             "base_url": "https://example.invalid/galaxy", "capabilities": {"fixture": True},
         },
         "owners": [{"source_id": "admin", "label": "Admin", "is_admin": True}],
-        "policies": [], "prices": [], "invocations": [], "infrastructure_intervals": [],
+        "policies": [], "prices": [], "invocations": [],
         "jobs": [
             # 2 June has only work nothing can price; 3 June has priced work too.
             job_on(template, 1, "2026-06-02", UNPRICED_MACHINE),

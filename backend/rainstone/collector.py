@@ -64,6 +64,7 @@ from rainstone.models import (
     CostRevision,
     DeploymentPolicy,
     ExecutionAttempt,
+    GuardCancellation,
     Job,
     LifetimeAttempt,
     ResourceLifetime,
@@ -249,7 +250,7 @@ def batch_targets(
     prefix is never used to infer environment or outcome.
     """
     rows = session.execute(
-        select(Job.source_id, Job.state, ExecutionAttempt.external_id)
+        select(Job.id, Job.source_id, Job.state, ExecutionAttempt.external_id)
         .join(ExecutionAttempt, ExecutionAttempt.job_id == Job.id)
         .where(
             Job.tenant_id == tenant_id,
@@ -258,9 +259,22 @@ def batch_targets(
         )
         .order_by(Job.source_id)
     ).all()
+    # Galaxy's stop path deletes the Batch record. Once cleanup and final
+    # cost are verified, polling that expected absence only invents gaps.
+    completed = {(row.job_id, row.external_id.rsplit("/", 1)[-1]) for row in session.scalars(
+        select(GuardCancellation).where(
+            GuardCancellation.tenant_id == tenant_id,
+            GuardCancellation.project == settings.gcp_project,
+            GuardCancellation.location == settings.gcp_location,
+            GuardCancellation.verified_at.is_not(None),
+            GuardCancellation.cost_reconciled.is_(True),
+        )
+    )}
     targets: dict[tuple[str, str], BatchTarget] = {}
-    for source_id, state, external_id in rows:
+    for job_id, source_id, state, external_id in rows:
         name = external_id.rsplit("/", 1)[-1]
+        if (job_id, name) in completed:
+            continue
         targets[(source_id, name)] = BatchTarget(
             job_source_id=source_id,
             external_id=name,
@@ -345,6 +359,9 @@ class Collector:
         self._last_diagnostics: str | None = None
         self._queue: Queue[Delivery] = Queue(maxsize=settings.collect_queue_size)
         self._workers: dict[str, AcquisitionWorker] = {}
+        self._guard_due = 0.0
+        self._control_due = 0.0
+        self._triggered_at: datetime | None = None
 
     @property
     def tenant_id(self) -> uuid.UUID:
@@ -588,8 +605,51 @@ class Collector:
                 self._failures.recovered(f"{name}.worker", source=name)
         if not stalled:
             self.heartbeat()
+        self.evaluate_guard(force=bool(deliveries))
         self.log_progress()
         return results
+
+    def evaluate_guard(self, *, force: bool = False) -> None:
+        """Evaluate on new facts; send Galaxy and Batch calls at most once per interval.
+
+        A new trigger runs control at once so stops and the notice are not
+        held back by the interval. Control calls are bounded by a budget,
+        because they share this loop with applying collected facts.
+        """
+        if not self._settings.guard_enabled or (not force and self._clock() < self._guard_due):
+            return
+        interval = self._settings.collect_interval_seconds
+        self._guard_due = self._clock() + interval
+        from rainstone.spend_guard import evaluate_collected
+
+        try:
+            with Session(self._engine) as session:
+                evaluated = evaluate_collected(session, self._tenant_id, self._settings)
+                if evaluated is None:
+                    return
+                guard, snapshot = evaluated
+                triggered_at = guard.triggered_at
+                session.commit()
+                newly_triggered = triggered_at is not None and triggered_at != self._triggered_at
+                self._triggered_at = triggered_at
+                if not newly_triggered and self._clock() < self._control_due:
+                    return
+                self._control_due = self._clock() + interval
+                from rainstone.galaxy_control import GalaxyControl, reconcile_notifications
+                from rainstone.guard_cancellation import reconcile_cancellations
+
+                deadline = time.monotonic() + self._settings.guard_control_budget_seconds
+                client = GalaxyControl(self._settings)
+                try:
+                    reconcile_cancellations(session, guard, snapshot, self._settings, client, HttpGcpClient(),
+                                            deadline=deadline)
+                    reconcile_notifications(session, guard, snapshot, self._settings, client)
+                    session.commit()
+                finally:
+                    client.close()
+            self._failures.recovered("spend_guard")
+        except Exception as error:  # noqa: BLE001 - accounting must continue
+            self._failures.failed("spend_guard", error)
 
     def log_progress(self, *, force: bool = False) -> None:
         now = self._clock()
@@ -662,6 +722,7 @@ class Collector:
         for source in self._sources:
             if now >= source.due_at:
                 results.append(self.collect_source(source))
+        self.evaluate_guard()
         self.log_progress()
         return results
 

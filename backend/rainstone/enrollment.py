@@ -191,6 +191,14 @@ def ensure_enrollment(
     notes: dict = {}
 
     if tenant is not None and reenroll:
+        from rainstone.models import SpendGuard
+
+        guard = session.get(SpendGuard, tenant.id)
+        if guard is not None and guard.amount is not None:
+            raise SourceReplacementDetected(
+                "Turn off the Batch spend limit before replacing the enrolled Galaxy source; "
+                "a source replacement must not silently reset an active limit."
+            )
         notes["retired_as"] = _archive(session, tenant)
         tenant, binding = None, None
 

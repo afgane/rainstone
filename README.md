@@ -1,32 +1,32 @@
 # Rainstone v2
 
-Rainstone reports estimated compute cost for work already performed by Galaxy.
-One version-pinned query contract drives overview, job, tool, workflow, daily,
-user, infrastructure, detail, status, and CSV responses. The Vue application
-restores filters and pagination from its URL and works at the root or behind a
-stripped proxy prefix.
+Rainstone reports estimated compute cost for work performed by Galaxy.
+The dashboard shows what analyses cost, with coverage and missing data
+explicit. It includes job, tool and workflow reports, the Galaxy server's
+separate cost, and links that preserve the selected report view.
 
-Phase 2B adds unattended collection and the deployment contract: a read-only
-Galaxy database adapter, Kubernetes and GCP Batch/Compute/Logging observation,
-chargeable resource lifetimes shared by retry attempts, a versioned price
-catalog consumer, the fixed `anvil-workspace` identity mode, an independently
-versioned Helm chart, on-VM discovery and enrolment, and read-only self-checks.
+On single-user AnVIL deployments with GCP Batch enabled, Rainstone also
+provides a Batch spend limit. No limit is active until the user sets one.
+The limit includes recorded Batch costs already accrued and excludes the
+Galaxy server. When estimated spending approaches it, new Batch dispatch
+pauses; the user can also choose to stop outstanding Batch jobs. This is
+best effort, and final spending may exceed the limit. The Galaxy server
+keeps running. See [Batch spend limits](docs/spend-limit.md).
 
-Rainstone fits the Galaxy deployment it finds. It reads Galaxy with a credential
-that already exists, writes nothing to Galaxy's database, and keeps its own
-identity and state in its own. See [`docs/collection.md`](docs/collection.md)
-and [`docs/deployment.md`](docs/deployment.md). The AnVIL dev pilot, live route
-validation, and the maintained catalog publisher are not yet done; the status
-report names those gaps rather than implying coverage.
+The web application and collector keep reporting state in Rainstone's own
+database. Collection reads Galaxy's database without changing it. When a
+spend limit is enabled, the collector uses the Galaxy API for notifications
+and optional cancellation. The web process holds no Galaxy control key.
+See [collection](docs/collection.md) and [deployment](docs/deployment.md).
 
-The bundled demonstration starts with sanitized 2026-09-19 Phase 0
-observations. It includes the three recorded dedicated Batch calculations, a
-cross-runner retry, a mixed Kubernetes/Batch invocation, a nested collection
-invocation, known-zero existing capacity, unknown execution topology, two
-owners, and a separate baseline-VM interval. Clearly marked synthetic cases add
-a DST boundary, in-progress and awaiting-calculation work, output reuse, and a
-same-VM provider retry whose one lifetime is charged once across two attempts.
-No operational endpoint, credential, raw log, or user dataset is included.
+The bundled demonstration starts with sanitized observations recorded on
+2026-09-19 from a deployed Galaxy. It includes the three recorded dedicated
+Batch calculations, a cross-runner retry, a mixed Kubernetes/Batch invocation, a
+nested collection invocation, known-zero existing capacity, unknown execution
+topology, and two owners. Clearly marked synthetic cases add a DST boundary,
+in-progress and awaiting-calculation work, output reuse, and a same-VM provider
+retry whose one lifetime is charged once across two attempts. No operational
+endpoint, credential, raw log, or user dataset is included.
 
 ## Run locally
 

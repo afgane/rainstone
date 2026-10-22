@@ -114,8 +114,6 @@ class SummaryResponse(ReportMeta):
     repeat_attempt_spend: str
     repeat_attempt_shared_spend: str
     repeat_attempt_spend_complete: bool
-    baseline_infrastructure_amount: str | None
-    baseline_infrastructure_observed: dict[str, str] | None = None
     current_launch: CurrentLaunch | None = None
     can_view_infrastructure: bool
     demo: bool
@@ -801,21 +799,13 @@ class ServerJobStep(APIModel):
 class ServerActivity(APIModel):
     from_: datetime = Field(alias="from")
     to: datetime
-    kind: Literal["dots", "steps", "buckets", "hidden"]
+    kind: Literal["dots", "steps", "buckets"]
     job_count: int
     intervals: list[ServerJobInterval]
     steps: list[ServerJobStep]
 
 
 class InfrastructureResponse(APIModel):
-    items: list[dict[str, Any]]
-    amount: str | None
-    currency: Literal["USD"]
-    scope: str
-    allocation_supported: bool
-    allocation_reason: str
-    observation_window: dict[str, Any]
-    observed_coverage: dict[str, str] | None = None
     revision_id: str | None
     as_of: datetime | None
     current_launch: CurrentLaunch

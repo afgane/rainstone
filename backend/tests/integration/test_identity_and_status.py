@@ -65,13 +65,13 @@ def test_workspace_viewers_read_only_the_configured_account(workspace_client) ->
 def test_workspace_infrastructure_is_a_separate_authorized_capability(workspace_client) -> None:
     infrastructure = workspace_client.get("/api/infrastructure")
     assert infrastructure.status_code == 200
-    assert "do not apportion" in infrastructure.json()["scope"]
+    assert "current_launch" in infrastructure.json()
     app.dependency_overrides[get_settings] = lambda: WORKSPACE.model_copy(
         update={"workspace_infrastructure_visible": False}
     )
     denied = workspace_client.get("/api/infrastructure")
     assert denied.status_code == 403
-    assert workspace_client.get("/api/summary").json()["baseline_infrastructure_amount"] is None
+    assert workspace_client.get("/api/summary").json()["current_launch"] is None
 
 
 def test_trusted_proxy_requires_a_forwarded_identity(proxy_client) -> None:

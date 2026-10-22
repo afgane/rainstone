@@ -6,7 +6,9 @@ Revises:
 One revision creates the whole schema. Rainstone has not been deployed, so
 there is no installed database whose history these revisions would have to
 preserve; carrying the development cycle's steps forward would only make the
-first real installation replay work that never ran anywhere.
+first real installation replay work that never ran anywhere. The tables are
+built from the current models; once a database is installed, freeze them
+here as explicit definitions and give later changes their own revisions.
 
 Report-affecting writes advance a per-tenant marker through statement-level
 triggers, so a write that bypasses the application still invalidates pinned
@@ -61,7 +63,6 @@ TENANT_SOURCES: dict[str, str] = {
         "JOIN tenant t ON t.id = i.tenant_id"
     ),
     "deployment_policy": _DIRECT,
-    "infrastructure_interval": _DIRECT,
     "price_version": "SELECT id AS tenant_id FROM tenant WHERE EXISTS (SELECT 1 FROM changed)",
 }
 

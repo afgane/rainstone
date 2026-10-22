@@ -60,7 +60,7 @@ function stepLabel(step: ServerJobStep): string {
 </script>
 
 <template>
-  <div class="server-activity" :data-kind="activity?.kind === 'hidden' ? 'hidden' : bucketed ? 'buckets' : stepped ? 'steps' : 'dots'">
+  <div class="server-activity" :data-kind="bucketed ? 'buckets' : stepped ? 'steps' : 'dots'">
     <div v-if="activity" class="activity-caption">
       <span>{{ pluralize(activity.job_count, 'recorded job') }}</span>
       <span v-if="stepped">Jobs running · peak {{ maximum }}</span>
@@ -95,9 +95,8 @@ function stepLabel(step: ServerJobStep): string {
         <strong>{{ recordedThrough ? formatDateTime(recordedThrough, timezone) : 'No observation available' }}</strong>
       </li>
     </ol>
-    <p v-if="activity?.kind === 'hidden'" class="activity-scale-note">Job activity is not plotted at this scale.</p>
     <p v-if="bucketed" class="activity-scale-note">Each interval shows the highest number of jobs running together within it.</p>
-    <details v-if="activity?.job_count && activity.kind !== 'hidden'" class="inline-details activity-table" @toggle="toggleTable">
+    <details v-if="activity?.job_count" class="inline-details activity-table" @toggle="toggleTable">
       <summary>Show job activity as a table</summary>
       <div v-if="tableOpen" class="table-wrap" tabindex="0" role="region" :aria-label="stepped ? 'Concurrent recorded jobs' : 'Recorded jobs'">
         <table v-if="!stepped">

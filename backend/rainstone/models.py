@@ -373,22 +373,6 @@ class CostLine(Base):
     )
 
 
-class InfrastructureInterval(Base):
-    __tablename__ = "infrastructure_interval"
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"))
-    source_id: Mapped[str] = mapped_column(String(300))
-    resource_uid: Mapped[str] = mapped_column(String(300))
-    machine_type: Mapped[str] = mapped_column(String(100))
-    region: Mapped[str] = mapped_column(String(100))
-    observed_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    observed_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    amount: Mapped[Decimal] = mapped_column(Numeric(24, 12))
-    currency: Mapped[str] = mapped_column(String(3))
-    quality: Mapped[Quality] = mapped_column(Enum(Quality, name="infra_quality"))
-    __table_args__ = (UniqueConstraint("tenant_id", "source_id"),)
-
-
 class GalaxyServerSession(Base):
     """The Galaxy host VM's current running session, one per tenant.
 
@@ -529,3 +513,72 @@ class ObservationGap(Base):
     gap_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     recoverable: Mapped[bool] = mapped_column(Boolean, default=False)
     detail: Mapped[str] = mapped_column(Text)
+
+
+class SpendGuard(Base):
+    """One deployment policy; enrollment prevents reuse against another source."""
+
+    __tablename__ = "spend_guard"
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), primary_key=True)
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("owner.id"))
+    enrollment: Mapped[str | None] = mapped_column(String(100))
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(24, 12))
+    stop_jobs: Mapped[bool] = mapped_column(Boolean, default=False)
+    triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    # The limit page as the browser addressed it; the cluster cannot know
+    # the external URL, and Galaxy routes a path-only link inside itself.
+    page_url: Mapped[str | None] = mapped_column(String(2000))
+
+
+class GuardAudit(Base):
+    __tablename__ = "guard_audit"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"))
+    revision: Mapped[int] = mapped_column(Integer)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    actor: Mapped[str] = mapped_column(String(200))
+    action: Mapped[str] = mapped_column(String(80))
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+    __table_args__ = (Index("ix_guard_audit_tenant_time", "tenant_id", "occurred_at"),)
+
+
+class GuardNotification(Base):
+    __tablename__ = "guard_notification"
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), primary_key=True)
+    condition: Mapped[str] = mapped_column(String(40), primary_key=True)
+    notification_id: Mapped[str | None] = mapped_column(String(100))
+    error: Mapped[str | None] = mapped_column(String(200))
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class GuardCancellation(Base):
+    __tablename__ = "guard_cancellation"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"))
+    job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("job.id", ondelete="CASCADE"))
+    revision: Mapped[int] = mapped_column(Integer)
+    galaxy_id: Mapped[str] = mapped_column(String(100))
+    external_id: Mapped[str] = mapped_column(String(500))
+    project: Mapped[str] = mapped_column(String(200))
+    location: Mapped[str] = mapped_column(String(100))
+    requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(String(200))
+    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    cost_reconciled: Mapped[bool] = mapped_column(Boolean, default=False)
+    __table_args__ = (UniqueConstraint("tenant_id", "job_id", "external_id"),)
+
+
+class GuardControlStatus(Base):
+    __tablename__ = "guard_control_status"
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenant.id", ondelete="CASCADE"), primary_key=True)
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error: Mapped[str | None] = mapped_column(String(200))
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)

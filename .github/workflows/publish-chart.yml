@@ -1,21 +1,27 @@
 name: Publish Helm chart
 
-# Every commit to main republishes chart/ to CloudVE/helm-charts. The chart
-# version is not bumped yet, so a publish replaces the same version's package;
-# scripts/publish_chart.sh skips the push when the chart's contents are
-# unchanged.
-#
-# Pushing to the CloudVE org uses the same GitHub App as galaxy-helm's release
-# workflow: add its HELM_UPDATER_APP_ID and HELM_UPDATER_PKEY secrets to this
-# repository. The App must be installed on CloudVE with access to helm-charts.
+# Called only after the tested commit's image is published. A branch image
+# dispatch does not publish a chart. Changed chart contents require a new
+# chart version; existing version packages are never overwritten.
 on:
-  push:
-    branches: [main]
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+    secrets:
+      HELM_UPDATER_APP_ID:
+        required: true
+      HELM_UPDATER_PKEY:
+        required: true
   workflow_dispatch: {}
 
 concurrency:
   group: publish-chart
   cancel-in-progress: false
+
+env:
+  SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
 
 permissions:
   contents: read
@@ -26,11 +32,21 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
 
       - uses: azure/setup-helm@v4
 
       - name: Lint the chart
         run: make chart-lint
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Require the application image before publishing its chart
+        run: |
+          app_version=$(sed -n 's/^appVersion: "\(.*\)"$/\1/p' chart/Chart.yaml)
+          test -n "$app_version"
+          docker buildx imagetools inspect "afgane/rainstone:$app_version" >/dev/null
 
       - name: Generate GitHub App token (CloudVE)
         id: token
@@ -54,14 +70,14 @@ jobs:
               "$RUNNER_TEMP/helm-charts"
             package=$(scripts/publish_chart.sh chart "$RUNNER_TEMP/helm-charts")
             if [ "$package" = unchanged ]; then
-              echo "The published chart already matches ${GITHUB_SHA::7}."
+              echo "The published chart already matches ${SOURCE_SHA::7}."
               exit 0
             fi
             cd "$RUNNER_TEMP/helm-charts"
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add "$package" index.yaml
-            git commit -m "Publish ${package%.tgz} from ${GITHUB_REPOSITORY}@${GITHUB_SHA::7}"
+            git commit -m "Publish ${package%.tgz} from ${GITHUB_REPOSITORY}@${SOURCE_SHA::7}"
             if git push origin HEAD:master; then
               exit 0
             fi

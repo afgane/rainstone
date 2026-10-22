@@ -1004,19 +1004,6 @@
       ]
     }
   ],
-  "infrastructure_intervals": [
-    {
-      "source_id": "baseline-six-minute-window",
-      "resource_uid": "baseline-vm-demo",
-      "machine_type": "t2d-standard-4",
-      "region": "us-central1",
-      "observed_start": "2026-09-19T13:28:00Z",
-      "observed_end": "2026-09-19T13:34:00Z",
-      "amount": "0.0168984",
-      "currency": "USD",
-      "quality": "approximate"
-    }
-  ],
   "galaxy_server": {
     "provider": "gcp",
     "resource_uid": "baseline-vm-demo",

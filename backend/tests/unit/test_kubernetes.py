@@ -168,7 +168,7 @@ def test_watch_consumes_events_and_advances_the_resource_version() -> None:
 def test_expired_watch_relists_and_records_an_unrecoverable_gap() -> None:
     client = FakeKubernetesClient(expire=True)
     collector = KubernetesCollector(client, baseline_resource_ids=BASELINE)
-    batch = collector.collect({"resource_version": "4300", "watched_at": "2026-09-21T13:00:00Z"})
+    batch = collector.collect({"resource_version": "4300", "watch_ended_at": "2026-09-21T13:00:00Z"})
     assert client.list_calls == 1
     assert batch.gaps[0].kind == "watch_resource_version_expired"
     assert batch.gaps[0].recoverable is False
@@ -208,7 +208,7 @@ def test_stream_expiration_preserves_the_last_watch_end_as_gap_start():
 
     end = datetime(2026, 10, 21, 12, 0, 25, tzinfo=UTC)
     collector = KubernetesCollector(FakeKubernetesClient(), now=end)
-    first = collector.collect({"resource_version": "4300", "watched_at": "2026-10-21T12:00:00Z"})
+    first = collector.collect({"resource_version": "4300"})
     assert first.cursor["watch_ended_at"] == end.isoformat()
     collector = KubernetesCollector(FakeKubernetesClient(events=[{
         "type": "ERROR", "object": {"code": 410, "reason": "Expired", "message": "too old"},

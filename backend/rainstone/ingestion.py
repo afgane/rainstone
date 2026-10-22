@@ -40,7 +40,6 @@ from rainstone.models import (
     DeploymentPolicy,
     ExecutionAttempt,
     GalaxyServerSession,
-    InfrastructureInterval,
     IngestionEvent,
     IngestionState,
     Invocation,
@@ -53,7 +52,6 @@ from rainstone.models import (
     Owner,
     PendingAttempt,
     PriceVersion,
-    Quality,
     ResourceLifetime,
     ResourceSegment,
     Tenant,
@@ -67,6 +65,7 @@ TIMING_PRECEDENCE = {
     "provider_billable": 50,
     "compute_instance_timestamps": 40,
     "compute_insert_complete_to_delete_request": 35,
+    "compute_absence_after_cancellation": 30,
     "kubernetes_pod_occupancy": 25,
     "batch_task_events": 15,
     "configured_baseline_occupancy": 10,
@@ -964,18 +963,6 @@ def ingest_fixture(session: Session, path: Path) -> dict[str, int | str]:
         obj.effective_from = parse_time(item.get("effective_from"))
 
     result = apply_batch(session, tenant_id, _fixture_batch(data))
-
-    for item in data["infrastructure_intervals"]:
-        item_id = stable_id(str(tenant_id), "infrastructure", item["source_id"])
-        obj = session.get(InfrastructureInterval, item_id)
-        if obj is None:
-            obj = InfrastructureInterval(id=item_id, tenant_id=tenant_id, source_id=item["source_id"])
-            session.add(obj)
-        _set(obj, item, ("resource_uid", "machine_type", "region", "currency"))
-        obj.observed_start = parse_time(item["observed_start"])
-        obj.observed_end = parse_time(item["observed_end"])
-        obj.amount = Decimal(item["amount"])
-        obj.quality = Quality(item["quality"])
 
     session.flush()
     revision = calculate_tenant(session, tenant_id, reason="fixture ingestion")

@@ -3,7 +3,7 @@ import { exclusiveEnd, isTimezone, PERIOD_ORDER, resolvePeriod, type Period, typ
 export type Basis = "additional" | "allocated";
 /** Views are named for the questions they answer, not for their endpoints. */
 export type View =
-  | "overview" | "runs" | "tool-runs" | "daily" | "users" | "server" | "status";
+  | "overview" | "runs" | "tool-runs" | "daily" | "users" | "server" | "status" | "limit";
 
 export interface ReportState {
   view: View;
@@ -129,9 +129,6 @@ export interface Summary extends Meta {
   repeat_attempt_spend: string;
   repeat_attempt_shared_spend: string;
   repeat_attempt_spend_complete: boolean;
-  baseline_infrastructure_amount: string | null;
-  /** When the server was actually observed, not the window that was asked for. */
-  baseline_infrastructure_observed: { from: string; to: string } | null;
   current_launch: CurrentLaunch | null;
   can_view_infrastructure: boolean;
   demo: boolean;
@@ -192,9 +189,7 @@ export interface JobList {
 }
 
 export interface Infrastructure {
-  items: Array<Record<string, string>>; amount: string | null; scope: string;
-  allocation_reason: string; observation_window: Record<string, string>;
-  observed_coverage: { from: string; to: string } | null;
+  revision_id: string | null; as_of: string | null;
   current_launch: CurrentLaunch;
   activity: ServerActivity | null;
 }
@@ -206,7 +201,7 @@ export interface ServerJobInterval {
 export interface ServerJobStep { from: string; to: string; count: number }
 
 export interface ServerActivity {
-  from: string; to: string; kind: "dots" | "steps" | "buckets" | "hidden"; job_count: number;
+  from: string; to: string; kind: "dots" | "steps" | "buckets"; job_count: number;
   intervals: ServerJobInterval[]; steps: ServerJobStep[];
 }
 
@@ -785,16 +780,14 @@ export const DEFAULT_RUN_CONTROLS = {
   runSort: "started_at", runDirection: "desc", runChart: "workflow",
 } as const;
 
-const VIEWS: View[] = ["overview", "runs", "tool-runs", "daily", "users", "server", "status"];
+const VIEWS: View[] = ["overview", "runs", "tool-runs", "daily", "users", "server", "status", "limit"];
 const RUN_STATUSES: RunStatus[] = ["completed", "failed", "running", "cancelled"];
 const RUN_SORTS: RunSort[] = ["started_at", "amount", "run_total", "duration"];
 
 /** The report a URL describes. Anything missing or unrecognized falls back to its default. */
 export function stateFromUrl(search: string): ReportState {
   const params = new URLSearchParams(search);
-  // The Tools page became the Jobs page's By tool chart; its links still lead there.
-  const legacyTools = params.get("view") === "tools";
-  const view = (legacyTools ? "tool-runs" : params.get("view")) as View;
+  const view = params.get("view") as View;
   const outcome = params.get("outcome") as RunStatus;
   const runSort = params.get("run_sort") as RunSort;
   const period = params.get("period") as PeriodId;
@@ -827,7 +820,7 @@ export function stateFromUrl(search: string): ReportState {
     runSort: RUN_SORTS.includes(runSort) ? runSort : DEFAULT_RUN_CONTROLS.runSort,
     runDirection: params.get("run_dir") === "asc" ? "asc" : "desc",
     runChart: view === "runs" && params.get("chart") === "time" ? "time" : DEFAULT_RUN_CONTROLS.runChart,
-    jobsChart: !legacyTools && view === "tool-runs" && params.get("chart") === "time" ? "time" : "tool",
+    jobsChart: view === "tool-runs" && params.get("chart") === "time" ? "time" : "tool",
   };
 }
 
@@ -910,6 +903,20 @@ export async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: response.statusText }));
     throw new ApiError(body.detail || `${response.status} ${response.statusText}`, response.status);
+  }
+  return response.json() as Promise<T>;
+}
+
+export async function put<T>(path: string, payload: unknown): Promise<T> {
+  const response = await fetch(apiPath(path), {
+    method: "PUT", headers: { ...identityHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ detail: response.statusText }));
+    const message = Array.isArray(body.detail)
+      ? body.detail.map((item: { msg: string }) => item.msg).join("; ") : body.detail;
+    throw new ApiError(message || "Unable to save the Batch limit", response.status);
   }
   return response.json() as Promise<T>;
 }
@@ -1054,7 +1061,7 @@ export function figuresDiffer(shown: Summary, latest: Summary): boolean {
   const figures = (summary: Summary) => [
     summary.amount, summary.job_count, summary.priced_job_count, summary.unpriced_job_count,
     summary.known_zero_job_count, summary.failed_spend, summary.failed_job_count,
-    summary.baseline_infrastructure_amount, summary.current_launch?.total_since_launch ?? null,
+    summary.current_launch?.total_since_launch ?? null,
   ];
   const before = figures(shown);
   return figures(latest).some((value, index) => value !== before[index]);
@@ -1073,4 +1080,40 @@ export async function downloadExport(state: ReportState): Promise<void> {
   const link = document.createElement("a");
   link.href = url; link.download = "rainstone-jobs.csv"; link.click();
   URL.revokeObjectURL(url);
+}
+
+/** All recorded Batch compute; independent of the selected report period. */
+export interface BatchSpendSnapshot {
+  amount: string | null;
+  hourly_rate: string;
+  observed_at: string | null;
+  coverage_start: string | null;
+  generation: string;
+  enrollment: string | null;
+  data_age_seconds: string;
+  incomplete_jobs: number;
+  unpriced_running_resources: number;
+  gaps: number;
+}
+export interface SpendGuard {
+  revision: number;
+  limit: string | null;
+  stop_jobs: boolean;
+  triggered_at: string | null;
+  source_changed: boolean;
+  margin: string;
+  snapshot: BatchSpendSnapshot;
+  stale: boolean;
+  cancellation_checked_at: string | null;
+  cancellation_error: string | null;
+  cancellations: GuardCancellation[];
+  notifications: { condition: string; error: string | null }[];
+}
+export interface GuardCancellation {
+  cost_reconciled: boolean;
+  job_id: string;
+  requested_at: string | null;
+  verified_at: string | null;
+  attempts: number;
+  error: string | null;
 }
