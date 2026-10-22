@@ -74,8 +74,8 @@ scope in the local multi-user profile. Infrastructure represents a separate
 whole-resource scope; job, tool, and owner filters do not apportion it. CSV
 exports read database-sortable reports in bounded 500-job batches, stream the
 complete authorized filtered result, and neutralize cells that spreadsheet
-software could interpret as formulas. Cost-sorted exports retain the in-memory
-compatibility path because their ordering depends on calculated report amounts.
+software could interpret as formulas. Cost-sorted exports read the whole
+result in memory, because their order depends on calculated report amounts.
 
 ## Workflow run reports
 
@@ -577,8 +577,7 @@ equal time intervals in `steps`. Each `count` is the maximum exact concurrency
 within that half-open interval, preserving brief peaks; it does not mean that
 many jobs ran throughout the interval. The UI labels these interval peaks and
 offers a table alternative. Distinct `job_count` remains exact, and `intervals`
-is omitted. Clients still accept `kind=hidden` from older servers. The summary
-does not compute activity.
+is omitted. The summary does not compute activity.
 
 Raw job metrics are not part of the revision content digest: they reach reports
 only through attempts, lifetimes and job resource hints, which are covered.
@@ -634,8 +633,10 @@ The default reaction time is 600 seconds: on a test deployment, stopping a
 VM that was still provisioning took longer than the earlier 300 seconds. The
 collector evaluates after new facts and while waiting for sources, so age
 continues to grow during source errors. Galaxy and Batch calls run at most
-once per collection interval, or at once on a new trigger, and stop after
-`guard_control_budget_seconds` (10 by default) to resume on the next pass.
+once per collection interval, or at once on a new trigger. Cancellation
+and cleanup calls stop after `guard_control_budget_seconds` (10 by default)
+to resume on the next pass; notifications run afterward with their own
+five-second request timeout.
 Missing data alone does not pause or cancel jobs. A triggered policy stays
 triggered until its limit is raised or disabled; corrections do not resume
 it. Control changes and trigger decisions are audited with policy revision

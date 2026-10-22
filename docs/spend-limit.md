@@ -96,7 +96,7 @@ The chart values map to the application's environment settings:
 - `staleSeconds` → `RAINSTONE_GUARD_STALE_SECONDS`: notify at this data
   age; default 600 seconds.
 - `controlBudgetSeconds` → `RAINSTONE_GUARD_CONTROL_BUDGET_SECONDS`:
-  control-pass budget; default 10 seconds.
+  cancellation and cleanup pass budget; default 10 seconds.
 
 The page URL in a broadcast is recorded when the browser saves a policy.
 This is a full URL because Galaxy routes path-only links inside its own
@@ -148,9 +148,11 @@ allowance deliberately for the deployment's observed delay.
 
 The collector evaluates after new facts and while waiting for sources.
 Control calls run at most once per collection interval, or immediately
-on a new trigger. The control budget is checked between calls; a request
-already underway can finish within its own timeout. Stops are sent before
-cleanup verification, so a slow provider read does not delay other stops.
+on a new trigger. The cancellation and cleanup budget is checked between
+calls; a request already underway can finish within its own timeout.
+Notification requests use their own five-second timeout and run after
+cancellation processing. Stops are sent before cleanup verification, so
+a slow provider read does not delay other stops.
 Missing observations alone do not pause jobs or request cancellation.
 
 A trigger is durable across browser, collector and Galaxy restarts. Cost
