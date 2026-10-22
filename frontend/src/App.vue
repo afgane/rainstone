@@ -42,6 +42,7 @@ const state = reactive<ReportState>(stateFromUrl(location.search));
 const guard = ref<SpendGuard | null>(null);
 const guardError = ref("");
 const guardLabel = computed(() => guard.value ? batchLimitLabel(guard.value) : "");
+const overviewHref = computed(() => `?${urlQuery({ ...state, view: "overview", offset: 0 })}`);
 const limitHref = computed(() => `?${urlQuery({ ...state, view: "limit" })}`);
 let guardTimer = 0;
 let guardGeneration = 0;
@@ -929,7 +930,9 @@ onBeforeUnmount(() => {
 <template>
   <header class="masthead">
     <div class="masthead-inner">
-      <div class="brand"><CircleDollarSign :size="28" aria-hidden="true" /><span>Rainstone</span></div>
+      <a class="brand" :href="overviewHref" @click.exact.prevent="changeView('overview')">
+        <CircleDollarSign :size="28" aria-hidden="true" /><span>Rainstone</span>
+      </a>
       <a
         v-if="guard" class="guard-masthead" :href="limitHref"
         :data-triggered="Boolean(guard.triggered_at) && !guard.source_changed"
