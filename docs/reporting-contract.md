@@ -1,4 +1,18 @@
-# Phase 2A reporting contract
+# Reporting API contract
+
+This is the contract between Rainstone's web service and its browser
+interface. It defines the query fields every report accepts, how costs are
+calculated and pinned to one calculation revision, and what each page's
+endpoints return. [`frontend/src/api.ts`](../frontend/src/api.ts) mirrors
+these shapes; change the two together. The last section covers the optional
+Batch spend limit's endpoints, including the one Galaxy's job routing reads.
+
+Related documents: [`collection.md`](collection.md) describes how the facts
+behind these reports are collected, [`dashboard.md`](dashboard.md) how the
+interface presents them, and [`spend-limit.md`](spend-limit.md) how the
+spend limit behaves for users.
+
+## Shared report rules
 
 All report endpoints accept the same query fields: cost basis, USD currency,
 mode, half-open time interval, IANA timezone, search, full tool identity,
@@ -305,7 +319,7 @@ of its cost, beside its whole duration. Totals describe every such job and do
 not change with `limit` and `offset`. A job can be in several intervals, so
 interval job counts need not add up to the period's.
 
-## Resource lifetimes in reports (Phase 2B)
+## Resource lifetimes in reports
 
 Cost lines are keyed by chargeable resource lifetime and attributed job, not by
 attempt. A job detail therefore reports two lists: `resources`, each with its
@@ -616,8 +630,8 @@ far back as the collected evidence, with its start and gaps explicit.
 The trigger margin is the greater of $0.25 and, summed over running VMs,
 each VM's hourly rate multiplied by reaction time plus the time since that
 VM was last observed. One stale VM widens the margin by its own rate only.
-The default reaction time is 600 seconds. Ea-dev cancellation while a VM
-was still provisioning exceeded the original 300-second allowance. The
+The default reaction time is 600 seconds: on a test deployment, stopping a
+VM that was still provisioning took longer than the earlier 300 seconds. The
 collector evaluates after new facts and while waiting for sources, so age
 continues to grow during source errors. Galaxy and Batch calls run at most
 once per collection interval, or at once on a new trigger, and stop after

@@ -139,12 +139,12 @@ within the margin already and therefore trigger immediately. The UI makes
 this visible. One stale VM widens the margin by its own rate, without
 holding back accrual for other VMs.
 
-The ten-minute default allowance follows ea-dev measurements: a running
-VM's cleanup was verified after about 107 seconds, while stopping a VM
-still provisioning took roughly seven minutes for provider removal and
-nearly ten minutes including verification backoff. These measurements are
-not a bound on future cloud behavior. Adjust the allowance deliberately
-for the deployment's observed delay.
+The ten-minute default allowance follows measurements on a test AnVIL
+deployment: a running VM's cleanup was verified after about 107 seconds,
+while stopping a VM still provisioning took roughly seven minutes for
+provider removal and nearly ten minutes including verification backoff.
+These measurements are not a bound on future cloud behavior. Adjust the
+allowance deliberately for the deployment's observed delay.
 
 The collector evaluates after new facts and while waiting for sources.
 Control calls run at most once per collection interval, or immediately

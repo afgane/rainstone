@@ -119,7 +119,7 @@ def main() -> None:
     catalog_commands.add_parser("refresh", help="Refresh from the configured feed")
     catalog_commands.add_parser("coverage", help="Show priced shape and region coverage")
 
-    # Retained for compatibility with the Phase 2A command name.
+    # Older name for `catalog validate`, kept so existing scripts still work.
     legacy = commands.add_parser("validate-catalog", help="Validate a bundled price catalog")
     legacy.add_argument("--path", type=Path, required=True)
 

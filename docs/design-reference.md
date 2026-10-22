@@ -1,6 +1,7 @@
 # Adopted Galaxy design reference
 
-Checked on 2026-09-20 for the Rainstone v2 Phase 1 implementation.
+Checked on 2026-09-20, when Rainstone's interface was first built against
+these sources.
 
 - Galaxy Community Hub `astro/DESIGN.md`: `8704f79fddb073ae2b9b41668ca354fae92c7ebe`
 - Galaxy brand tokens `DESIGN.md`: `82955c72a4ca5a299bbf93e3bb88aa5613af9872`
