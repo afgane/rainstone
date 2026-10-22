@@ -423,11 +423,11 @@ automatically; submitting synthetic jobs is an opt-in development action.
   server's own shape is in the catalog. Job reporting is unaffected: work that
   ran on that server is still reported as adding no extra compute cost, which
   is calculated separately and does come from live observation.
-- Testing on a live AnVIL deployment, through its Leonardo proxy route, and
-  exercising stop/resume and reinstall recovery there, are not yet done. The
-  chart is verified by rendering, linting and the test suite: a real
-  `helm install --wait`, a populated upgrade, recovery from an interrupted
-  initialization, and a re-enrolment that keeps two histories apart are still
-  outstanding against a live deployment.
+- A fresh packaged chart installation and a populated upgrade have been
+  verified on a development deployment, including migration, enrollment,
+  readiness, an initially inactive spend limit and preserved policy on
+  upgrade. Testing through the Leonardo proxy, a full fresh AnVIL VM,
+  stop/resume and reinstall recovery, interrupted initialization, and
+  re-enrollment that keeps two source histories apart remain outstanding.
 - Billing reconciliation, Spot and preemption completeness, and hosted transport
   remain separately scoped.
