@@ -297,14 +297,6 @@ describe("what each view requests", () => {
 });
 
 describe("the Jobs page's state", () => {
-  it("opens a Tools link as the Jobs page's By tool chart", () => {
-    const restored = stateFromUrl("?view=tools&period=last-week&tool_id=cat1&timezone=Europe/Paris&chart=time");
-    expect(restored).toMatchObject({
-      view: "tool-runs", jobsChart: "tool", period: "last-week", toolId: "cat1", timezone: "Europe/Paris",
-    });
-    expect(urlQuery(restored).get("view")).toBe("tool-runs");
-  });
-
   it("lists the costliest jobs first unless a link asks for another order", () => {
     expect(stateFromUrl("?view=tool-runs")).toMatchObject({ sort: "amount", direction: "desc" });
     expect(stateFromUrl("?view=tool-runs&sort=created_at&direction=asc"))

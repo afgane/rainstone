@@ -106,9 +106,8 @@ unrecoverable `provider_evidence_without_galaxy_job` gap.
 
 Only watch Status code 410 with reason `Expired` or `Gone` is treated as
 expired history; other stream errors fail and retry the source. Gap starts
-use the previous watch's completion time. Legacy cursors without that field
-fall back to the previously recorded watch start until the next collection.
-Recovery means observation resumed; it never erases a historical gap.
+use the previous watch's completion time. Recovery means observation
+resumed; it never erases a historical gap.
 
 ## GCP Batch, Compute and Logging observation
 

@@ -395,7 +395,7 @@ class KubernetesCollector:
                     "Relisted after an expired watch resource version; pods deleted while "
                     f"disconnected are unrecoverable ({expired})."
                 ),
-                gap_start=_time(state.get("watch_ended_at") or state.get("watched_at")),
+                gap_start=_time(state.get("watch_ended_at")),
                 gap_end=started,
                 recoverable=False,
             )
@@ -472,7 +472,6 @@ class KubernetesCollector:
             if attempt is not None:
                 attempts.append(attempt)
         state["resource_version"] = resource_version
-        state.pop("watched_at", None)
         state["watch_ended_at"] = self._clock().isoformat()
         return ObservationBatch(
             source=SOURCE_NAME,

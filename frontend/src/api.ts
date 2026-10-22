@@ -206,7 +206,7 @@ export interface ServerJobInterval {
 export interface ServerJobStep { from: string; to: string; count: number }
 
 export interface ServerActivity {
-  from: string; to: string; kind: "dots" | "steps" | "buckets" | "hidden"; job_count: number;
+  from: string; to: string; kind: "dots" | "steps" | "buckets"; job_count: number;
   intervals: ServerJobInterval[]; steps: ServerJobStep[];
 }
 
@@ -792,9 +792,7 @@ const RUN_SORTS: RunSort[] = ["started_at", "amount", "run_total", "duration"];
 /** The report a URL describes. Anything missing or unrecognized falls back to its default. */
 export function stateFromUrl(search: string): ReportState {
   const params = new URLSearchParams(search);
-  // The Tools page became the Jobs page's By tool chart; its links still lead there.
-  const legacyTools = params.get("view") === "tools";
-  const view = (legacyTools ? "tool-runs" : params.get("view")) as View;
+  const view = params.get("view") as View;
   const outcome = params.get("outcome") as RunStatus;
   const runSort = params.get("run_sort") as RunSort;
   const period = params.get("period") as PeriodId;
@@ -827,7 +825,7 @@ export function stateFromUrl(search: string): ReportState {
     runSort: RUN_SORTS.includes(runSort) ? runSort : DEFAULT_RUN_CONTROLS.runSort,
     runDirection: params.get("run_dir") === "asc" ? "asc" : "desc",
     runChart: view === "runs" && params.get("chart") === "time" ? "time" : DEFAULT_RUN_CONTROLS.runChart,
-    jobsChart: !legacyTools && view === "tool-runs" && params.get("chart") === "time" ? "time" : "tool",
+    jobsChart: view === "tool-runs" && params.get("chart") === "time" ? "time" : "tool",
   };
 }
 

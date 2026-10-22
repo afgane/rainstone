@@ -77,8 +77,5 @@ describe("server job activity", () => {
     const empty = plot({ ...activity, kind: "steps", intervals: [], job_count: 0,
       steps: [{ from: activity.from, to: activity.to, count: 0 }] });
     expect(empty.find(".activity-caption").text()).toContain("peak 0");
-    const dense = plot({ ...activity, kind: "hidden", intervals: [], steps: [] });
-    expect(dense.find(".activity-step").exists()).toBe(false);
-    expect(dense.text()).toContain("not plotted at this scale");
   });
 });

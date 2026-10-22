@@ -2387,7 +2387,8 @@ def export_csv(session: Session, identity: Identity, query: ReportQuery):
     candidate_offset = 0
     export_query = query.model_copy(update={"offset": 0, "limit": 200})
     while True:
-        # Cost sorting depends on calculated lines, so preserve its global order as a compatibility fallback.
+        # Cost order depends on calculated amounts, which the database cannot
+        # sort by, so cost-sorted exports read the whole list in memory.
         if query.sort == "amount":
             result = list_jobs(session, identity, export_query, paginate=False)
             records = result["items"]

@@ -119,10 +119,6 @@ def main() -> None:
     catalog_commands.add_parser("refresh", help="Refresh from the configured feed")
     catalog_commands.add_parser("coverage", help="Show priced shape and region coverage")
 
-    # Older name for `catalog validate`, kept so existing scripts still work.
-    legacy = commands.add_parser("validate-catalog", help="Validate a bundled price catalog")
-    legacy.add_argument("--path", type=Path, required=True)
-
     args = parser.parse_args()
 
     if args.command == "ingest-fixtures":
@@ -277,7 +273,7 @@ def main() -> None:
         _print(report)
         sys.exit(1 if report["overall_status"] == "fail" else 0)
 
-    if args.command in {"catalog", "validate-catalog"}:
+    if args.command == "catalog":
         from rainstone.catalog import (
             CatalogError,
             coverage,
@@ -289,7 +285,7 @@ def main() -> None:
         from rainstone.config import get_settings
 
         settings = get_settings()
-        action = "validate" if args.command == "validate-catalog" else args.catalog_command
+        action = args.catalog_command
         try:
             trusted = parse_trusted_keys(settings.catalog_trusted_keys)
             if action == "validate":

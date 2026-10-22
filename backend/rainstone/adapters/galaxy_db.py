@@ -799,20 +799,3 @@ class GalaxyDatabaseAdapter:
             withdrawn_jobs=tuple(withdrawn),
             metrics={"phase": source_phase},
         )
-
-
-def read_job_batch(
-    engine: Engine, *, updated_after: datetime, id_after: int, batch_size: int = 1000
-) -> list[dict]:
-    """Single incremental page, retained for focused schema checks and tests."""
-    if not 1 <= batch_size <= 5000:
-        raise ValueError("batch_size must be between 1 and 5000")
-    with engine.connect() as connection:
-        _read_only(connection, "30s")
-        return [
-            dict(row)
-            for row in connection.execute(
-                INCREMENTAL_PAGE,
-                {"updated_after": updated_after, "id_after": id_after, "batch_size": batch_size},
-            ).mappings()
-        ]
