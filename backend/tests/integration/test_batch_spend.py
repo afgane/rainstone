@@ -76,8 +76,9 @@ def test_active_accrual_deduplicates_retries_and_reconciles_when_closed(spend_so
     resource.observed_end = START + timedelta(hours=1)
     job.state = "error"
     session.flush()
-    closed = batch_spend(session, tenant.id, owner.id)
+    # The collector commits closed facts with their recalculated cost lines.
     calculate_tenant(session, tenant.id)
+    closed = batch_spend(session, tenant.id, owner.id)
     line = session.scalar(select(CostLine).where(CostLine.job_id == job.id, CostLine.basis == "additional"))
     assert closed.amount == line.amount == snapshot.amount
     assert closed.hourly_rate == 0
@@ -111,3 +112,32 @@ def test_resource_observation_limits_freshness_even_when_other_targets_advance(s
     snapshot = batch_spend(session, tenant.id, owner.id)
     assert snapshot.amount == Decimal("1")
     assert snapshot.observed_at == START + timedelta(minutes=30)
+
+
+def test_closed_lifetime_awaiting_calculation_is_unknown_not_zero(spend_source):
+    session, tenant, owner, job, resource = spend_source
+    resource.observed_end = START + timedelta(hours=1)
+    session.flush()
+    snapshot = batch_spend(session, tenant.id, owner.id)
+    assert snapshot.amount is None
+    assert snapshot.incomplete_jobs == 1
+
+
+def test_running_vm_accrues_to_its_own_observation(spend_source):
+    session, tenant, owner, job, resource = spend_source
+    second = ResourceLifetime(id=uuid.uuid4(), tenant_id=tenant.id, provider="gcp", resource_key="second-vm",
+                              resource_uid="2", region="test", project="test-project", zone="test-a",
+                              machine_type="test-vm", purchase_model="on_demand",
+                              capacity_relationship=CapacityRelationship.dedicated, observed_start=START,
+                              timing_method="provider_billable",
+                              facts={"observed_at": (START + timedelta(hours=1)).isoformat()})
+    session.add(second)
+    session.flush()
+    session.add(LifetimeAttempt(lifetime_id=second.id, attempt_id=job.attempts[0].id))
+    resource.facts = {"observed_at": (START + timedelta(minutes=30)).isoformat()}
+    session.flush()
+    snapshot = batch_spend(session, tenant.id, owner.id)
+    # One stale VM no longer holds the other back to its observation.
+    assert snapshot.amount == Decimal("3")
+    assert snapshot.observed_at == START + timedelta(minutes=30)
+    assert snapshot.hourly_rate == Decimal("4")

@@ -113,6 +113,9 @@ class Settings(BaseSettings):
     guard_page_url: str = "/galaxy/costs/?view=limit"
     guard_reaction_seconds: int = Field(default=600, ge=0)
     guard_stale_seconds: int = Field(default=600, gt=0)
+    # Galaxy and Batch calls share the collector loop; a pass stops issuing
+    # them after this long and continues on the next pass.
+    guard_control_budget_seconds: int = Field(default=10, gt=0)
 
     # Collector scheduling.
     collect_interval_seconds: int = 30

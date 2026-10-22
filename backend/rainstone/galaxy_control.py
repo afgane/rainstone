@@ -7,7 +7,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from rainstone.batch_spend import batch_spend, utcnow
+from rainstone.batch_spend import BatchSpend, utcnow
 from rainstone.config import Settings
 from rainstone.models import GuardNotification, SpendGuard
 from rainstone.spend_guard import audit
@@ -54,11 +54,11 @@ class GalaxyControl:
             raise GalaxyControlError("The configured Galaxy account could not be resolved")
         return matches[0]["id"]
 
-    def outstanding_batch_jobs(self) -> list[dict]:
+    def outstanding_batch_jobs(self, offset: int = 0, limit: int = 100) -> list[dict]:
         result = self.request("GET", "jobs", params={
             "view": "admin_job_list", "search": "runner:gcp_batch",
             "state": ["new", "queued", "running", "resubmitted", "waiting"],
-            "limit": 100, "offset": 0, "order_by": "create_time",
+            "limit": limit, "offset": offset, "order_by": "create_time",
         })
         if not isinstance(result, list):
             raise GalaxyControlError("Galaxy returned invalid jobs")
@@ -118,9 +118,15 @@ def retry_delay(attempts: int) -> int:
     return min(300, 2 ** min(attempts, 8))
 
 
-def reconcile_notifications(session: Session, guard: SpendGuard, settings: Settings, client: GalaxyControl) -> None:
+def broadcast_link(item: dict) -> str | None:
+    links = (item.get("content") or {}).get("action_links") or []
+    return links[0].get("link") if links and isinstance(links[0], dict) else None
+
+
+def reconcile_notifications(session: Session, guard: SpendGuard, snapshot: BatchSpend,
+                            settings: Settings, client: GalaxyControl) -> None:
     now = utcnow()
-    snapshot = batch_spend(session, guard.tenant_id, guard.owner_id)
+    link = guard.page_url or settings.guard_page_url
     active = guard.amount is not None and guard.enrollment == snapshot.enrollment
     desired = {
         "triggered": active and guard.triggered_at is not None,
@@ -130,27 +136,37 @@ def reconcile_notifications(session: Session, guard: SpendGuard, settings: Setti
     rows = {row.condition: row for row in session.scalars(select(GuardNotification).where(
         GuardNotification.tenant_id == guard.tenant_id,
     ))}
-    broadcasts = None
-    for condition, needed in desired.items():
+    due = []
+    for condition in desired:
         row = rows.get(condition)
         if row is None:
             row = GuardNotification(tenant_id=guard.tenant_id, condition=condition, attempts=0)
             session.add(row)
-        if row.retry_at and row.retry_at > now:
-            continue
+        if not (row.retry_at and row.retry_at > now):
+            due.append((condition, row))
+    if not due:
+        return
+    try:
+        broadcasts = client.broadcasts()
+    except GalaxyControlError as error:
+        # One unreachable Galaxy must not cost a timeout per condition.
+        for condition, row in due:
+            notification_failed(session, guard, row, condition, error, now)
+        return
+    for condition, row in due:
+        needed = desired[condition]
         source = broadcast_source(guard.tenant_id, condition)
         try:
-            if broadcasts is None:
-                broadcasts = client.broadcasts()
             # Recover a successful POST whose response or local commit was lost.
             matching = [item for item in broadcasts if item.get("source") == source]
             if needed:
-                if matching:
-                    row.notification_id = matching[0]["id"]
-                    for duplicate in matching[1:]:
-                        client.withdraw_broadcast(duplicate["id"])
+                current = [item for item in matching if broadcast_link(item) in {None, link}]
+                for outdated in (item for item in matching if item not in current[:1]):
+                    client.withdraw_broadcast(outdated["id"])
+                if current:
+                    row.notification_id = current[0]["id"]
                 else:
-                    row.notification_id = client.post_broadcast(source, MESSAGES[condition], settings.guard_page_url)
+                    row.notification_id = client.post_broadcast(source, MESSAGES[condition], link)
                     audit(session, guard, "notification_posted", "collector", condition=condition)
             else:
                 for item in matching:
@@ -160,7 +176,12 @@ def reconcile_notifications(session: Session, guard: SpendGuard, settings: Setti
                 row.notification_id = None
             row.error, row.retry_at, row.attempts = None, None, 0
         except GalaxyControlError as error:
-            row.attempts += 1
-            row.error = str(error)
-            row.retry_at = now + timedelta(seconds=retry_delay(row.attempts))
-            audit(session, guard, "notification_failed", "collector", condition=condition, error=row.error)
+            notification_failed(session, guard, row, condition, error, now)
+
+
+def notification_failed(session: Session, guard: SpendGuard, row: GuardNotification, condition: str,
+                        error: GalaxyControlError, now) -> None:
+    row.attempts += 1
+    row.error = str(error)
+    row.retry_at = now + timedelta(seconds=retry_delay(row.attempts))
+    audit(session, guard, "notification_failed", "collector", condition=condition, error=row.error)

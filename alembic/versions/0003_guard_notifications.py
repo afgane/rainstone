@@ -3,8 +3,10 @@
 Revision ID: 0003
 Revises: 0002
 """
+
+import sqlalchemy as sa
 from alembic import op
-from rainstone.models import GuardNotification
+from sqlalchemy.dialects.postgresql import UUID
 
 revision = "0003"
 down_revision = "0002"
@@ -13,8 +15,17 @@ depends_on = None
 
 
 def upgrade() -> None:
-    GuardNotification.__table__.create(op.get_bind(), checkfirst=True)
+    op.create_table(
+        "guard_notification",
+        sa.Column("tenant_id", UUID(as_uuid=True), sa.ForeignKey("tenant.id", ondelete="CASCADE"),
+                  primary_key=True),
+        sa.Column("condition", sa.String(40), primary_key=True),
+        sa.Column("notification_id", sa.String(100)),
+        sa.Column("error", sa.String(200)),
+        sa.Column("retry_at", sa.DateTime(timezone=True)),
+        sa.Column("attempts", sa.Integer, nullable=False),
+    )
 
 
 def downgrade() -> None:
-    GuardNotification.__table__.drop(op.get_bind(), checkfirst=True)
+    op.drop_table("guard_notification")

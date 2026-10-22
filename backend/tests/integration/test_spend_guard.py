@@ -66,3 +66,16 @@ def test_replacing_source_cannot_silently_reset_an_active_guard(spend_source):
     configure(spend_source, "100")
     with pytest.raises(SourceReplacementDetected, match="Turn off the Batch spend limit"):
         ensure_enrollment(session, Settings(tenant_slug=tenant.slug), None, None, reenroll=True)
+
+
+def test_triggered_guard_accepts_a_new_stop_choice_without_resuming(spend_source):
+    session, tenant, owner, job, resource = spend_source
+    guard = configure(spend_source, "2.10")
+    triggered_at = guard.triggered_at
+    assert triggered_at is not None
+    changed = set_policy(session, tenant.id, owner.id, 1, Decimal("2.10"), True,
+                         Settings(guard_enabled=True), owner.source_id)
+    assert changed.stop_jobs and changed.triggered_at == triggered_at
+    lowered = set_policy(session, tenant.id, owner.id, 2, Decimal("2.05"), True,
+                         Settings(guard_enabled=True), owner.source_id)
+    assert lowered.triggered_at == triggered_at

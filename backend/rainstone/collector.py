@@ -360,6 +360,8 @@ class Collector:
         self._queue: Queue[Delivery] = Queue(maxsize=settings.collect_queue_size)
         self._workers: dict[str, AcquisitionWorker] = {}
         self._guard_due = 0.0
+        self._control_due = 0.0
+        self._triggered_at: datetime | None = None
 
     @property
     def tenant_id(self) -> uuid.UUID:
@@ -608,27 +610,43 @@ class Collector:
         return results
 
     def evaluate_guard(self, *, force: bool = False) -> None:
+        """Evaluate on new facts; send Galaxy and Batch calls at most once per interval.
+
+        A new trigger runs control at once so stops and the notice are not
+        held back by the interval. Control calls are bounded by a budget,
+        because they share this loop with applying collected facts.
+        """
         if not self._settings.guard_enabled or (not force and self._clock() < self._guard_due):
             return
-        self._guard_due = self._clock() + self._settings.collect_interval_seconds
+        interval = self._settings.collect_interval_seconds
+        self._guard_due = self._clock() + interval
         from rainstone.spend_guard import evaluate_collected
 
         try:
             with Session(self._engine) as session:
-                guard = evaluate_collected(session, self._tenant_id, self._settings)
+                evaluated = evaluate_collected(session, self._tenant_id, self._settings)
+                if evaluated is None:
+                    return
+                guard, snapshot = evaluated
+                triggered_at = guard.triggered_at
                 session.commit()
-                if guard:
-                    from rainstone.galaxy_control import GalaxyControl, reconcile_notifications
+                newly_triggered = triggered_at is not None and triggered_at != self._triggered_at
+                self._triggered_at = triggered_at
+                if not newly_triggered and self._clock() < self._control_due:
+                    return
+                self._control_due = self._clock() + interval
+                from rainstone.galaxy_control import GalaxyControl, reconcile_notifications
+                from rainstone.guard_cancellation import reconcile_cancellations
 
-                    client = GalaxyControl(self._settings)
-                    try:
-                        from rainstone.guard_cancellation import reconcile_cancellations
-
-                        reconcile_cancellations(session, self._tenant_id, self._settings, client, HttpGcpClient())
-                        reconcile_notifications(session, guard, self._settings, client)
-                        session.commit()
-                    finally:
-                        client.close()
+                deadline = time.monotonic() + self._settings.guard_control_budget_seconds
+                client = GalaxyControl(self._settings)
+                try:
+                    reconcile_cancellations(session, guard, snapshot, self._settings, client, HttpGcpClient(),
+                                            deadline=deadline)
+                    reconcile_notifications(session, guard, snapshot, self._settings, client)
+                    session.commit()
+                finally:
+                    client.close()
             self._failures.recovered("spend_guard")
         except Exception as error:  # noqa: BLE001 - accounting must continue
             self._failures.failed("spend_guard", error)

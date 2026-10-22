@@ -3,6 +3,7 @@
 Revision ID: 0005
 Revises: 0004
 """
+
 import sqlalchemy as sa
 from alembic import op
 
@@ -13,9 +14,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    columns = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("guard_control_status")}
-    if "checked_at" not in columns:
-        op.add_column("guard_control_status", sa.Column("checked_at", sa.DateTime(timezone=True)))
+    op.add_column("guard_control_status", sa.Column("checked_at", sa.DateTime(timezone=True)))
 
 
 def downgrade() -> None:

@@ -587,7 +587,11 @@ snapshot. `PUT /api/spend-guard` accepts `revision`, `limit` (a positive USD
 amount with at most two decimals, or null to disable), and `stop_jobs`.
 Revision 0 creates the first policy; stale revisions return 409. Activation
 and edits validate against the latest recorded snapshot, including accrued
-cost before activation. Unknown cost cannot be represented as zero.
+cost before activation. Unknown cost cannot be represented as zero. Only
+raising the limit resumes a triggered policy: changing the stop choice or
+lowering the limit keeps it triggered, so a user who let jobs finish can
+still choose to stop them. Saving records the limit page URL from the
+request's `Referer` for links in Galaxy notifications.
 
 The response mirrors `SpendGuard` in `frontend/src/api.ts`. It includes the
 policy revision, limit, stop choice, latched trigger time, source-change
@@ -601,17 +605,23 @@ exists but none can be priced. An empty observed history has amount zero.
 
 The snapshot covers only Batch compute attributable to the fixed owner's
 Galaxy jobs in the enrolled deployment. It counts VM lifetimes once across
-retries and uses the same prices and minimum billing as reports. Active
-lifetimes accrue through the observation cutoff without closing source
-facts. Closed lifetimes reconcile with job reports. Neither the host cost
+retries and uses the same prices and minimum billing as reports. Each
+active lifetime accrues through its own last observation without closing
+source facts; `observed_at` is the oldest of these. Closed lifetimes use
+the stored cost lines, so they reconcile with job reports; one whose
+calculation has not caught up is unknown. Neither the host cost
 nor browser report dates enter the guard total. History extends only as
 far back as the collected evidence, with its start and gaps explicit.
 
-The trigger margin is the greater of $0.25 and the current running-VM
-hourly rate multiplied by reaction time plus snapshot age. The default
-reaction time is 600 seconds. Ea-dev cancellation while a VM was
-still provisioning exceeded the original 300-second allowance. The collector evaluates after collection and
-while waiting for sources, so age continues to grow during source errors.
+The trigger margin is the greater of $0.25 and, summed over running VMs,
+each VM's hourly rate multiplied by reaction time plus the time since that
+VM was last observed. One stale VM widens the margin by its own rate only.
+The default reaction time is 600 seconds. Ea-dev cancellation while a VM
+was still provisioning exceeded the original 300-second allowance. The
+collector evaluates after new facts and while waiting for sources, so age
+continues to grow during source errors. Galaxy and Batch calls run at most
+once per collection interval, or at once on a new trigger, and stop after
+`guard_control_budget_seconds` (10 by default) to resume on the next pass.
 Missing data alone does not pause or cancel jobs. A triggered policy stays
 triggered until its limit is raised or disabled; corrections do not resume
 it. Control changes and trigger decisions are audited with policy revision
@@ -633,6 +643,9 @@ Broadcast identities and retries are durable collector state. The
 collector reconciles source-marked active broadcasts to recover a lost
 POST response without duplicating notices. Resuming or disabling expires
 them through Galaxy; errors remain visible and retry with bounded backoff.
+A notice links to the recorded limit page URL, because Galaxy routes a
+path-only link inside its own client; a notice with an outdated link is
+replaced. One failed listing marks every due notice failed for that pass.
 Only the collector receives the administrator API key.
 
 `cancellation_error` reports a sanitized failure to discover outstanding
@@ -640,15 +653,19 @@ Batch jobs. Each `cancellations` entry has the Rainstone `job_id`,
 `requested_at`, `verified_at`, `attempts`, `error` and `cost_reconciled`.
 Accepted Galaxy cancellation does not imply cleanup: verification checks
 Batch state and Compute instances, including the provider's Batch labels.
-Preserved observations and later deletion evidence feed the same cost
-calculation as reports. If deletion timing is unavailable, observed VM
-absence bounds the estimate and is explicitly recorded as an upper bound;
-cleanup may be verified while final cost evidence is still pending.
+Deletion evidence feeds the same cost calculation as reports. If deletion
+timing is unavailable, observed VM absence bounds the estimate and is
+explicitly recorded as an upper bound; cleanup may be verified while final
+cost evidence is still pending.
 
-The collector durably records cancellation intent before sending it and
-rechecks the active policy and source before destructive calls. Jobs that
-have moved to a server destination are not cancelled. Disabling a guard
-does not undo already sent requests; their cleanup continues to be checked.
+The collector pages through every outstanding Batch job, durably records
+intent, and sends every pending stop before checking any cleanup; Batch
+records are not exported first, since collection has observed the running
+jobs. It rechecks the active policy and source before each destructive
+call. Jobs that have moved to a server destination are not cancelled.
+Resuming drops stops that were never sent. Disabling a guard does not undo
+sent requests; their cleanup continues to be checked, and `cancellations`
+lists the current revision's entries plus sent stops still being accounted.
 No provider write permission is added to Rainstone.
 
 The limit page is addressed by `view=limit`, preserving the report period

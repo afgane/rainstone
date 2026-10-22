@@ -25,9 +25,7 @@ class PolicyConflict(ValueError):
 
 
 def margin(snapshot: BatchSpend, settings: Settings, now: datetime) -> Decimal:
-    return max(Decimal("0.25"), snapshot.hourly_rate * (
-        Decimal(settings.guard_reaction_seconds) + snapshot.data_age(now)
-    ) / Decimal("3600"))
+    return max(Decimal("0.25"), snapshot.exposure(now, settings.guard_reaction_seconds))
 
 
 def audit(session: Session, guard: SpendGuard, action: str, actor: str, **details) -> None:
@@ -51,7 +49,7 @@ def evaluate(session: Session, guard: SpendGuard, snapshot: BatchSpend,
 
 def set_policy(session: Session, tenant_id: uuid.UUID, owner_id: uuid.UUID,
                revision: int, amount: Decimal | None, stop_jobs: bool,
-               settings: Settings, actor: str) -> SpendGuard:
+               settings: Settings, actor: str, page_url: str | None = None) -> SpendGuard:
     # Lock the tenant even before the first policy exists. A concurrent writer
     # under REPEATABLE READ may get a serialization failure, returned as 409.
     session.scalar(select(Tenant).where(Tenant.id == tenant_id).with_for_update())
@@ -65,20 +63,24 @@ def set_policy(session: Session, tenant_id: uuid.UUID, owner_id: uuid.UUID,
             raise ValueError("Batch cost is not available yet. Try again after collection.")
         if amount <= snapshot.amount:
             raise ValueError(f"Enter a limit greater than the ${snapshot.amount:.2f} already spent on Batch compute.")
-        if guard and guard.triggered_at and guard.amount is not None and amount <= guard.amount:
-            raise ValueError("Raise the limit or turn it off to resume Batch jobs.")
         if guard and guard.enrollment != snapshot.enrollment:
             raise PolicyConflict("The enrolled Galaxy source changed. Turn off the old limit before setting a new one.")
     if guard is None:
         guard = SpendGuard(tenant_id=tenant_id, owner_id=owner_id, enrollment=snapshot.enrollment,
                            revision=0, updated_at=now, snapshot={})
         session.add(guard)
+    # Only raising the limit resumes. Changing the stop choice or lowering the
+    # limit of a triggered guard keeps it triggered.
+    keep_trigger = (guard.triggered_at is not None and guard.amount is not None
+                    and amount is not None and amount <= guard.amount)
     guard.owner_id = owner_id
     guard.enrollment = snapshot.enrollment
     guard.revision += 1
     guard.amount = amount
     guard.stop_jobs = stop_jobs if amount is not None else False
-    guard.triggered_at = None
+    guard.triggered_at = guard.triggered_at if keep_trigger else None
+    if page_url:
+        guard.page_url = page_url
     guard.updated_at = now
     audit(session, guard, "disabled" if amount is None else "configured", actor,
           amount=str(amount) if amount is not None else None, stop_jobs=guard.stop_jobs)
@@ -108,15 +110,21 @@ def status(session: Session, tenant_id: uuid.UUID, owner_id: uuid.UUID, settings
                            "verified_at": row.verified_at, "attempts": row.attempts, "error": row.error,
                            "cost_reconciled": row.cost_reconciled}
                           for row in session.scalars(select(GuardCancellation).where(
-                              GuardCancellation.tenant_id == tenant_id))],
+                              GuardCancellation.tenant_id == tenant_id).order_by(GuardCancellation.requested_at))
+                          # Earlier triggers' stops stay visible until cleanup is accounted.
+                          if guard and (row.revision == guard.revision or row.evidence.get("stop_sent_at")
+                                        and not (row.verified_at and row.cost_reconciled))],
         "notifications": [{"condition": row.condition, "error": row.error}
                           for row in session.scalars(select(GuardNotification).where(
                               GuardNotification.tenant_id == tenant_id))],
     }
 
 
-def evaluate_collected(session: Session, tenant_id: uuid.UUID, settings: Settings) -> SpendGuard | None:
+def evaluate_collected(session: Session, tenant_id: uuid.UUID,
+                       settings: Settings) -> tuple[SpendGuard, BatchSpend] | None:
     guard = session.scalar(select(SpendGuard).where(SpendGuard.tenant_id == tenant_id).with_for_update())
-    if guard:
-        evaluate(session, guard, batch_spend(session, tenant_id, guard.owner_id), settings, utcnow())
-    return guard
+    if guard is None:
+        return None
+    snapshot = batch_spend(session, tenant_id, guard.owner_id)
+    evaluate(session, guard, snapshot, settings, utcnow())
+    return guard, snapshot

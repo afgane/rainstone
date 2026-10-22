@@ -1,17 +1,18 @@
 import secrets
 from decimal import Decimal
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from rainstone.auth import Identity, current_identity
+from rainstone.batch_spend import enrollment
 from rainstone.config import Settings, get_settings
 from rainstone.db import get_session
 from rainstone.enrollment import active_tenant
-from rainstone.models import SourceBinding, SpendGuard
+from rainstone.models import SpendGuard
 from rainstone.spend_guard import PolicyConflict, set_policy, status
 
 router = APIRouter(prefix="/api/spend-guard", tags=["spend-guard"])
@@ -34,6 +35,14 @@ def guard_identity(identity: Identity = Depends(current_identity),
     return identity
 
 
+def limit_page_url(referer: str | None) -> str | None:
+    """The limit page as the browser saw it, for links posted to Galaxy."""
+    parts = urlsplit(referer or "")
+    if parts.scheme not in {"http", "https"} or not parts.netloc:
+        return None
+    return urlunsplit((parts.scheme, parts.netloc, parts.path or "/", "view=limit", ""))
+
+
 @router.get("")
 def get_guard(session: Session = Depends(get_session), identity: Identity = Depends(guard_identity),
               settings: Settings = Depends(get_settings)) -> dict:
@@ -42,10 +51,11 @@ def get_guard(session: Session = Depends(get_session), identity: Identity = Depe
 
 @router.put("")
 def update_guard(payload: GuardPolicy, session: Session = Depends(get_session),
-                 identity: Identity = Depends(guard_identity), settings: Settings = Depends(get_settings)) -> dict:
+                 identity: Identity = Depends(guard_identity), settings: Settings = Depends(get_settings),
+                 referer: str | None = Header(default=None)) -> dict:
     try:
         set_policy(session, identity.tenant_id, identity.owner_id, payload.revision,
-                   payload.limit, payload.stop_jobs, settings, identity.source_id)
+                   payload.limit, payload.stop_jobs, settings, identity.source_id, limit_page_url(referer))
         session.commit()
     except PolicyConflict as error:
         session.rollback()
@@ -77,7 +87,5 @@ def batch_dispatch(authorization: str | None = Header(default=None),
     if tenant is None:
         return {"paused": False}
     guard = session.get(SpendGuard, tenant.id)
-    binding = session.scalar(select(SourceBinding).where(SourceBinding.tenant_id == tenant.id))
-    enrolled = str(binding.enrollment_uuid) if binding else None
     return {"paused": bool(guard and guard.amount is not None and guard.triggered_at
-                           and guard.enrollment == enrolled)}
+                           and guard.enrollment == enrollment(session, tenant.id))}

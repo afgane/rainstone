@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 import pytest
+from rainstone.api.guard import limit_page_url
 from rainstone.config import Settings, get_settings
 from rainstone.db import engine
 from rainstone.main import app
@@ -63,3 +64,16 @@ def test_concurrent_policy_updates_have_one_winner(guard_api):
 def test_limit_validation_matches_database_precision(guard_api):
     response = guard_api.put("/api/spend-guard", json={"revision": 0, "limit": "1000000000000.00", "stop_jobs": False})
     assert response.status_code == 422
+
+
+def test_saving_records_the_limit_page_the_browser_addressed(guard_api):
+    referer = "https://example.org/proxy/app/galaxy/costs/?view=limit&period=30d"
+    response = guard_api.put("/api/spend-guard", json={"revision": 0, "limit": "100", "stop_jobs": False},
+                             headers={"Referer": referer})
+    assert response.status_code == 200, response.text
+    with Session(engine) as session:
+        tenant = session.scalar(select(Tenant).where(Tenant.slug == Settings().tenant_slug))
+        guard = session.get(SpendGuard, tenant.id)
+        assert guard.page_url == "https://example.org/proxy/app/galaxy/costs/?view=limit"
+    for unusable in ("javascript:alert(1)", "/galaxy/costs/"):
+        assert limit_page_url(unusable) is None

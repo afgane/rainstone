@@ -544,6 +544,9 @@ class SpendGuard(Base):
     triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    # The limit page as the browser addressed it; the cluster cannot know
+    # the external URL, and Galaxy routes a path-only link inside itself.
+    page_url: Mapped[str | None] = mapped_column(String(2000))
 
 
 class GuardAudit(Base):

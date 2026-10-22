@@ -1,19 +1,25 @@
-"""Galaxy-mediated stops with durable intent and read-only provider verification."""
+"""Galaxy-mediated stops with durable intent and read-only provider verification.
+
+Each pass sends every pending stop before checking any cleanup, so one slow
+verification never delays stopping the remaining VMs. Batch records are
+not exported before stopping: collection has observed the running jobs, and
+Compute lifecycle evidence still bounds each VM after Galaxy deletes them.
+"""
 
 import time
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from rainstone.adapters.contracts import NormalizedLifetime, ObservationBatch
-from rainstone.adapters.gcp_batch import BatchCollector, BatchTarget, _lifecycle_bounds
-from rainstone.batch_spend import batch_spend, utcnow
+from rainstone.adapters.contracts import NormalizedLifetime
+from rainstone.adapters.gcp_batch import _lifecycle_bounds
+from rainstone.batch_spend import BatchSpend, enrollment, utcnow
 from rainstone.config import Settings
 from rainstone.costing import calculate_tenant
 from rainstone.galaxy_control import GalaxyControl, GalaxyControlError, retry_delay
-from rainstone.ingestion import apply_batch, upsert_lifetime
+from rainstone.ingestion import upsert_lifetime
 from rainstone.models import (
     ExecutionAttempt,
     GuardCancellation,
@@ -26,6 +32,8 @@ from rainstone.models import (
 )
 from rainstone.spend_guard import audit
 
+PAGE_SIZE = 100
+
 
 def resources_for(session: Session, row: GuardCancellation) -> list[ResourceLifetime]:
     return list(session.scalars(select(ResourceLifetime).join(LifetimeAttempt).join(
@@ -36,36 +44,13 @@ def resources_for(session: Session, row: GuardCancellation) -> list[ResourceLife
             ]))).unique())
 
 
-def preserve(session: Session, row: GuardCancellation, gcp) -> None:
-    target = BatchTarget(session.get(Job, row.job_id).source_id, row.external_id.rsplit("/", 1)[-1],
-                         row.project, row.location, active=True)
-    # Acquisition failures must never prevent the selected cancellation.
-    try:
-        gcp.deadline = time.monotonic() + 3
-        payload = gcp.get_batch_job(row.project, row.location, target.external_id)
-        if payload:
-            row.evidence = {**row.evidence, "batch_uid": payload.get("uid")}
-        observer = BatchCollector(gcp, lambda: [target], budget_seconds=3)
-        attempts, gaps = observer._collect_target(target, utcnow())
-    except Exception:  # noqa: BLE001 - observation is best effort; control continues
-        row.evidence = {**row.evidence, "preservation_incomplete": True}
-        return
-    finally:
-        gcp.deadline = None
-    try:
-        with session.begin_nested():
-            apply_batch(session, row.tenant_id, ObservationBatch(source="guard_evidence", observed_at=utcnow(),
-                                                                attempts=tuple(attempts), gaps=tuple(gaps)))
-            calculate_tenant(session, row.tenant_id, reason="before guard cancellation")
-        row.evidence = {**row.evidence, "preserved_at": utcnow().isoformat()}
-    except Exception:  # noqa: BLE001 - roll back observation without losing control intent
-        row.evidence = {**row.evidence, "preservation_incomplete": True}
-
-
 def verify_cleanup(session: Session, row: GuardCancellation, gcp) -> bool:
+    """Record final VM evidence once cleanup is complete; the caller recalculates."""
     now = utcnow()
     job = gcp.get_batch_job(row.project, row.location, row.external_id.rsplit("/", 1)[-1])
-    uid = row.evidence.get("batch_uid") or (job or {}).get("uid")
+    if job and job.get("uid") and not row.evidence.get("batch_uid"):
+        row.evidence = {**row.evidence, "batch_uid": job["uid"]}
+    uid = row.evidence.get("batch_uid")
     # Even a deleted job can leave VMs cleaning up. Provider labels also find
     # VMs that were still provisioning when the last task observation ran.
     instances = gcp.list_batch_instances(row.project, row.external_id.rsplit("/", 1)[-1], uid)
@@ -101,93 +86,110 @@ def verify_cleanup(session: Session, row: GuardCancellation, gcp) -> bool:
             facts={"observed_end_upper_bound": actual_end is None, "cleanup_observed_at": now.isoformat()})
         upsert_lifetime(session, row.tenant_id, normalized)
     row.cost_reconciled = reconciled
-    calculate_tenant(session, row.tenant_id, reason="guard cleanup evidence")
     return True
 
 
-def reconcile_cancellations(session: Session, tenant_id, settings: Settings, client: GalaxyControl, gcp) -> None:
-    guard = session.get(SpendGuard, tenant_id)
-    if guard is None:
+def stopping(session: Session, guard: SpendGuard) -> bool:
+    return bool(guard.amount is not None and guard.triggered_at and guard.stop_jobs
+                and guard.enrollment == enrollment(session, guard.tenant_id))
+
+
+def scan(session: Session, guard: SpendGuard, settings: Settings, client: GalaxyControl,
+         deadline: float) -> None:
+    """Record every outstanding Batch job of this deployment for the current revision."""
+    owner = session.get(Owner, guard.owner_id)
+    encoded_owner = client.owner_id(owner.label)
+    offset = 0
+    while time.monotonic() < deadline:
+        page = client.outstanding_batch_jobs(offset, PAGE_SIZE)
+        for item in page:
+            record(session, guard, settings, item, encoded_owner)
+        if len(page) < PAGE_SIZE:
+            return
+        offset += PAGE_SIZE
+
+
+def record(session: Session, guard: SpendGuard, settings: Settings, item: dict, encoded_owner: str) -> None:
+    if item.get("job_runner_name") != "gcp_batch" or str(item.get("user_id")) != encoded_owner:
         return
-    active = guard.amount is not None and guard.triggered_at and guard.stop_jobs
-    snapshot = batch_spend(session, tenant_id, guard.owner_id)
-    if guard.enrollment != snapshot.enrollment:
+    external = item.get("external_id")
+    if not external:
         return
-    now = utcnow()
-    scan = session.get(GuardControlStatus, tenant_id)
-    if scan is None:
-        scan = GuardControlStatus(tenant_id=tenant_id, attempts=0)
-        session.add(scan)
-    if not active:
-        scan.error, scan.retry_at, scan.attempts = None, None, 0
-    if active and (scan.retry_at is None or scan.retry_at <= now):
-        owner = session.get(Owner, guard.owner_id)
-        try:
-            encoded_owner = client.owner_id(owner.label)
-            candidates = client.outstanding_batch_jobs()
-        except GalaxyControlError as error:
-            scan.attempts += 1
-            scan.error = str(error)
-            scan.retry_at = now + timedelta(seconds=retry_delay(scan.attempts))
-            audit(session, guard, "cancellation_scan_failed", "collector", error=str(error))
-            session.commit()
-            candidates = []
-        else:
-            scan.checked_at = now
-            scan.error, scan.retry_at, scan.attempts = None, None, 0
-        for item in candidates:
-            if item.get("job_runner_name") != "gcp_batch" or str(item.get("user_id")) != encoded_owner:
-                continue
-            external = item.get("external_id")
-            if not external:
-                continue
-            full_name = f"projects/{settings.gcp_project}/locations/{settings.gcp_location}/jobs/{external.rsplit('/', 1)[-1]}"
-            matches = list(session.scalars(select(Job).join(ExecutionAttempt).where(
-                Job.tenant_id == tenant_id, Job.owner_id == guard.owner_id,
-                ExecutionAttempt.runner == "gcp_batch",
-                ExecutionAttempt.external_id.in_([external, full_name]),
-            )).unique())
-            if len(matches) != 1:
-                continue
-            job = matches[0]
-            existing = session.scalar(select(GuardCancellation).where(
-                GuardCancellation.tenant_id == tenant_id, GuardCancellation.job_id == job.id,
-                GuardCancellation.external_id == external,
-            ))
-            if existing is None:
-                session.add(GuardCancellation(id=uuid.uuid4(), tenant_id=tenant_id, job_id=job.id,
-                                               revision=guard.revision, galaxy_id=item["id"], external_id=external,
-                                               project=settings.gcp_project, location=settings.gcp_location,
-                                               attempts=0, evidence={}))
-        session.commit()
-    rows = list(session.scalars(select(GuardCancellation).where(
-        GuardCancellation.tenant_id == tenant_id,
+    full_name = f"projects/{settings.gcp_project}/locations/{settings.gcp_location}/jobs/{external.rsplit('/', 1)[-1]}"
+    matches = list(session.scalars(select(Job).join(ExecutionAttempt).where(
+        Job.tenant_id == guard.tenant_id, Job.owner_id == guard.owner_id,
+        ExecutionAttempt.runner == "gcp_batch",
+        ExecutionAttempt.external_id.in_([external, full_name]),
+    )).unique())
+    if len(matches) != 1:
+        return
+    job = matches[0]
+    existing = session.scalar(select(GuardCancellation).where(
+        GuardCancellation.tenant_id == guard.tenant_id, GuardCancellation.job_id == job.id,
+        GuardCancellation.external_id == external,
+    ))
+    if existing is None:
+        session.add(GuardCancellation(id=uuid.uuid4(), tenant_id=guard.tenant_id, job_id=job.id,
+                                      revision=guard.revision, galaxy_id=item["id"], external_id=external,
+                                      project=settings.gcp_project, location=settings.gcp_location,
+                                      attempts=0, evidence={}))
+    elif existing.requested_at is None and existing.revision != guard.revision:
+        # Left unsent when an earlier trigger was resumed; adopt it.
+        existing.revision, existing.galaxy_id = guard.revision, item["id"]
+        existing.error, existing.retry_at, existing.attempts = None, None, 0
+
+
+def send_stops(session: Session, guard: SpendGuard, client: GalaxyControl, now: datetime, deadline: float) -> None:
+    pending = list(session.scalars(select(GuardCancellation).where(
+        GuardCancellation.tenant_id == guard.tenant_id, GuardCancellation.revision == guard.revision,
+        GuardCancellation.verified_at.is_(None),
     ).order_by(GuardCancellation.attempts, GuardCancellation.id)))
-    deadline = time.monotonic() + 20
-    processed = 0
-    for row in rows:
-        if row.verified_at and row.cost_reconciled or row.retry_at and row.retry_at > now:
-            continue
-        if processed >= 5 or time.monotonic() >= deadline:
-            break
-        processed += 1
-        try:
-            if row.requested_at is None:
-                with session.begin_nested():
-                    preserve(session, row, gcp)
-                row.requested_at = now
-                audit(session, guard, "cancellation_requested", "collector", job_id=str(row.job_id), external_id=row.external_id)
-                session.commit()
-            # Serialize the destructive call with policy changes and recheck
-            # current source/policy after preserving evidence and committing intent.
-            current = session.scalar(select(SpendGuard).where(SpendGuard.tenant_id == tenant_id).with_for_update())
-            current_snapshot = batch_spend(session, tenant_id, current.owner_id)
-            if (not row.verified_at and current.amount is not None and current.triggered_at and current.stop_jobs
-                    and current.enrollment == current_snapshot.enrollment):
-                client.cancel_job(row.galaxy_id, row.external_id)
+    pending = [row for row in pending if not row.evidence.get("stop_sent_at")
+               and not (row.retry_at and row.retry_at > now)]
+    for row in pending:
+        if row.requested_at is None:
+            row.requested_at = now
+            audit(session, guard, "cancellation_requested", "collector",
+                  job_id=str(row.job_id), external_id=row.external_id)
+    # Intent is durable before any destructive call.
+    session.commit()
+    for row in pending:
+        if time.monotonic() >= deadline:
+            return
+        # Serialize each destructive call with policy changes.
+        current = session.scalar(select(SpendGuard).where(SpendGuard.tenant_id == guard.tenant_id).with_for_update())
+        if not stopping(session, current) or current.revision != row.revision:
             session.commit()
-            gcp.deadline = time.monotonic() + 5
-            complete = verify_cleanup(session, row, gcp)
+            return
+        try:
+            sent = client.cancel_job(row.galaxy_id, row.external_id)
+            row.evidence = {**row.evidence, "stop_sent_at": utcnow().isoformat(),
+                            **({} if sent else {"stop_not_needed": True})}
+            row.error, row.retry_at = None, None
+        except GalaxyControlError as error:
+            row.attempts += 1
+            row.error = str(error)
+            row.retry_at = utcnow() + timedelta(seconds=retry_delay(row.attempts))
+            audit(session, guard, "cancellation_retry", "collector", job_id=str(row.job_id), error=row.error)
+        session.commit()
+
+
+def verify(session: Session, guard: SpendGuard, gcp, now: datetime, deadline: float) -> None:
+    rows = list(session.scalars(select(GuardCancellation).where(
+        GuardCancellation.tenant_id == guard.tenant_id, GuardCancellation.requested_at.is_not(None),
+    ).order_by(GuardCancellation.attempts, GuardCancellation.id)))
+    rows = [row for row in rows if row.evidence.get("stop_sent_at")
+            and not (row.verified_at and row.cost_reconciled)
+            and not (row.retry_at and row.retry_at > now)]
+    checked = False
+    for row in rows:
+        if time.monotonic() >= deadline:
+            break
+        try:
+            gcp.deadline = min(deadline, time.monotonic() + 5)
+            with session.begin_nested():
+                complete = verify_cleanup(session, row, gcp)
+            checked = True
             if complete:
                 if row.verified_at is None:
                     row.verified_at = utcnow()
@@ -198,14 +200,42 @@ def reconcile_cancellations(session: Session, tenant_id, settings: Settings, cli
                 row.error = "Waiting for Batch VM cleanup"
                 row.retry_at = utcnow() + timedelta(seconds=retry_delay(row.attempts + 1))
             row.attempts += 1
-            session.commit()
-        except Exception as error:  # noqa: BLE001 - keep other targets and accounting alive
-            session.rollback()
-            row = session.get(GuardCancellation, row.id)
+        except Exception:  # noqa: BLE001 - keep other targets and accounting alive
             row.attempts += 1
-            row.error = str(error) if isinstance(error, GalaxyControlError) else "Batch cleanup could not be verified"
+            row.error = "Batch cleanup could not be verified"
             row.retry_at = utcnow() + timedelta(seconds=retry_delay(row.attempts))
             audit(session, guard, "cancellation_retry", "collector", job_id=str(row.job_id), error=row.error)
-            session.commit()
         finally:
             gcp.deadline = None
+    if checked:
+        calculate_tenant(session, guard.tenant_id, reason="guard cleanup evidence")
+    session.commit()
+
+
+def reconcile_cancellations(session: Session, guard: SpendGuard, snapshot: BatchSpend, settings: Settings,
+                            client: GalaxyControl, gcp, *, deadline: float | None = None) -> None:
+    if guard.enrollment != snapshot.enrollment:
+        return
+    deadline = deadline or time.monotonic() + settings.guard_control_budget_seconds
+    now = utcnow()
+    status = session.get(GuardControlStatus, guard.tenant_id)
+    if status is None:
+        status = GuardControlStatus(tenant_id=guard.tenant_id, attempts=0)
+        session.add(status)
+    active = stopping(session, guard)
+    if not active:
+        status.error, status.retry_at, status.attempts = None, None, 0
+    if active and (status.retry_at is None or status.retry_at <= now):
+        try:
+            scan(session, guard, settings, client, deadline)
+            status.checked_at = now
+            status.error, status.retry_at, status.attempts = None, None, 0
+        except GalaxyControlError as error:
+            status.attempts += 1
+            status.error = str(error)
+            status.retry_at = now + timedelta(seconds=retry_delay(status.attempts))
+            audit(session, guard, "cancellation_scan_failed", "collector", error=str(error))
+        session.commit()
+    if active:
+        send_stops(session, guard, client, now, deadline)
+    verify(session, guard, gcp, now, deadline)
