@@ -63,6 +63,20 @@ def test_notice_links_to_the_page_the_browser_used_and_replaces_an_outdated_link
     assert links[broadcast_source(tenant.id, "triggered")] == page
 
 
+def test_notice_replaces_an_explicit_same_tab_target(spend_source):
+    session, tenant, owner, job, resource = spend_source
+    settings = Settings()
+    page = "https://example.org/costs/?view=limit"
+    guard = set_policy(session, tenant.id, owner.id, 0, Decimal("2.10"), False, settings, "owner", page)
+    client = Mock()
+    client.post_broadcast.return_value = "replacement"
+    client.broadcasts.return_value = [{"source": broadcast_source(tenant.id, "triggered"), "id": "old",
+                                      "content": {"action_links": [{"link": page, "target": "_self"}]}}]
+    reconcile_notifications(session, guard, batch_spend(session, tenant.id, owner.id), settings, client)
+    client.withdraw_broadcast.assert_any_call("old")
+    assert session.get(GuardNotification, (tenant.id, "triggered")).notification_id == "replacement"
+
+
 def test_unreachable_galaxy_costs_one_request_per_pass(spend_source):
     session, tenant, owner, job, resource = spend_source
     settings = Settings()

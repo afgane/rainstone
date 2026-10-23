@@ -109,6 +109,12 @@ This is a full URL because Galaxy routes path-only links inside its own
 client. `RAINSTONE_GUARD_PAGE_URL`, derived from the chart's `basePath`, is
 the fallback for policies created without a browser URL.
 
+The action requests a new tab using Galaxy's optional action-link `target`.
+This requires a Galaxy version that supports that field. Older Galaxy
+versions ignore it and keep opening the link in the current tab; cost
+tracking and Batch control are unaffected. After Galaxy gains support,
+the collector replaces active notices that still use the same-tab target.
+
 The web process holds the dispatch token but not the Galaxy control key.
 Only the collector gets that key, alongside its existing read-only cloud
 observation access. Rainstone never deletes provider resources directly:

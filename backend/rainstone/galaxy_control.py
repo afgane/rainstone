@@ -95,7 +95,7 @@ class GalaxyControl:
         result = self.request("POST", "notifications/broadcast", json={
             "source": source, "category": "broadcast", "variant": "warning",
             "content": {"category": "broadcast", "subject": "Batch spend limit", "message": message,
-                        "action_links": [{"action_name": "Batch spend limit", "link": link}]},
+                        "action_links": [{"action_name": "Batch spend limit", "link": link, "target": "_blank"}]},
         })
         try:
             return result["notification"]["id"]
@@ -121,6 +121,11 @@ def retry_delay(attempts: int) -> int:
 def broadcast_link(item: dict) -> str | None:
     links = (item.get("content") or {}).get("action_links") or []
     return links[0].get("link") if links and isinstance(links[0], dict) else None
+
+
+def broadcast_target(item: dict) -> str | None:
+    links = (item.get("content") or {}).get("action_links") or []
+    return links[0].get("target") if links and isinstance(links[0], dict) else None
 
 
 def reconcile_notifications(session: Session, guard: SpendGuard, snapshot: BatchSpend,
@@ -160,7 +165,10 @@ def reconcile_notifications(session: Session, guard: SpendGuard, snapshot: Batch
             # Recover a successful POST whose response or local commit was lost.
             matching = [item for item in broadcasts if item.get("source") == source]
             if needed:
-                current = [item for item in matching if broadcast_link(item) in {None, link}]
+                # Older Galaxy versions omit target; do not recreate their
+                # notices every cycle when they cannot preserve the option.
+                current = [item for item in matching if broadcast_link(item) in {None, link}
+                           and broadcast_target(item) in {None, "_blank"}]
                 for outdated in (item for item in matching if item not in current[:1]):
                     client.withdraw_broadcast(outdated["id"])
                 if current:
