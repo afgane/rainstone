@@ -710,7 +710,7 @@ export function batchLimitLabel(guard: import("./api").SpendGuard): string {
   if (guard.source_changed) return "Batch limit needs attention";
   if (guard.limit === null) return "Set a Batch spend limit";
   if (guard.triggered_at) return "New Batch jobs paused";
-  return `Batch limit ${formatCost(guard.limit)} · ${formatCost(guard.snapshot.amount)} recorded`;
+  return `${formatCost(guard.snapshot.amount)} recorded · Batch limit ${formatCost(guard.limit)}`;
 }
 
 export function batchLimitProgress(guard: import("./api").SpendGuard): string {

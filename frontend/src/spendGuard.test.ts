@@ -33,7 +33,7 @@ describe("Batch limit presentation", () => {
   });
   it("labels all three masthead states and never turns missing cost into zero", () => {
     expect(batchLimitLabel(GUARD)).toBe("Set a Batch spend limit");
-    expect(batchLimitLabel({ ...GUARD, limit: "5" })).toBe("Batch limit $5.00 · $3.12 recorded");
+    expect(batchLimitLabel({ ...GUARD, limit: "5" })).toBe("$3.12 recorded · Batch limit $5.00");
     expect(batchLimitLabel({ ...GUARD, limit: "5", triggered_at: "now" })).toBe("New Batch jobs paused");
     expect(batchLimitLabel({ ...GUARD, limit: "5", snapshot: { ...GUARD.snapshot, amount: null } })).toContain("Not available");
   });
