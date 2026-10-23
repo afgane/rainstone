@@ -54,6 +54,28 @@ def test_recorded_join_calculation_uses_lifecycle_proxy() -> None:
     assert line.quality == Quality.approximate
 
 
+def test_running_resource_uses_its_observation_without_closing_source_facts() -> None:
+    item = lifetime(CapacityRelationship.dedicated)
+    item.observed_end = None
+    cutoff = START + timedelta(minutes=30)
+    item.facts = {"observed_at": cutoff.isoformat()}
+    open_segment = segment(0, 60)
+    open_segment.observed_end = None
+    line = calculate_lifetime(item, [open_segment], price("2"))[0]
+    assert line.amount == Decimal("1")
+    assert line.quality == Quality.partial
+    assert line.allocations[-1]["end"] == cutoff.isoformat()
+    assert sum(Decimal(phase["amount"]) for phase in line.phases) == line.amount
+    assert item.observed_end is None
+    assert open_segment.observed_end is None
+
+
+def test_running_resource_without_an_observation_never_uses_wall_clock() -> None:
+    item = lifetime(CapacityRelationship.dedicated)
+    item.observed_end = None
+    assert calculate_lifetime(item, [], price())[0].amount is None
+
+
 def test_minimum_billing_is_applied_once_to_the_lifetime() -> None:
     line = calculate_lifetime(lifetime(CapacityRelationship.dedicated, "10"), [], price("0.12"))[0]
     assert line.billed_seconds == Decimal("60")

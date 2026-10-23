@@ -19,9 +19,8 @@ from sqlalchemy.orm import Session
 RUNS_TENANT = "runs-demo"
 
 
-# The demonstration fixtures end at this instant, with some jobs still running on VMs that have not
-# stopped. Work like that is costed up to the time of the calculation, so on any later day the real
-# clock would add days of cost the fixtures never describe, and every dated expectation would drift.
+# Keep calculation timestamps steady for the dated reporting assertions.
+# Running resource costs stop at their recorded observations, not this clock.
 FIXTURE_NOW = datetime(2026, 9, 29, 12, tzinfo=UTC)
 
 

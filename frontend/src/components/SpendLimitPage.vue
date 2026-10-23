@@ -121,9 +121,15 @@ function reload() {
           <h2>{{ guard.limit === null ? 'Set your ceiling' : 'Your spending ceiling' }}</h2>
           <span class="limit-state">{{ guard.source_changed ? 'Needs attention' : guard.limit === null ? 'No limit set' : guard.triggered_at ? 'New Batch jobs paused' : 'Limit active' }}</span>
         </div>
-        <p v-if="guard.triggered_at && !guard.source_changed">
-          Raise the limit or turn it off to resume sending jobs to Batch.
-        </p>
+        <div v-if="guard.triggered_at && !guard.source_changed" class="limit-pause-explanation">
+          <p v-if="guard.trigger?.amount !== null && guard.trigger?.amount !== undefined && guard.trigger?.margin">
+            Batch paused at {{ formatCost(guard.trigger.amount) }} recorded,
+            with {{ formatCost(guard.trigger.margin) }} reserved for observation and shutdown delays.
+          </p>
+          <p v-else>Batch paused before the ceiling to allow for observation and shutdown delays.</p>
+          <p>Recorded spending can settle below the ceiling after jobs stop.
+            Raise the limit or turn it off to resume sending jobs to Batch.</p>
+        </div>
         <div class="limit-amount-row">
           <label for="batch-limit-amount">Total limit <span>(USD)</span></label>
           <div class="limit-currency-input">
@@ -178,8 +184,8 @@ function reload() {
           id="limit-amount-help"
           class="limit-budget-readout"
         >
-          <span>Estimated spent <strong>{{ formatCost(guard.snapshot.amount) }}</strong></span>
-          <span v-if="remaining !== null">Remaining <strong>{{ formatCost(remaining) }}</strong></span>
+          <span>Recorded spend <strong>{{ formatCost(guard.snapshot.amount) }}</strong></span>
+          <span v-if="remaining !== null">{{ guard.triggered_at && !guard.source_changed ? 'Below ceiling' : 'Remaining' }} <strong>{{ formatCost(remaining) }}</strong></span>
         </p>
         <div class="limit-job-choice">
           <input

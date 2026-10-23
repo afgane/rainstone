@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
+from types import SimpleNamespace
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -24,7 +25,7 @@ from rainstone.models import (
 )
 from rainstone.resource_phases import PhaseWindow, phase_windows, summarize_phases
 
-CALCULATION_VERSION = "resource-phases-v1"
+CALCULATION_VERSION = "observed-batch-v1"
 SERVER_CALCULATION_VERSION = "galaxy-server-v1"
 MINIMUM_BILLED_SECONDS = Decimal("60")
 
@@ -173,6 +174,20 @@ def calculate_lifetime(
     """Calculate storage-ready amounts, allocations and phases for both bases."""
     phases = phase_windows(lifetime.observed_start, lifetime.observed_end, attempts,
                            shared_job_count=shared_job_count)
+    cutoff = None
+    if (lifetime.observed_end is None and lifetime.provider == "gcp"
+            and lifetime.capacity_relationship == CapacityRelationship.dedicated):
+        recorded = (lifetime.facts or {}).get("observed_at")
+        cutoff = datetime.fromisoformat(recorded) if recorded else None
+    if cutoff is not None:
+        # Price only observed time without turning a running VM into a stopped
+        # source fact. The guard and stored reports use this same boundary.
+        lifetime = SimpleNamespace(**{column.name: getattr(lifetime, column.name)
+                                      for column in ResourceLifetime.__table__.columns})
+        lifetime.observed_end = cutoff
+        segments = [SimpleNamespace(observed_start=segment.observed_start,
+                                    observed_end=min(segment.observed_end, cutoff)
+                                    if segment.observed_end else cutoff) for segment in segments]
     windows = _windows(lifetime, segments)
     if lifetime.observed_start and lifetime.observed_end and any(
         lower < lifetime.observed_start or upper > lifetime.observed_end for lower, upper in windows
@@ -186,6 +201,10 @@ def calculate_lifetime(
     summary = tuple(summarize_phases(
         phases, windows, lines[0].allocations, priced=lines[0].amount is not None,
     ))
+    if cutoff is not None:
+        lines = [replace(line, quality=Quality.partial,
+                         reason="Recorded through the last VM observation; the resource is still running.")
+                 if line.amount is not None else line for line in lines]
     return [replace(line, phases=summary) for line in lines]
 
 
@@ -430,8 +449,7 @@ def current_generation(session: Session, tenant_id: uuid.UUID) -> int:
 
 
 def utcnow() -> datetime:
-    """When a calculation is stamped. Open-ended work is costed up to this instant, so a test
-    that needs a steady report replaces it."""
+    """When a calculation is stamped; never a substitute for a resource observation."""
     return datetime.now(UTC)
 
 

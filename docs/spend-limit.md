@@ -25,6 +25,12 @@ that Rainstone cannot reconstruct is also excluded; Spending details
 shows the data start, observation time and missing cost data. An unknown
 cost is never presented as zero.
 
+When Batch pauses, the page shows recorded spending and how far it remains
+below the ceiling, rather than implying that amount is still available to
+spend. The pause explanation includes the recorded amount and reserve at
+the time it triggered. Final spending can settle below the ceiling after
+jobs stop; the pause remains until the user raises or disables the limit.
+
 The guard is best effort. Collection and shutdown take time, and final
 spending can exceed the ceiling. This is particularly important when
 existing jobs are allowed to finish: their continued spending has no

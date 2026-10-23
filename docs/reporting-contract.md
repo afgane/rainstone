@@ -473,7 +473,16 @@ missing timing, incomplete pricing, and jobs using only existing capacity.
 a zero denominator has `share: null`. The tool drawer presents this as past
 machine startup and shutdown cost, without recommending different tools.
 
-The calculation version is `resource-phases-v1`. The next collector
+Open Batch VMs have provisional cost lines through each VM's last recorded
+observation, using the same calculation and cutoff as the spend guard.
+Without the VM's own observation, its open lifetime remains unpriced;
+another target's successful collection does not supply that missing time.
+These amounts remain `partial` until the resource closes. Stored allocations
+place the cost in its observed intervals, so charts, jobs, workflow runs and
+exports reconcile with Overview. Reading a report never extends the cutoff
+to the current time or closes the source lifetime.
+
+The calculation version is `observed-batch-v1`. The next collector
 calculation rebuilds existing cost lines from retained observations, even
 when those observations have not changed. No database migration is needed.
 
@@ -620,6 +629,11 @@ flag, current margin, stale-data flag and cancellation progress. Its
 `gaps`. Timestamps are UTC instants or null; rates are USD/hour. The amount
 is the known subtotal when coverage is partial, or null when Batch work
 exists but none can be priced. An empty observed history has amount zero.
+
+For a paused policy, `trigger` holds the recorded `amount` and reserved
+`margin` from its trigger audit, or null if no audit is available. These
+explain the pause even after jobs stop and the current margin shrinks.
+They are separate from the latest recorded spending in `snapshot`.
 
 The snapshot covers only Batch compute attributable to the fixed owner's
 Galaxy jobs in the enrolled deployment. It counts VM lifetimes once across

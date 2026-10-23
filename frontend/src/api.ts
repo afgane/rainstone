@@ -1126,6 +1126,8 @@ export interface SpendGuard {
   limit: string | null;
   stop_jobs: boolean;
   triggered_at: string | null;
+  /** Recorded spend and shutdown reserve at the latched pause, if available. */
+  trigger?: { amount: string | null; margin: string | null } | null;
   source_changed: boolean;
   margin: string;
   snapshot: BatchSpendSnapshot;

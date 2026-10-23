@@ -95,11 +95,21 @@ def status(session: Session, tenant_id: uuid.UUID, owner_id: uuid.UUID, settings
     guard = session.get(SpendGuard, tenant_id)
     same_source = guard is None or guard.enrollment == snapshot.enrollment
     control = session.get(GuardControlStatus, tenant_id)
+    trigger = None
+    if guard and guard.triggered_at:
+        event = session.scalar(select(GuardAudit).where(
+            GuardAudit.tenant_id == tenant_id, GuardAudit.action == "triggered",
+            GuardAudit.occurred_at >= guard.triggered_at,
+        ).order_by(GuardAudit.occurred_at).limit(1))
+        if event:
+            trigger = {"amount": event.details.get("snapshot", {}).get("amount"),
+                       "margin": event.details.get("margin")}
     return {
         "revision": guard.revision if guard else 0,
         "limit": str(guard.amount) if guard and guard.amount is not None else None,
         "stop_jobs": guard.stop_jobs if guard else False,
         "triggered_at": guard.triggered_at if guard else None,
+        "trigger": trigger,
         "source_changed": not same_source,
         "margin": str(margin(snapshot, settings, now)),
         "snapshot": snapshot.payload(now),

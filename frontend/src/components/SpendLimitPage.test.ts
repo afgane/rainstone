@@ -6,6 +6,18 @@ import SpendLimitPage from "./SpendLimitPage.vue";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Batch limit page", () => {
+  it("explains an early pause without calling the unused ceiling spendable", () => {
+    const page = mount(SpendLimitPage, { props: { guard: { ...GUARD, limit: "2",
+      triggered_at: "2026-10-23T15:37:55Z", trigger: { amount: "1.255114888284", margin: "0.802796158334" },
+      snapshot: { ...GUARD.snapshot, amount: "1.236248995708" },
+    }, error: "", timezone: "UTC" } });
+    expect(page.get(".limit-pause-explanation").text()).toContain("Batch paused at $1.26 recorded");
+    expect(page.get(".limit-pause-explanation").text()).toContain("$0.80 reserved");
+    expect(page.get(".limit-budget-readout").text()).toContain("Recorded spend $1.24");
+    expect(page.get(".limit-budget-readout").text()).toContain("Below ceiling $0.76");
+    expect(page.get(".limit-budget-readout").text()).not.toContain("Remaining");
+    page.unmount();
+  });
   it("saves the cumulative ceiling directly with the selected job behavior", async () => {
     const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ...GUARD, revision: 1, limit: "5.00", stop_jobs: true })));
     vi.stubGlobal("fetch", fetch);

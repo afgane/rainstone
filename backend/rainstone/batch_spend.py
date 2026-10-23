@@ -6,7 +6,6 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-from types import SimpleNamespace
 
 from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import Session
@@ -164,15 +163,8 @@ def batch_spend(session: Session, tenant_id: uuid.UUID, owner_id: uuid.UUID) -> 
             running.append(RunningResource(price.hourly_rate, observed))
         else:
             unpriced += 1
-        # A shallow pricing view keeps provisional endpoints out of source facts.
-        view = SimpleNamespace(**{column.name: getattr(resource, column.name)
-                                  for column in ResourceLifetime.__table__.columns})
         segments = segments_of[resource.id]
-        if observed:
-            view.observed_end = observed
-            segments = [SimpleNamespace(observed_start=segment.observed_start,
-                                        observed_end=segment.observed_end or observed) for segment in segments]
-        line = calculate_lifetime(view, segments, prices)[0]
+        line = calculate_lifetime(resource, segments, prices, shared_job_count=len(jobs_of[resource.id]))[0]
         if line.amount is None:
             incomplete |= jobs_of[resource.id]
         else:

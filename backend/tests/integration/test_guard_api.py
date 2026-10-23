@@ -34,6 +34,9 @@ def test_dispatch_state_is_authenticated_and_contains_no_cost_or_identity(guard_
     response = guard_api.put("/api/spend-guard", json={"revision": 0, "limit": str(limit), "stop_jobs": False})
     assert response.status_code == 200, response.text
     assert response.json()["triggered_at"] is not None
+    trigger = response.json()["trigger"]
+    assert Decimal(trigger["amount"]) == Decimal(state["snapshot"]["amount"])
+    assert Decimal(trigger["margin"]) >= Decimal("0.25")
     assert guard_api.get("/api/internal/batch-dispatch", headers=authorization).json() == {"paused": True}
     assert guard_api.put("/api/spend-guard", json={"revision": 0, "limit": None, "stop_jobs": False}).status_code == 409
     assert guard_api.put("/api/spend-guard", json={"revision": 1, "limit": None, "stop_jobs": False}).status_code == 200
