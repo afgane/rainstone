@@ -394,8 +394,8 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* The limit remains reachable when Reporting is collapsed on small screens. */
 .masthead-inner { gap: .8rem; flex-wrap: wrap; }
-.guard-masthead { display: inline-flex; gap: .5rem; align-items: center; min-height: 42px; padding: .45rem .7rem; border: 1px solid #c7d5e1; border-radius: .45rem; color: white; text-decoration: none; }
-.guard-masthead:hover { background: #ffffff1a; }
+.guard-masthead { display: inline-flex; gap: .5rem; align-items: center; min-height: 42px; padding: .45rem .7rem; border: 1px solid #c7d5e1; border-radius: .45rem; color: white; text-decoration: none; background: linear-gradient(to right, #ffffff30 var(--limit-fill, 0%), transparent var(--limit-fill, 0%)); }
+.guard-masthead:hover { border-color: white; }
 .guard-masthead[data-triggered="true"] { border: 2px solid #ffd700; font-weight: 700; }
 .guard-masthead small { display: block; font-size: .8rem; }
 .spend-limit-page { max-width: 760px; }
@@ -442,9 +442,9 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .limit-condition { border-left: 4px solid #a96300; padding-left: .7rem; }
 .limit-stops { margin-top: 1.2rem; border-top: 1px solid #dce4ec; }
 .limit-result { padding: 1rem; border: 1px solid #25537b; border-radius: .45rem; background: white; }
-.limit-progress { margin-top: 1rem; padding-top: .7rem; border-top: 1px solid #c8d4df; }
-.limit-progress p { margin: .25rem 0; }
-.limit-progress a { display: inline-block; padding: .35rem 0; }
+.cost-card-heading { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: .3rem .75rem; }
+.limit-badge { padding: .15rem .45rem; border: 1px solid #b7c6d3; border-radius: 999px; color: #25537b; font-size: .75rem; text-decoration: none; }
+.limit-badge:hover { background: #e2edf6; }
 @media (max-width: 600px) {
   .guard-masthead { order: 3; width: 100%; }
   .spend-limit-page .panel { padding: 1rem; }

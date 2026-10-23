@@ -14,7 +14,8 @@ test("a first-time user gets a scoped answer without typing dates", async ({ pag
   await expect(headline.getByText("Run compute", { exact: true })).toBeVisible();
   await expect(page.getByText(/Your compute cost has two parts/)).toBeVisible();
 
-  for (const period of ["Yesterday", "Last week", "Last month"]) {
+  await expect(page.getByRole("button", { name: "Since running", exact: true })).toHaveAttribute("aria-pressed", "true");
+  for (const period of ["Yesterday", "Last week", "This month"]) {
     await page.getByRole("button", { name: period, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`period=${period.toLowerCase().replace(" ", "-")}`));
     await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
@@ -1069,7 +1070,7 @@ test("the Jobs page answers what the jobs cost, by tool, with every period choic
   });
   await openJobs(page);
   await expect(page.locator(".figure.featured .figure-amount")).toContainText(dollars(summary.amount));
-  for (const period of ["Today", "Yesterday", "This week", "Last week", "This month", "Last month", "Custom dates"]) {
+  for (const period of ["Since running", "Today", "Yesterday", "This week", "Last week", "This month", "Custom dates"]) {
     await expect(page.getByRole("button", { name: period, exact: true })).toBeVisible();
   }
   await expect(page.getByRole("tab", { name: "By tool" })).toHaveAttribute("aria-selected", "true");

@@ -47,8 +47,19 @@ test("set, trigger, raise and turn off a Batch limit with the keyboard", async (
     await expect(page.getByRole("link", { name: /Batch limit \$5.00/ })).toBeVisible();
     await page.getByRole("button", { name: "Overview", exact: true }).focus(); await page.keyboard.press("Enter");
     await expect(page.locator(".figure.featured .figure-amount")).toHaveText(original);
-    await expect(page.locator(".limit-progress")).toContainText("$5.00 Batch limit recorded so far");
-    await page.getByRole("link", { name: "Manage Batch limit" }).focus(); await page.keyboard.press("Enter");
+    const badge = page.getByRole("link", { name: "Batch cap set", exact: true });
+    await expect(badge).toBeVisible();
+    await expect(page.locator(".limit-progress")).toHaveCount(0);
+    const masthead = page.locator(".guard-masthead");
+    expect(await masthead.evaluate(element => parseFloat((element as HTMLElement).style.getPropertyValue("--limit-fill"))))
+      .toBeCloseTo(Number(state.snapshot.amount) / 5 * 100);
+    await page.screenshot({ path: info.outputPath("overview-cap-desktop.png"), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(badge).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: info.outputPath("overview-cap-mobile.png"), fullPage: true });
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await badge.focus(); await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/view=limit/);
     await page.reload();
     await expect(input).toHaveValue("5.00");

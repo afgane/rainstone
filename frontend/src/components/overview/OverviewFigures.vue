@@ -39,7 +39,14 @@ const qualifiers = computed(() => serverQualifiers(launch.value, Boolean(props.s
 <template>
   <div class="cost-cards" :data-server="summary.can_view_infrastructure">
     <section class="figure cost-card featured" aria-labelledby="figure-run">
-      <p id="figure-run" class="eyebrow">{{ RUN_COMPUTE }}</p>
+      <div class="cost-card-heading">
+        <p id="figure-run" class="eyebrow">{{ RUN_COMPUTE }}</p>
+        <a
+          v-if="guard?.limit !== null && guard?.limit !== undefined"
+          class="limit-badge" :href="limitHref" :title="batchLimitProgress(guard)"
+          @click.exact.prevent="emit('limit')"
+        >{{ guard.source_changed ? 'Batch limit needs attention' : guard.triggered_at ? 'Batch paused' : 'Batch cap set' }}</a>
+      </div>
       <p class="figure-amount">{{ amountText }}</p>
       <p class="figure-line">
         {{ periodText }}<template v-if="recordedSoFar"> · recorded so far</template>
@@ -50,12 +57,6 @@ const qualifiers = computed(() => serverQualifiers(launch.value, Boolean(props.s
       <p v-if="summary.unrecorded_job_count" class="figure-line">
         {{ unrecordedNote(summary.unrecorded_job_count) }}
       </p>
-      <div v-if="guard?.limit !== null && guard?.limit !== undefined" class="limit-progress">
-        <p class="eyebrow">Batch spend limit · recorded history</p>
-        <p>{{ batchLimitProgress(guard) }}</p>
-        <p v-if="guard.snapshot.incomplete_jobs">{{ guard.snapshot.incomplete_jobs }} jobs need cost data.</p>
-        <a :href="limitHref" @click.prevent="emit('limit')">Manage Batch limit</a>
-      </div>
     </section>
     <template v-if="summary.can_view_infrastructure">
       <span class="cost-plus" aria-hidden="true">+</span>

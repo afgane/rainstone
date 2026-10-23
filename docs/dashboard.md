@@ -7,6 +7,17 @@ default; advanced reporting stays available but out of the way.
 
 ## Layout
 
+The default period is **Since running**, from the current Galaxy VM launch
+through today. It survives midnight and resets on the next launch. The exact
+recorded launch instant bounds the costs; the sidebar shows its calendar date
+in the reporting timezone. If the launch time is unavailable or the viewer
+cannot see it, the report shows all recorded work and labels that fallback.
+Explicit periods in existing links, including Last month, still work.
+
+The Run compute card shows only a small badge when a Batch cap is set. The
+masthead limit link fills in proportion to recorded Batch spend versus the
+cap. That spend covers recorded history, independently of the report period.
+
 One left sidebar carries navigation and the few controls a normal answer needs:
 period buttons, one search box worded for the current page, and a collapsed
 **More filters** section. There is no filter panel above the results and no cost

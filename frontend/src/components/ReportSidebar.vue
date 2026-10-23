@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { Activity, BarChart3, Search, Server, Users, Wrench, Workflow, X } from "@lucide/vue";
 import { computed, ref } from "vue";
-import { activeFilters, FILTER_LABELS, periodOf, type AdvancedFilter, type ReportState, type View } from "../api";
-import { describePeriod, PERIOD_LABELS, PERIOD_ORDER, type PeriodId } from "../periods";
+import { activeFilters, FILTER_LABELS, reportPeriodDescription, type AdvancedFilter, type ReportState, type View } from "../api";
+import { PERIOD_LABELS, PERIOD_ORDER, type PeriodId } from "../periods";
 import { JOBS_SEARCH_HELP } from "../vocabulary";
 
 const props = defineProps<{
@@ -44,7 +44,6 @@ const secondary = computed(() => [
 ]);
 
 const chips = computed(() => activeFilters(props.state));
-const period = computed(() => periodOf(props.state));
 const searchLabel = computed(() =>
   props.state.view === "runs" ? "Find a workflow run"
     : props.state.view === "tool-runs" ? "Find a job"
@@ -74,7 +73,7 @@ const showControls = computed(() => !["server", "status", "limit"].includes(prop
             :aria-pressed="state.period === id" @click="emit('period', id)"
           >{{ PERIOD_LABELS[id] }}</button>
         </div>
-        <p class="resolved">{{ describePeriod(period, state.timezone) }}</p>
+        <p class="resolved">{{ reportPeriodDescription(state) }}</p>
         <div v-if="state.period === 'custom'" class="custom-dates">
           <label><span>From</span>
             <input :value="state.fromTime" type="date" @change="update('fromTime', $event)"></label>

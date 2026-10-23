@@ -2,10 +2,10 @@
 import { X } from "@lucide/vue";
 import { computed } from "vue";
 import type { CostPiece, CostTimeline, SpendGuard, Summary } from "../api";
-import { offsetBoundary, periodOf, type ReportState } from "../api";
+import { offsetBoundary, periodOf, reportPeriodDescription, type ReportState } from "../api";
 import { periodAxisEnd } from "../chart/axis";
 import type { JobWindow } from "../jobsView";
-import { describePeriod, exclusiveEnd } from "../periods";
+import { exclusiveEnd } from "../periods";
 import OverviewCostChart from "./overview/OverviewCostChart.vue";
 import OverviewFigures from "./overview/OverviewFigures.vue";
 
@@ -29,7 +29,9 @@ const emit = defineEmits<{
 }>();
 
 const period = computed(() => periodOf(props.state));
-const periodFrom = computed(() => offsetBoundary(period.value.fromDate, props.state.timezone));
+const periodFrom = computed(() => props.state.period === "since-running"
+  ? props.state.launchAt || props.timeline.axis?.from || offsetBoundary(period.value.fromDate, props.state.timezone)
+  : offsetBoundary(period.value.fromDate, props.state.timezone));
 const periodTo = computed(() => offsetBoundary(exclusiveEnd(period.value), props.state.timezone));
 const axisEnd = computed(() => periodAxisEnd(period.value, props.state.timezone));
 </script>
@@ -47,7 +49,7 @@ const axisEnd = computed(() => periodAxisEnd(period.value, props.state.timezone)
   </section>
   <OverviewFigures :guard="guard" :limit-href="limitHref" @limit="emit('view', 'limit')"
     :summary="summary"
-    :period-text="describePeriod(period, state.timezone)"
+    :period-text="reportPeriodDescription(state)"
     @server="emit('view', 'server')"
   />
 

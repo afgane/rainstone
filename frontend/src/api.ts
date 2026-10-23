@@ -1,4 +1,4 @@
-import { exclusiveEnd, isTimezone, PERIOD_ORDER, resolvePeriod, type Period, type PeriodId } from "./periods";
+import { describePeriod, exclusiveEnd, isTimezone, PERIOD_LABELS, resolvePeriod, todayIn, type Period, type PeriodId } from "./periods";
 
 export type Basis = "additional" | "allocated";
 /** Views are named for the questions they answer, not for their endpoints. */
@@ -8,6 +8,9 @@ export type View =
 export interface ReportState {
   view: View;
   period: PeriodId;
+  /** Resolved from the server on each load, never trusted from a link. */
+  launchAt?: string | null;
+  historyFrom?: string | null;
   mode: "accrued" | "completed";
   fromTime: string;
   toTime: string;
@@ -713,17 +716,34 @@ export function activeFilters(state: ReportState): Array<{ key: AdvancedFilter; 
 }
 
 export function periodOf(state: ReportState, now = new Date()): Period {
+  const start = state.launchAt || state.historyFrom;
   return resolvePeriod(state.period, state.timezone, {
-    fromDate: state.fromTime, toDate: state.toTime,
+    fromDate: state.period === "since-running" ? (start ? todayIn(state.timezone, new Date(start)) : "") : state.fromTime,
+    toDate: state.toTime,
   }, now);
+}
+
+export function reportPeriodDescription(state: ReportState): string {
+  if (state.period !== "since-running") return describePeriod(periodOf(state), state.timezone);
+  if (state.launchAt === undefined) return "Loading Galaxy launch time…";
+  return state.launchAt
+    ? `Since running · ${describePeriod(periodOf(state), state.timezone)}`
+    : "Launch time unavailable · showing all recorded work";
 }
 
 export function queryString(state: ReportState, now = new Date()): string {
   const query = new URLSearchParams({ mode: state.mode, timezone: state.timezone });
   const period = periodOf(state, now);
-  query.set("from", offsetBoundary(period.fromDate, state.timezone));
-  // Users choose an inclusive last day; the API boundary is exclusive.
-  query.set("to", offsetBoundary(exclusiveEnd(period), state.timezone));
+  if (state.period === "since-running") {
+    if (state.launchAt) {
+      query.set("from", state.launchAt);
+      query.set("to", offsetBoundary(exclusiveEnd(period), state.timezone));
+    }
+  } else {
+    query.set("from", offsetBoundary(period.fromDate, state.timezone));
+    // Users choose an inclusive last day; the API boundary is exclusive.
+    query.set("to", offsetBoundary(exclusiveEnd(period), state.timezone));
+  }
   const filters = {
     search: state.search, owner: state.owner, tool_id: state.toolId,
     tool_version: state.toolVersion, tool_key: state.toolKey, invocation_id: state.invocationId,
@@ -794,8 +814,7 @@ export function stateFromUrl(search: string): ReportState {
   const timezone = params.get("timezone") || "";
   return {
     view: VIEWS.includes(view) ? view : "overview",
-    // Galaxy VMs are usually run a day at a time, so today is the period most readers want.
-    period: PERIOD_ORDER.includes(period) ? period : "today",
+    period: Object.hasOwn(PERIOD_LABELS, period) ? period : "since-running",
     mode: "accrued",
     fromTime: params.get("from") || "",
     toTime: params.get("to") || "",
@@ -1003,8 +1022,15 @@ export function loadJobPage(state: ReportState, signal?: AbortSignal) {
 /** One view, assembled from a single calculation revision. */
 async function loadPinnedReport(state: ReportState, signal?: AbortSignal, ranking = DEFAULT_RANKING) {
   const initialQuery = queryString(state);
-  const summary = await get<Summary>(`/summary?${initialQuery}`, signal);
-  const snapshotState = { ...state, revision: summary.revision_id || state.revision };
+  let summary = await get<Summary>(`/summary?${initialQuery}`, signal);
+  const launchAt = summary.current_launch?.launch_at ?? null;
+  let snapshotState = { ...state, revision: summary.revision_id || state.revision };
+  if (state.period === "since-running" && (state.launchAt ?? null) !== launchAt) {
+    snapshotState = { ...snapshotState, launchAt };
+    // Resolve the exact launch instant before committing any figures or charts.
+    summary = await get<Summary>(`/summary?${queryString(snapshotState)}`, signal);
+  }
+  const historyFrom = summary.observation_window?.from ?? null;
   const query = queryString(snapshotState);
   // Only the Jobs page shows a job list; every other page reads what it shows from its own endpoints.
   const jobs = state.view === "tool-runs"
@@ -1022,7 +1048,7 @@ async function loadPinnedReport(state: ReportState, signal?: AbortSignal, rankin
     : state.view === "status" ? get<Status>("/status", signal)
     : Promise.resolve(null);
   const [loadedJobs, freshness, me, view] = await Promise.all([...common, viewRequest]);
-  return { summary, jobs: loadedJobs, freshness, me, view };
+  return { summary, jobs: loadedJobs, freshness, me, view, launchAt, historyFrom };
 }
 
 async function loadRunsView(state: ReportState, signal?: AbortSignal): Promise<RunsView> {

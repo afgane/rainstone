@@ -1,5 +1,13 @@
 import { ApiError, get, type SpendGuard } from "./api";
 
+export function spendLimitPercent(guard: SpendGuard): number | null {
+  if (guard.limit === null || guard.snapshot.amount === null || guard.source_changed) return null;
+  const limit = Number(guard.limit);
+  const amount = Number(guard.snapshot.amount);
+  if (!Number.isFinite(limit) || !Number.isFinite(amount) || limit <= 0) return null;
+  return Math.min(100, Math.max(0, amount / limit * 100));
+}
+
 /** Compare decimal strings exactly; this preview never replaces server validation. */
 export function triggersImmediately(spend: string | null, margin: string, limit: string): boolean {
   if (spend === null) return false;

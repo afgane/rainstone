@@ -5,7 +5,7 @@ import {
   ADVANCED_FILTERS, ApiError, activeFilters, chartsNeeded, collectionUpdate, DEFAULT_RANKING,
   DEFAULT_RUN_CONTROLS, downloadExport, figuresDiffer, get, loadJobCharts, loadJobPage, loadMoreRuns,
   loadReport, loadRunChart, loadToolRanking, NO_RUN_FILTERS, periodOf, queryString, stateFromUrl,
-  urlQuery, WINDOW_PAGE_SIZE,
+  reportPeriodDescription, urlQuery, WINDOW_PAGE_SIZE,
   type AdvancedFilter, type CostPiece, type CostTimeline, type DailyItem, type DrawerKind, type Freshness,
   type GroupItem, type Infrastructure, type JobCharts, type JobList, type JobsChart, type Me,
   type ReportState, type RunsView, type RunStatus, type SpendGuard, type Status, type Summary, type ToolRanking, type View,
@@ -19,12 +19,12 @@ import RunsPage from "./components/runs/RunsPage.vue";
 import ServerPanel from "./components/ServerPanel.vue";
 import StatusPanel from "./components/StatusPanel.vue";
 import SpendLimitPage from "./components/SpendLimitPage.vue";
-import { readGuard } from "./spendGuard";
+import { readGuard, spendLimitPercent } from "./spendGuard";
 import { parseWindowId, windowId, windowLabel, type JobWindow } from "./jobsView";
 import {
   intervalNoun, intervalTitle, overviewId, overviewParams, parseOverviewId,
 } from "./overviewDetail";
-import { describePeriod, PERIOD_LABELS, periodRange, todayIn, type PeriodId } from "./periods";
+import { PERIOD_LABELS, periodRange, todayIn, type PeriodId } from "./periods";
 import { batchLimitLabel, formatCost, formatDate, formatDateTime, nowInUtc, PRIMARY_MEASURE, RUN_SORTS } from "./vocabulary";
 
 const TITLES: Record<View, string> = {
@@ -42,6 +42,7 @@ const state = reactive<ReportState>(stateFromUrl(location.search));
 const guard = ref<SpendGuard | null>(null);
 const guardError = ref("");
 const guardLabel = computed(() => guard.value ? batchLimitLabel(guard.value) : "");
+const guardPercent = computed(() => guard.value ? spendLimitPercent(guard.value) : null);
 const overviewHref = computed(() => `?${urlQuery({ ...state, view: "overview", offset: 0 })}`);
 const limitHref = computed(() => `?${urlQuery({ ...state, view: "limit" })}`);
 let guardTimer = 0;
@@ -266,6 +267,7 @@ async function refresh(push = false, quiet = false) {
     // The totals, the charts and the list are committed together, so a new
     // total is never shown beside the previous filter's chart.
     summary.value = result.summary; jobs.value = result.jobs;
+    state.launchAt = result.launchAt; state.historyFrom = result.historyFrom;
     freshness.value = result.freshness; me.value = result.me; viewData.value = result.view;
     renderedView.value = state.view;
     firstLoad = false; extended = false; newerFigures.value = false;
@@ -935,6 +937,7 @@ onBeforeUnmount(() => {
       </a>
       <a
         v-if="guard" class="guard-masthead" :href="limitHref"
+        :style="{ '--limit-fill': `${guardPercent ?? 0}%` }"
         :data-triggered="Boolean(guard.triggered_at) && !guard.source_changed"
         :aria-current="state.view === 'limit' ? 'page' : undefined"
         @click.prevent="changeView('limit')"
@@ -1101,7 +1104,7 @@ onBeforeUnmount(() => {
 
 
         <div v-if="!['status', 'server', 'limit'].includes(state.view)" class="snapshot">
-          {{ PRIMARY_MEASURE }} · {{ describePeriod(period, state.timezone) }} ·
+          {{ PRIMARY_MEASURE }} · {{ reportPeriodDescription(state) }} ·
           <span :class="{ stale: collection.stale }">
             {{ collection.lastUpdate
               ? `Last collection update ${formatDateTime(collection.lastUpdate, state.timezone)}`

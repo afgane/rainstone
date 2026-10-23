@@ -13,6 +13,7 @@ export type PeriodId =
   | "last-week"
   | "this-month"
   | "last-month"
+  | "since-running"
   | "custom";
 
 export interface Period {
@@ -32,16 +33,17 @@ export const PERIOD_LABELS: Record<PeriodId, string> = {
   "last-week": "Last week",
   "this-month": "This month",
   "last-month": "Last month",
+  "since-running": "Since running",
   custom: "Custom dates",
 };
 
 export const PERIOD_ORDER: PeriodId[] = [
+  "since-running",
   "today",
   "yesterday",
   "this-week",
   "last-week",
   "this-month",
-  "last-month",
   "custom",
 ];
 
@@ -113,6 +115,8 @@ export function resolvePeriod(
 ): Period {
   const today = todayIn(timezone, now);
   switch (id) {
+    case "since-running":
+      return { id, fromDate: custom?.fromDate || today, toDate: today, open: true };
     case "today":
       return { id, fromDate: today, toDate: today, open: true };
     case "yesterday": {

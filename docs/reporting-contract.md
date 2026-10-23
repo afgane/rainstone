@@ -46,6 +46,13 @@ provisional. A zero-duration interval is an instant: it belongs whole to the
 half-open range that contains it, so known-zero work that lasted no measurable
 time keeps its zero in exactly one period.
 
+The UI's default `since-running` period resolves the authorized current
+Galaxy VM launch from the summary before loading the report. Its `from` is
+that exact instant, with `to` exclusive after today in the report timezone.
+The link stores the period name; refreshing resolves the current launch
+again. If no launch is available, the UI omits both date boundaries and
+explicitly labels the result as all recorded work.
+
 Work whose cost evidence has no usable timing belongs to no period. A report
 without a date range includes it and counts it as temporally unattributed. A
 dated report leaves it out of totals, counts, rankings, workflow listings and

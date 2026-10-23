@@ -48,6 +48,32 @@ describe("loadReport", () => {
     vi.restoreAllMocks();
   });
 
+  it("resolves the current launch before loading matching totals and charts", async () => {
+    const paths: string[] = [];
+    const launchAt = "2026-09-22T14:15:16.123Z";
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      paths.push(url);
+      return new Response(JSON.stringify(url.includes("/summary")
+        ? { ...SUMMARY, current_launch: { launch_at: launchAt } } : EMPTY_LIST));
+    }));
+    const result = await loadReport({ ...state(), period: "since-running" });
+    expect(result.launchAt).toBe(launchAt);
+    const queries = paths.filter(path => path.includes("?")).map(path => new URLSearchParams(path.split("?")[1]));
+    expect(queries[0].has("from")).toBe(false);
+    expect(queries.slice(1).every(query => query.get("from") === launchAt)).toBe(true);
+    expect(queries.slice(1).every(query => query.get("revision") === "rev-1")).toBe(true);
+  });
+
+  it("keeps the exact launch boundary across midnight and omits dates when unknown", () => {
+    const report = { ...state(), period: "since-running" as const, launchAt: "2026-09-22T14:15:16Z" };
+    for (const now of ["2026-09-22T23:59:59Z", "2026-09-23T00:00:01Z"]) {
+      expect(new URLSearchParams(queryString(report, new Date(now))).get("from")).toBe(report.launchAt);
+    }
+    const unknown = new URLSearchParams(queryString({ ...report, launchAt: null }));
+    expect(unknown.has("from")).toBe(false);
+    expect(unknown.has("to")).toBe(false);
+  });
+
   it("asks for the latest revision, then holds it for the rest of the view", async () => {
     const paths: string[] = [];
     vi.stubGlobal("fetch", respond(paths));
@@ -204,7 +230,7 @@ describe("the URL of a runs view", () => {
 
   it("falls back to defaults for values it does not know", () => {
     const restored = stateFromUrl("?view=runs&period=last-90-days&timezone=Not/AZone&outcome=paused&run_sort=color&chart=bars&run_dir=up");
-    expect(restored.period).toBe("today");
+    expect(restored.period).toBe("since-running");
     expect(restored.timezone).toBe("UTC");
     expect(restored.runStatus).toBe("");
     expect(restored.runSort).toBe("started_at");
@@ -214,7 +240,7 @@ describe("the URL of a runs view", () => {
 
   it("restores a first visit from an empty query", () => {
     const restored = stateFromUrl("");
-    expect(restored).toMatchObject({ view: "overview", period: "today", ...NO_RUN_FILTERS, ...DEFAULT_RUN_CONTROLS });
+    expect(restored).toMatchObject({ view: "overview", period: "since-running", ...NO_RUN_FILTERS, ...DEFAULT_RUN_CONTROLS });
   });
 });
 
