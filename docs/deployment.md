@@ -55,9 +55,14 @@ docker buildx build --platform linux/amd64 --target runtime \
 Every commit to `main` whose CI run passes publishes this image automatically
 (`.github/workflows/publish-image.yml`), under the `appVersion` tag and a
 `sha-<commit>` tag. It needs the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`
-secrets on the repository. The version tag is published only when it does not exist; later commits
-still receive their own SHA tag. Bump `appVersion` for a new application
-release. A branch dispatch publishes only its SHA tag for validation.
+secrets on the repository. Each successful main build refreshes the
+`appVersion` tag, even when it already exists, so fresh deployments using
+the chart receive the updated application. The SHA tag identifies the exact
+commit. A branch dispatch publishes only its SHA tag for validation.
+
+Existing deployments use `image.pullPolicy: IfNotPresent` by default and
+may retain a cached image after the version tag changes. To refresh them,
+set `image.pullPolicy: Always` and restart the application pods.
 
 After the image is available, the image workflow calls the chart publisher
 for the same tested commit. Chart versions are immutable: publishing

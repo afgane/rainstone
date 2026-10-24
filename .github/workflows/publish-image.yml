@@ -1,7 +1,7 @@
 name: Publish image
 
-# Main commits publish a SHA image after CI, and publish the application
-# version tag only once. Bump appVersion for a new application release.
+# Main commits publish a SHA image after CI and refresh the chart's
+# application version tag to point to the same image.
 # Manual branch dispatches publish only a SHA image for PR validation.
 # The chart publisher runs afterward for the same tested main commit.
 on:
@@ -54,22 +54,6 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Check whether the version tag is already published
-        id: release
-        if: steps.version.outputs.main_release == 'true'
-        env:
-          APP_VERSION: ${{ steps.version.outputs.app_version }}
-        run: |
-          if docker buildx imagetools inspect "$IMAGE:$APP_VERSION" > /tmp/image.json 2> /tmp/image-error; then
-            echo "Version $APP_VERSION already exists; publishing the SHA image only."
-            echo "publish_tag=false" >> "$GITHUB_OUTPUT"
-          elif grep -Eiq 'not found|manifest unknown' /tmp/image-error; then
-            echo "publish_tag=true" >> "$GITHUB_OUTPUT"
-          else
-            cat /tmp/image-error >&2
-            exit 1
-          fi
-
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -79,7 +63,7 @@ jobs:
           push: true
           tags: |
             ${{ env.IMAGE }}:sha-${{ env.SOURCE_SHA }}
-            ${{ steps.release.outputs.publish_tag == 'true' && format('{0}:{1}', env.IMAGE, steps.version.outputs.app_version) || '' }}
+            ${{ steps.version.outputs.main_release == 'true' && format('{0}:{1}', env.IMAGE, steps.version.outputs.app_version) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
