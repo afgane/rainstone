@@ -24,7 +24,7 @@ describe("RunFigures", () => {
   it("reads the period's total from the server's figures", () => {
     const wrapper = figures();
     expect(wrapper.text()).toContain("$216.74");
-    expect(wrapper.text()).toContain("Estimated run compute cost");
+    expect(wrapper.text()).toContain("Estimated Batch compute cost");
     expect(wrapper.text()).toContain("Compute only · USD");
     expect(wrapper.text()).toContain("147");
     expect(wrapper.text()).toContain("131 completed · 13 failed · 3 running");

@@ -14,7 +14,7 @@ in the reporting timezone. If the launch time is unavailable or the viewer
 cannot see it, the report shows all recorded work and labels that fallback.
 Explicit periods in existing links, including Last month, still work.
 
-The Run compute card shows only a small badge when a Batch cap is set. The
+The Batch compute card shows only a small badge when a Batch cap is set. The
 masthead limit link fills in proportion to recorded Batch spend versus the
 cap. That spend covers recorded history, independently of the report period.
 
@@ -60,8 +60,8 @@ button. A note that work was left out of every period still shows.
 
 | Internal value | What the user reads |
 | --- | --- |
-| `additional` basis | Run compute on Overview, "Estimated run compute cost" elsewhere; the Galaxy server is shown separately |
-| `allocated` basis | Not offered in the UI. It differs from run compute cost only for work on the Galaxy server, where it is unavailable by design; the API still accepts it |
+| `additional` basis | Batch compute on Overview, "Estimated Batch compute cost" elsewhere; the Galaxy server is shown separately |
+| `allocated` basis | Not offered in the UI. It differs from Batch compute cost only for work on the Galaxy server, where it is unavailable by design; the API still accepts it |
 | `current_launch` | Galaxy server: total since launch, $X/hour while running and time since launch on Overview; launch time and cutoff on the Galaxy server page |
 | `known_zero` | $0 extra compute · Used your Galaxy server |
 | `partial` / `unpriced` | Cost incomplete / Price unavailable, each with a reason |
@@ -71,7 +71,7 @@ button. A note that work was left out of every period still shows.
 | `collecting` | Cost data still being collected, for a day after completion |
 | root invocation | Workflow run |
 | `ok` / `error` / scheduling states | Completed, Failed, and a run status derived from the run's executions |
-| `gcp_batch` / `kubernetes` | Additional machines / Your Galaxy server, only where the resource relationship is established |
+| `gcp_batch` / `kubernetes` | Batch / Your Galaxy server, only where the resource relationship is established |
 | full Tool Shed identifier | Tool name and version, with the full identity in details |
 
 Amounts render to two decimals, show "less than $0.01" rather than rounding a
@@ -236,11 +236,11 @@ Live collection delays still show a visible notice, as do incomplete or
 unavailable costs. Unknown server configurations say Not available.
 
 The explanation states that time between jobs counts and server compute is
-additional to run compute. Estimate exclusions and technical provenance are
+additional to Batch compute. Estimate exclusions and technical provenance are
 collapsed below it. The server page hides report period, search and job
 filters without clearing them; returning to a report restores those choices.
 Its footer identifies compute estimates in USD and offers Refresh, without
-report dates or run-compute freshness. On narrow screens, Navigation opens
+report dates or Batch compute freshness. On narrow screens, Navigation opens
 the sidebar. The session axis stays horizontal to support its activity plot.
 Dense activity stays visible as interval peaks: each interval shows the
 highest number of recorded jobs running together within it, with a table
@@ -342,14 +342,30 @@ replaces rather than adds a history entry, and is cleared with a notice if the
 run no longer has it. The drawer scrolls without showing a scrollbar, so its
 content does not shift when one would appear.
 
-**Jobs.** Every job of the whole run, once, grouped by where it ran: Additional
-machines, Your Galaxy server, other verified places, several places, then
+**Jobs.** Every job of the whole run, once, grouped by where it ran: Batch,
+Your Galaxy server, other verified places, several places, then
 Not established. A group's heading carries its cost on the same line, and says
-beneath it what that cost leaves out. Additional machines are explained as
-compute machines separate from the Galaxy server. Each row is one button with
+beneath it what that cost leaves out. Batch jobs are explained as
+running separately from the Galaxy server. Each row is one button with
 the tool, a state icon, the duration (seconds kept) and, where the group states
 one, the cost. The server's jobs are said once to have added no compute charge and carry
 no cost column. Repeated tools stay separate rows.
+
+## Compute naming
+
+Use "Batch" for verified Batch execution environments and "Batch compute"
+for their estimated job compute costs. This replaces the earlier labels
+"Additional machines" and "Run compute". The Galaxy server remains a
+separate cost; its jobs add $0 extra to job totals.
+
+This is a presentation change. Report totals still cover all matching jobs,
+including jobs outside workflows and retries across environments. Unknown
+execution environments remain "Not established" with incomplete costs;
+"Shared cloud capacity" and "Multiple environments" keep their meanings.
+The Batch spend limit covers recorded Batch history, while reports follow
+the selected period and filters. Internal API values such as `additional`
+and `dedicated` are unchanged. A future priced execution environment must
+be named accurately rather than being silently described as Batch.
 
 ## Overview
 
@@ -366,13 +382,13 @@ dismissal still works for the current visit. A permanent How to read this page
 link beside the Overview title reopens the guide. The guide changes no report
 filters or figures, and its open state can be restored from the URL.
 
-**Two cost cards.** Run compute and Galaxy server sit side by side as peers,
+**Two cost cards.** Batch compute and Galaxy server sit side by side as peers,
 the same width and height, with a quiet plus between them. One sentence
-beneath them says the compute cost has two parts: run compute for the machines
+beneath them says the compute cost has two parts: Batch compute for the machines
 started to run jobs, and the Galaxy server, which runs whether or not jobs do.
 The quick guide adds that amounts leave out data storage and data transfer out
-of the cloud (egress). Run compute is every
-matching job in the selected period, workflow and individual tool jobs alike,
+of the cloud (egress). The Batch compute card covers every matching job in
+the selected period, workflow and individual tool jobs alike,
 with "recorded so far" when some cost is missing. "N jobs still in progress"
 counts missing cost that will arrive on its own, and "N jobs whose cost was
 not recorded are not included" counts cost that will not, including jobs with
@@ -386,15 +402,15 @@ or "Launch time unavailable"; a quiet "Stopped", "Stale" or "Snapshot" when it
 applies; and **Server details**, which opens the Galaxy server page. The exact
 launch time, cutoff, pricing and reasons stay on that page. The two amounts
 have different scopes, so no combined total is shown. A viewer who may not see
-the server gets the run compute card alone, with no server facts or sentence.
+the server gets the Batch compute card alone, with no server facts or sentence.
 
-**The chart.** "Run compute over time" is dated like the Workflow runs Over
+**The chart.** "Batch compute over time" is dated like the Workflow runs Over
 time chart: one column per hour (one day), day (up to 92 days) or week, every
 day of the period named with its month, and a week or month still in progress
 drawn whole with its coming days empty. Each column has at most two blocks: one
 for all the workflow runs together, and one dotted block for jobs outside
 workflows. Workflow runs always form the bottom of the stack, with jobs
-outside workflows above them. The columns add up to the run compute card.
+outside workflows above them. The columns add up to the Batch compute card.
 Each block is a button;
 hovering or focusing it says what it holds. Pressing it opens the drawer for
 that block's exact interval and category; the columns themselves do nothing.

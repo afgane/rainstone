@@ -187,7 +187,7 @@ describe("JobDetails cost", () => {
 describe("JobDetails compute", () => {
   it("names the verified environment, machine and purchase model", () => {
     const wrapper = view();
-    expect(wrapper.find(".compute-environment").text()).toBe("Additional machines");
+    expect(wrapper.find(".compute-environment").text()).toBe("Batch");
     expect(wrapper.find(".compute-machine").text()).toBe("n2-standard-8 · On-demand");
   });
 
@@ -228,7 +228,7 @@ describe("JobDetails compute", () => {
   it("keeps the recorded machine, never substituting the server for a missing one", () => {
     const wrapper = view(job({ resources: [resource({ machine_type: null, purchase_model: null })] }));
     expect(wrapper.find(".compute-machine").text()).toBe("Machine type not recorded");
-    expect(wrapper.find(".compute-environment").text()).toBe("Additional machines");
+    expect(wrapper.find(".compute-environment").text()).toBe("Batch");
   });
 
   it("keeps a purchase model it does not know as recorded", () => {

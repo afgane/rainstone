@@ -20,7 +20,7 @@ describe("the jobs of a run, grouped by where they ran", () => {
       runJob("c", "1"), runJob("d", "2"),
     ]);
     expect(headings(wrapper)).toEqual([
-      "Additional machines · 2 jobs", "Your Galaxy server · 1 job", "Not established · 1 job",
+      "Batch · 2 jobs", "Your Galaxy server · 1 job", "Not established · 1 job",
     ]);
   });
 
@@ -39,14 +39,14 @@ describe("the jobs of a run, grouped by where they ran", () => {
     expect(wrapper.findAll(".job-title").map(node => node.text())).toEqual(["first", "second"]);
   });
 
-  it("gives additional machines a cost column and a subtotal", () => {
+  it("gives Batch a cost column and a subtotal", () => {
     const wrapper = list([runJob("a", "0.81"), runJob("b", "0.19")]);
     expect(wrapper.find(".job-list").attributes("data-with-cost")).toBe("true");
     expect(wrapper.findAll(".job-cost").map(node => node.text())).toEqual(["$0.81", "$0.19"]);
     // The figure sits on the heading's line, not on a row of its own.
     expect(wrapper.find(".group-head .group-cost").text()).toContain("$1.00");
     expect(wrapper.find(".group-summary").text())
-      .toContain("These jobs ran on additional compute machines, separate from your Galaxy server.");
+      .toContain("These jobs ran on Batch, separately from your Galaxy server.");
   });
 
   it("says once, and shows no cost column, for the jobs that used the server", () => {

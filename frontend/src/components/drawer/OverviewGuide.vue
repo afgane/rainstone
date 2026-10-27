@@ -5,9 +5,9 @@ defineProps<{ canViewServer: boolean }>();
 <template>
   <ol class="overview-guide">
     <li>
-      <h3>{{ canViewServer ? "Read the two costs" : "Read your run compute cost" }}</h3>
+      <h3>{{ canViewServer ? "Read the two costs" : "Read your Batch compute cost" }}</h3>
       <p>
-        Run compute covers the machines started to run your matching jobs in the selected period, whether
+        Batch compute covers the machines Batch starts to run your matching jobs in the selected period, whether
         the jobs ran in a workflow or on their own.
         <template v-if="canViewServer">Jobs that ran on the Galaxy server itself add nothing here.</template>
       </p>

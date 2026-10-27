@@ -56,7 +56,7 @@ describe("OverviewCostChart", () => {
     const labels = wrapper.findAll(".xaxis .xl span").map(node => node.text());
     expect(labels.length).toBeGreaterThan(0);
     for (const label of labels) expect(label).toMatch(/^Sep \d+$/);
-    expect(wrapper.find("h2").text()).toBe("Run compute over time");
+    expect(wrapper.find("h2").text()).toBe("Batch compute over time");
     expect(wrapper.find(".panel-heading p").text()).toBe("Galaxy server shown separately");
   });
 

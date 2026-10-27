@@ -11,9 +11,9 @@ describe("OverviewGuide", () => {
     }
   });
 
-  it("explains run compute as the machines started for the jobs", () => {
+  it("explains Batch compute as the machines started for the jobs", () => {
     const text = mount(OverviewGuide, { props: { canViewServer: true } }).text();
-    expect(text).toContain("machines started to run your matching jobs");
+    expect(text).toContain("machines Batch starts to run your matching jobs");
     expect(text).toContain("Jobs that ran on the Galaxy server itself add nothing here.");
   });
 });

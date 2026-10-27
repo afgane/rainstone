@@ -11,7 +11,7 @@ test("a first-time user gets a scoped answer without typing dates", async ({ pag
   await page.goto(BASE);
   await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
   const headline = page.locator(".figure.featured");
-  await expect(headline.getByText("Run compute", { exact: true })).toBeVisible();
+  await expect(headline.getByText("Batch compute", { exact: true })).toBeVisible();
   await expect(page.getByText(/Your compute cost has two parts/)).toBeVisible();
 
   await expect(page.getByRole("button", { name: "Since running", exact: true })).toHaveAttribute("aria-pressed", "true");
@@ -750,11 +750,11 @@ async function openOverview(page: Page, extra = "") {
   await expect(page.locator(".chart-panel .blk").first()).toBeVisible();
 }
 
-test("Overview puts run compute and the Galaxy server side by side, never summed", async ({ page, request }) => {
+test("Overview puts Batch compute and the Galaxy server side by side, never summed", async ({ page, request }) => {
   const summary = await api(request, "summary");
   await openOverview(page);
   const [run, server] = await page.locator(".cost-card").all();
-  await expect(run.locator(".eyebrow")).toHaveText("Run compute");
+  await expect(run.locator(".eyebrow")).toHaveText("Batch compute");
   await expect(run.locator(".figure-amount")).toHaveText(dollars(summary.amount));
   await expect(server.locator(".eyebrow")).toHaveText("Galaxy server");
   await expect(page.locator(".cost-relation")).toContainText("Your compute cost has two parts");
@@ -776,7 +776,7 @@ test("Overview puts run compute and the Galaxy server side by side, never summed
 
 test("Overview's cost chart is dated, groups the runs, and has no table beneath it", async ({ page }) => {
   await openOverview(page);
-  await expect(page.getByRole("heading", { name: "Run compute over time" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Batch compute over time" })).toBeVisible();
   const labels = await page.locator(".chart-panel .xaxis .xl span").allInnerTexts();
   expect(labels.length).toBeGreaterThan(3);
   for (const label of labels) expect(label).toMatch(/^[A-Z][a-z]{2} \d+$/);

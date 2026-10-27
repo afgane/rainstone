@@ -77,7 +77,7 @@ const stateLabel = computed(() => {
     </div>
 
     <p class="server-explanation">
-      Your Galaxy server keeps running between jobs. Its cost includes that time and is additional to run compute.
+      Your Galaxy server keeps running between jobs. Its cost includes that time and is additional to Batch compute.
     </p>
     <details class="inline-details server-details">
       <summary>What's included in this estimate?</summary>

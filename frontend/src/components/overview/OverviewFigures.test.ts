@@ -26,11 +26,11 @@ function figures(summary: Partial<Summary> = {}, launch: Partial<CurrentLaunch> 
 }
 
 describe("OverviewFigures", () => {
-  it("puts run compute and the Galaxy server side by side as peers", () => {
+  it("puts Batch compute and the Galaxy server side by side as peers", () => {
     const wrapper = figures();
     const cards = wrapper.findAll(".cost-card");
     expect(cards).toHaveLength(2);
-    expect(cards[0].find(".eyebrow").text()).toBe("Run compute");
+    expect(cards[0].find(".eyebrow").text()).toBe("Batch compute");
     expect(cards[0].find(".figure-amount").text()).toBe("$216.74");
     expect(cards[0].text()).toContain("Sep 1, 2026 – Sep 29, 2026");
     expect(cards[1].find(".eyebrow").text()).toBe("Galaxy server");
@@ -39,7 +39,7 @@ describe("OverviewFigures", () => {
     expect(cards[1].text()).toContain("27 days 4 h since launch");
     // Two separately scoped costs: said to be additional, never summed.
     expect(wrapper.find(".cost-relation").text()).toBe(
-      "Your compute cost has two parts: run compute, for the machines started to run your jobs, and the Galaxy "
+      "Your compute cost has two parts: Batch compute, for the machines Batch starts to run your jobs, and the Galaxy "
       + "server, which runs whether or not jobs do.",
     );
     expect(wrapper.text()).not.toContain("$414");
@@ -111,7 +111,7 @@ describe("OverviewFigures", () => {
     expect(imported.find(".error").exists()).toBe(false);
   });
 
-  it("shows only run compute to a viewer who may not see the server", () => {
+  it("shows only Batch compute to a viewer who may not see the server", () => {
     const wrapper = figures({ can_view_infrastructure: false, current_launch: null });
     expect(wrapper.findAll(".cost-card")).toHaveLength(1);
     expect(wrapper.find(".cost-plus").exists()).toBe(false);

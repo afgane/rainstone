@@ -35,7 +35,7 @@ describe("Galaxy server session", () => {
     expect(wrapper.find(".server-duration strong").text()).toBe("1 h 47 min");
     expect(wrapper.find(".server-metrics").text()).toContain("$0.38/hour while running");
     expect(wrapper.find(".server-configuration").text()).toContain("8 vCPUs · 32 GiB memory");
-    expect(wrapper.find(".server-explanation").text()).toContain("additional to run compute");
+    expect(wrapper.find(".server-explanation").text()).toContain("additional to Batch compute");
     expect(wrapper.findAll("details").every(details => details.attributes("open") === undefined)).toBe(true);
     expect(wrapper.find(".server-facts").text()).toContain("0.38064 USD/hour");
     await wrapper.find(".server-footer button").trigger("click");

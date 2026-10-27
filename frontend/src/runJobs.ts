@@ -21,7 +21,7 @@ export interface JobGroup {
 const FIRST = ["dedicated", "existing"];
 const LAST = ["multiple", "unknown"];
 
-/** Additional machines, then the server, then other verified places, then several, then unknown. */
+/** Batch, then the server, then other verified places, then several, then unknown. */
 function rank(environment: string): number {
   const first = FIRST.indexOf(environment);
   if (first >= 0) return first;

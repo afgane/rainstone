@@ -7,7 +7,7 @@
  * things, they are simply said in ordinary language.
  */
 
-export const PRIMARY_MEASURE = "Estimated run compute cost";
+export const PRIMARY_MEASURE = "Estimated Batch compute cost";
 export const EXISTING_SERVER_SENTENCE =
   "This job used your already-running Galaxy server, so it added no compute charge. The server continues to incur costs.";
 
@@ -97,7 +97,7 @@ export function jobStateLabel(state: string): string {
 
 const CAPACITY: Record<string, string> = {
   existing: "Your Galaxy server",
-  dedicated: "Additional machines",
+  dedicated: "Batch",
   elastic_shared: "Shared cloud capacity",
   unknown: "Not established",
   multiple: "Multiple environments",
@@ -309,13 +309,13 @@ export function groupedChipLabel(workflowName: string): string {
 /* The Overview's cost cards and cost chart. */
 export const WORKLOAD_EYEBROW = "Workload";
 export const NO_JOBS = "No jobs in this period.";
-export const RUN_COMPUTE = "Run compute";
+export const BATCH_COMPUTE = "Batch compute";
 export const SERVER_COMPUTE = "Galaxy server";
 // Two parts of one cost, never a sum: the cards cover different spans of time.
 export const COST_PARTS_SENTENCE =
-  "Your compute cost has two parts: run compute, for the machines started to run your jobs, "
+  "Your compute cost has two parts: Batch compute, for the machines Batch starts to run your jobs, "
   + "and the Galaxy server, which runs whether or not jobs do.";
-export const OVERVIEW_CHART_TITLE = "Run compute over time";
+export const OVERVIEW_CHART_TITLE = "Batch compute over time";
 export const OVERVIEW_CHART_SCOPE = "Galaxy server shown separately";
 export const OVERVIEW_CHART_HINT = "Select a block to see what ran.";
 export const EXPLORE_PERIOD = "Explore this period";
@@ -386,8 +386,8 @@ export const BREAKDOWN_HEADING = "Cost breakdown by tool";
 export const BREAKDOWN_UNAVAILABLE = "Cost breakdown unavailable";
 export const JOBS_HEADING = "Jobs";
 export const NO_RUN_JOBS = "No jobs are recorded for this run yet.";
-export const ADDITIONAL_MACHINES_NOTE =
-  "These jobs ran on additional compute machines, separate from your Galaxy server.";
+export const BATCH_GROUP_NOTE =
+  "These jobs ran on Batch, separately from your Galaxy server.";
 export const SERVER_GROUP_NOTE =
   "These jobs used your Galaxy server and added no compute charge. The server's own cost is reported separately.";
 export const MULTIPLE_ENVIRONMENTS_NOTE = "Some of these jobs ran in more than one place.";

@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import type { SpendGuard, Summary } from "../../api";
 import {
-  batchLimitProgress, COST_PARTS_SENTENCE, formatCost, formatRateInCents, inProgressNote, RUN_COMPUTE, SERVER_COMPUTE,
+  batchLimitProgress, COST_PARTS_SENTENCE, formatCost, formatRateInCents, inProgressNote, BATCH_COMPUTE, SERVER_COMPUTE,
   serverQualifiers, sinceLaunch, unrecordedNote,
 } from "../../vocabulary";
 
@@ -40,7 +40,7 @@ const qualifiers = computed(() => serverQualifiers(launch.value, Boolean(props.s
   <div class="cost-cards" :data-server="summary.can_view_infrastructure">
     <section class="figure cost-card featured" aria-labelledby="figure-run">
       <div class="cost-card-heading">
-        <p id="figure-run" class="eyebrow">{{ RUN_COMPUTE }}</p>
+        <p id="figure-run" class="eyebrow">{{ BATCH_COMPUTE }}</p>
         <a
           v-if="guard?.limit !== null && guard?.limit !== undefined"
           class="limit-badge" :href="limitHref" :title="batchLimitProgress(guard)"
