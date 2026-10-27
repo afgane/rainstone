@@ -13,8 +13,8 @@ describe("Batch limit page", () => {
     }, error: "", timezone: "UTC" } });
     expect(page.get(".limit-pause-explanation").text()).toContain("Batch paused at $1.26 recorded");
     expect(page.get(".limit-pause-explanation").text()).toContain("$0.80 reserved");
-    expect(page.get(".limit-budget-readout").text()).toContain("Recorded spend $1.24");
-    expect(page.get(".limit-budget-readout").text()).toContain("Below ceiling $0.76");
+    expect(page.get(".limit-budget-readout").text()).toContain("Recorded so far$1.24");
+    expect(page.get(".limit-budget-readout").text()).toContain("Below your limit$0.76");
     expect(page.get(".limit-budget-readout").text()).not.toContain("Remaining");
     page.unmount();
   });
@@ -26,17 +26,32 @@ describe("Batch limit page", () => {
     expect(page.text()).toContain("$3.12");
     expect(page.get("details").attributes("open")).toBeUndefined();
     await page.get("#batch-limit-amount").setValue("5.00");
-    expect(page.get(".limit-budget-readout").text()).toContain("Remaining $1.88");
+    expect(page.get(".limit-budget-readout").text()).toContain("Before your limit$1.88");
+    expect(page.get(".limit-save-reminder").text()).toContain("No limit is set until you save");
     expect((page.get("#batch-limit-slider").element as HTMLInputElement).value).toBe("5");
-    await page.get('[role="switch"]').setValue(true);
+    await page.get('#batch-stop-jobs').setValue(true);
     expect(page.get("#limit-job-effect").text()).toContain("Unfinished work is lost");
     await page.get("form").trigger("submit");
     await flushPromises();
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ revision: 0, limit: "5.00", stop_jobs: true });
     expect(page.emitted("saved")?.[0][0]).toMatchObject({ limit: "5.00" });
+    expect(page.find(".limit-save-reminder").exists()).toBe(false);
     expect(page.get('[role="status"]').text()).toContain("saved");
     await page.setProps({ guard: { ...GUARD, limit: "5.00", revision: 1 } });
     expect(page.get('button[type="submit"]').text()).toBe("Update limit");
+    page.unmount();
+  });
+
+  it("distinguishes edits from the saved limit and clears the reminder when reverted", async () => {
+    const page = mount(SpendLimitPage, { props: { guard: { ...GUARD, limit: "5.00" }, error: "", timezone: "UTC" } });
+    expect(page.find(".limit-save-reminder").exists()).toBe(false);
+    await page.get("#batch-limit-amount").setValue("10");
+    expect(page.get(".limit-state").text()).toBe("Unsaved changes");
+    expect(page.get(".limit-save-reminder").text()).toContain("saved $5.00 limit stays in effect");
+    await page.get("#batch-limit-amount").setValue("5");
+    expect(page.find(".limit-save-reminder").exists()).toBe(false);
+    await page.get("#batch-stop-jobs").setValue(true);
+    expect(page.find(".limit-save-reminder").exists()).toBe(true);
     page.unmount();
   });
 

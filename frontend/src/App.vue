@@ -963,6 +963,7 @@ onBeforeUnmount(() => {
         :state="state"
         :can-view-server="Boolean(me?.capabilities.infrastructure)"
         :can-view-users="Boolean(me?.capabilities.users)"
+        :can-set-limit="Boolean(guard) || state.view === 'limit'"
         :advanced-open="advancedOpen"
         @view="changeView"
         @period="changePeriod"

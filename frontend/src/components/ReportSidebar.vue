@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, BarChart3, Search, Server, Users, Wrench, Workflow, X } from "@lucide/vue";
+import { Activity, BarChart3, CircleDollarSign, Search, Server, Users, Wrench, Workflow, X } from "@lucide/vue";
 import { computed, ref } from "vue";
 import { activeFilters, FILTER_LABELS, reportPeriodDescription, type AdvancedFilter, type ReportState, type View } from "../api";
 import { PERIOD_LABELS, PERIOD_ORDER, type PeriodId } from "../periods";
@@ -9,6 +9,7 @@ const props = defineProps<{
   state: ReportState;
   canViewServer: boolean;
   canViewUsers: boolean;
+  canSetLimit?: boolean;
   advancedOpen: boolean;
 }>();
 const emit = defineEmits<{
@@ -37,11 +38,16 @@ const PRIMARY: Array<{ id: View; label: string; icon: unknown }> = [
   { id: "tool-runs", label: "Jobs", icon: Wrench },
 ];
 
-const secondary = computed(() => [
-  ...(props.canViewUsers ? [{ id: "users" as View, label: "Galaxy accounts", icon: Users }] : []),
-  ...(props.canViewServer ? [{ id: "server" as View, label: "Galaxy server", icon: Server }] : []),
-  { id: "status" as View, label: "Status", icon: Activity },
-]);
+const secondaryGroups = computed(() => [
+  [
+    ...(props.canViewServer ? [{ id: "server" as View, label: "Galaxy server", icon: Server }] : []),
+    ...(props.canSetLimit ? [{ id: "limit" as View, label: "Batch spend limit", icon: CircleDollarSign }] : []),
+  ],
+  [
+    ...(props.canViewUsers ? [{ id: "users" as View, label: "Galaxy accounts", icon: Users }] : []),
+    { id: "status" as View, label: "Status", icon: Activity },
+  ],
+].filter(group => group.length));
 
 const chips = computed(() => activeFilters(props.state));
 const searchLabel = computed(() =>
@@ -180,14 +186,16 @@ const showControls = computed(() => !["server", "status", "limit"].includes(prop
       </div>
     </template>
 
-    <div class="nav-group secondary-group">
-      <button
-        v-for="item in secondary" :key="item.id" class="nav-item"
-        :aria-current="state.view === item.id ? 'page' : undefined"
-        @click="emit('view', item.id)"
-      >
-        <component :is="item.icon" :size="18" aria-hidden="true" />{{ item.label }}
-      </button>
+    <div class="secondary-group">
+      <div v-for="group in secondaryGroups" :key="group[0]!.id" class="nav-group">
+        <button
+          v-for="item in group" :key="item.id" class="nav-item"
+          :aria-current="state.view === item.id ? 'page' : undefined"
+          @click="emit('view', item.id)"
+        >
+          <component :is="item.icon" :size="18" aria-hidden="true" />{{ item.label }}
+        </button>
+      </div>
     </div>
   </nav>
 </template>
