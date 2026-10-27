@@ -725,12 +725,3 @@ Verified guard cancellations with reconciled final cost are no longer
 polled as Batch targets: Galaxy has deleted those provider records, so
 their absence is expected. Cleanup with incomplete cost evidence continues
 to be checked; it is not treated as complete accounting.
-
-Galaxy 26.2 aborts a handler poll when a dynamic mapper defers a
-resubmitted job, and it handles resubmissions first, so one deferred
-resubmission stops all dispatch from that handler. Only destinations with
-`resubmit` rules produce resubmissions. The default AnVIL configuration and
-the shared TPV database define none, so the guard does not depend on a fix.
-Before adding resubmission rules to a deployment with the guard, run a
-Galaxy release that catches `JobNotReadyException` around resubmission
-destination recovery; the correction is prepared upstream.
