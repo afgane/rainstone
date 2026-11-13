@@ -77,6 +77,44 @@ package. Only then merge a k8s-boot change that selects the new chart.
 `make build` produces the same image locally as `rainstone:local` for the host's
 own architecture; it is for local checks, not for the cluster.
 
+## CloudNativePG database
+
+Set `database.provider: cnpg` to use an installed CloudNativePG operator
+instead of the bundled standalone PostgreSQL container.
+
+The standalone container sets the database password only when it initializes
+an empty data directory. The chart keeps the password in the
+`rainstone-database` Secret, generating a new one when that Secret is absent.
+If the Kubernetes state is lost while the database volume is kept, for
+example when a VM is replaced and its data disk reattached, the regenerated
+password no longer matches the stored one. Rainstone then waits indefinitely
+for its database. To avoid this with the standalone provider, preserve the
+original password and supply it through `database.passwordSecret` before
+installing, or use the CloudNativePG provider. To recover an affected
+installation, set the `rainstone` role's password to the one in the current
+Secret from inside the database pod; do not delete the data.
+
+The chart creates a separate single-instance `rainstone-postgres` Cluster.
+Its `rainstone-postgres-credentials` Secret contains credentials and a DSN
+targeting `rainstone-postgres-rw`. CNPG reconciles the database role's
+password with that Secret, including after Kubernetes credentials are
+regenerated. Remote superuser access is disabled. The database never shares
+Galaxy's data.
+
+Retained disks also need restoration handling: CNPG must reuse the correct
+volume and skip `initdb` when it already contains a database. k8s-boot
+detects Rainstone's `rainstone-postgres-1` data directory and enables its
+shared skip-initdb plugin only for retained CNPG data. Other installers
+must supply their own restore procedure through `database.cnpg.plugins`.
+A storage class alone does not restore a cluster.
+
+There is no automatic migration from the standalone database. Its old
+`rainstone-postgres` claim and directory are left unused. The first CNPG
+installation starts new reporting history with no spend limit. Available
+Galaxy history is collected again; observations no longer available from
+sources cannot be reconstructed. Subsequent restores preserve the CNPG
+history, source identity and spend-limit state.
+
 ## Discovery
 
 `rainstone discover` reads what the cluster and the host already record and

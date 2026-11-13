@@ -1,0 +1,36 @@
+{{- if not (has .Values.database.provider (list "standalone" "cnpg")) }}
+{{- fail "database.provider must be standalone or cnpg" }}
+{{- end }}
+{{- if and .Values.database.deploy (not .Values.database.existingSecret) (eq .Values.database.provider "cnpg") }}
+{{- if and (not .Values.database.storageClass) (not .Values.database.acknowledgeEphemeralStorage) }}
+{{- fail "database.storageClass must name durable storage for the CNPG database" }}
+{{- end }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "rainstone.fullname" . }}-postgres
+  labels: {{- include "rainstone.labels" . | nindent 4 }}
+  {{- if .Values.database.retainOnDelete }}
+  annotations:
+    helm.sh/resource-policy: keep
+  {{- end }}
+spec:
+  instances: 1
+  imageName: {{ .Values.database.cnpg.image | quote }}
+  enableSuperuserAccess: false
+  bootstrap:
+    initdb:
+      database: {{ .Values.database.name | quote }}
+      owner: {{ .Values.database.user | quote }}
+      secret:
+        name: {{ include "rainstone.databaseSecret" . }}
+  storage:
+    size: {{ .Values.database.size }}
+    {{- with .Values.database.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
+  resources: {{- toYaml .Values.database.resources | nindent 4 }}
+  {{- with .Values.database.cnpg.plugins }}
+  plugins: {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

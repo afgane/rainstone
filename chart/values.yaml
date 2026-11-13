@@ -53,6 +53,9 @@ instance:
 # PostgreSQL deployment. It is a separate database from Galaxy's and never
 # shares Galaxy's PostgreSQL data directory.
 database:
+  # `cnpg` uses an already installed CloudNativePG operator. `standalone`
+  # keeps the bundled PostgreSQL container for installations without one.
+  provider: standalone
   existingSecret: ""            # Secret with key `dsn`
   existingSecretKey: dsn
   deploy: true
@@ -71,6 +74,10 @@ database:
   name: rainstone
   user: rainstone
   passwordSecret: ""            # Secret with key `password`; generated when empty
+  cnpg:
+    image: ghcr.io/cloudnative-pg/postgresql:17.6
+    # Boot supplies a skip-initdb plugin only when reconnecting retained data.
+    plugins: []
 
 # Galaxy source access. The default profile reads Galaxy with a credential that
 # already exists and changes nothing in Galaxy's database: no schema, no

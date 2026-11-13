@@ -1,5 +1,5 @@
 .PHONY: dev dev-down dev-reset test test-unit test-integration e2e build migrate seed benchmark \
-	collect doctor catalog chart-lint test-chart-publish
+	collect doctor catalog chart-lint test-chart-publish test-chart-database
 
 COMPOSE := docker compose
 
@@ -63,3 +63,6 @@ chart-lint:
 
 test-chart-publish:
 	scripts/test_publish_chart.sh
+
+test-chart-database:
+	bash scripts/test_chart_database.sh

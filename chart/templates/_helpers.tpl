@@ -51,7 +51,13 @@ different one.
 {{- end -}}
 
 {{- define "rainstone.databaseSecret" -}}
-{{- default (printf "%s-database" (include "rainstone.fullname" .)) .Values.database.existingSecret -}}
+{{- if .Values.database.existingSecret -}}
+{{- .Values.database.existingSecret -}}
+{{- else if eq .Values.database.provider "cnpg" -}}
+{{- printf "%s-postgres-credentials" (include "rainstone.fullname" .) -}}
+{{- else -}}
+{{- printf "%s-database" (include "rainstone.fullname" .) -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "rainstone.databaseSecretKey" -}}
